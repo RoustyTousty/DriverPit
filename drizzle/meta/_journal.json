@@ -1,0 +1,104 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1784313669200,
+      "tag": "0000_thankful_nextwave",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784317721979,
+      "tag": "0001_flat_gladiator",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784445618673,
+      "tag": "0002_tranquil_vulture",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784449125925,
+      "tag": "0003_furry_iron_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784449442816,
+      "tag": "0004_handy_the_executioner",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784463330360,
+      "tag": "0005_add_profiles_user_stats",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784463359743,
+      "tag": "0006_auth_trigger_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784464617006,
+      "tag": "0007_daily_results_last_result",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784464644430,
+      "tag": "0008_daily_results_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784466541063,
+      "tag": "0009_leaderboard_view",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784468686198,
+      "tag": "0010_drop_legacy_duel_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784468719805,
+      "tag": "0011_duel_realtime_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784469752920,
+      "tag": "0012_matchmaking_rpc",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1784472529468,
+      "tag": "0013_duel_round_lifecycle",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "drivers" ADD COLUMN "last_active_year" integer;

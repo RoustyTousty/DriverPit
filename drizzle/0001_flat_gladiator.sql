@@ -1,0 +1,1 @@
+ALTER TABLE "drivers" ADD COLUMN "date_of_death" date;
