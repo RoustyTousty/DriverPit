@@ -23,13 +23,6 @@ export const drivers = pgTable("drivers", {
   lastActiveYear: integer("last_active_year").notNull(),
 });
 
-export const dailyPuzzles = pgTable("daily_puzzles", {
-  date: date("date").primaryKey(),
-  driverId: integer("driver_id")
-    .notNull()
-    .references(() => drivers.id),
-});
-
 // `id` is `auth.users.id` (Supabase Auth). The FK to auth.users, the
 // signup trigger that inserts this row, and its RLS policies all live in
 // the hand-written drizzle/0006_*.sql migration -- auth.users isn't part

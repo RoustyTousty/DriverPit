@@ -8,9 +8,22 @@ import {
   type DriverSummary,
 } from "@/lib/db/queries";
 import { compare, isWin, type GuessResult } from "@/lib/game/compare";
+import { DAILY_POOL_WINDOW } from "@/lib/game/poolWindow";
 
 function todayUtcDateString(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+// Computed fresh from the live pool, not a precomputed schedule -- same
+// pick every time for a given date (see lib/game/dailySelection.ts), so
+// both calls below independently land on the same target without sharing
+// state.
+async function todaysDailyTargetId(): Promise<number | undefined> {
+  try {
+    return await getDailyDriverId(DAILY_POOL_WINDOW, new Date().getUTCFullYear(), todayUtcDateString());
+  } catch {
+    return undefined;
+  }
 }
 
 export type SubmitDailyGuessResult =
@@ -26,7 +39,7 @@ export async function submitDailyGuess(
   guessedDriverId: number,
 ): Promise<SubmitDailyGuessResult> {
   const today = new Date();
-  const targetId = await getDailyDriverId(todayUtcDateString());
+  const targetId = await todaysDailyTargetId();
 
   if (!targetId) {
     return { ok: false, error: "No puzzle is scheduled for today." };
@@ -66,7 +79,7 @@ export type RevealDailyTargetResult =
 // win — the target stays server-side for the rest of active play.
 export async function revealDailyTarget(): Promise<RevealDailyTargetResult> {
   const today = new Date();
-  const targetId = await getDailyDriverId(todayUtcDateString());
+  const targetId = await todaysDailyTargetId();
   if (!targetId) {
     return { ok: false, error: "No puzzle is scheduled for today." };
   }

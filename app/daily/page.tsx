@@ -1,8 +1,5 @@
-import {
-  getDailyDriverId,
-  getDailyPuzzleNumber,
-  listPoolDriverOptions,
-} from "@/lib/db/queries";
+import { listPoolDriverOptions } from "@/lib/db/queries";
+import { getDailyPuzzleNumber } from "@/lib/game/dailySelection";
 import { DAILY_POOL_WINDOW } from "@/lib/game/poolWindow";
 
 import { DailyGame } from "./DailyGame";
@@ -18,17 +15,14 @@ export default async function DailyPage() {
   const now = new Date();
   const todayUtc = now.toISOString().slice(0, 10);
 
-  const [eligibleDrivers, targetId, puzzleNumber] = await Promise.all([
-    listPoolDriverOptions(DAILY_POOL_WINDOW, now.getUTCFullYear()),
-    getDailyDriverId(todayUtc),
-    getDailyPuzzleNumber(todayUtc),
-  ]);
+  const eligibleDrivers = await listPoolDriverOptions(DAILY_POOL_WINDOW, now.getUTCFullYear());
+  const puzzleNumber = getDailyPuzzleNumber(todayUtc);
 
   return (
     <DailyGame
       eligibleDrivers={eligibleDrivers}
       puzzleNumber={puzzleNumber}
-      hasPuzzleToday={targetId !== undefined}
+      hasPuzzleToday={eligibleDrivers.length > 0}
     />
   );
 }

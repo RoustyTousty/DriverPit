@@ -218,7 +218,6 @@ Attribute definitions: age = current age (age at death if deceased); team = most
 Existing:
 ```
 drivers(id, full_name, driver_code, nationality, date_of_birth, date_of_death, debut_year, career_wins, last_team, previous_teams text[], last_active_year)
-daily_puzzles(date PK, driver_id FK)          -- precomputed a year ahead
 ```
 
 Accounts (new):

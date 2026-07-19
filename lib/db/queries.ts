@@ -1,9 +1,10 @@
-import { desc, eq, gte, lte, sql } from "drizzle-orm";
+import { eq, gte, sql } from "drizzle-orm";
 
 import { calculateAge, type Driver as GameDriver } from "../game/compare";
+import { pickDailyDriverId } from "../game/dailySelection";
 import { poolCutoffYear, type PoolWindow } from "../game/poolWindow";
 import { db } from "./index";
-import { dailyPuzzles, drivers } from "./schema";
+import { drivers } from "./schema";
 
 export type DriverRow = typeof drivers.$inferSelect;
 
@@ -125,35 +126,14 @@ export function toDriverSummary(row: DriverRow, today: Date): DriverSummary {
   };
 }
 
+// Computed fresh from the *current* pool on every call, not read from a
+// precomputed schedule -- see lib/game/dailySelection.ts for why.
 export async function getDailyDriverId(
+  window: PoolWindow,
+  referenceYear: number,
   date: string,
-): Promise<number | undefined> {
-  const [row] = await db
-    .select({ driverId: dailyPuzzles.driverId })
-    .from(dailyPuzzles)
-    .where(eq(dailyPuzzles.date, date))
-    .limit(1);
-  return row?.driverId;
-}
-
-// Daily puzzles are precomputed with no gaps, so the count of scheduled rows
-// up to and including `date` is exactly that date's puzzle number.
-export async function getDailyPuzzleNumber(date: string): Promise<number> {
-  const [row] = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(dailyPuzzles)
-    .where(lte(dailyPuzzles.date, date));
-  return Number(row?.count ?? 0);
-}
-
-export async function getLatestScheduledDailyDate(): Promise<
-  string | undefined
-> {
-  const [row] = await db
-    .select({ date: dailyPuzzles.date })
-    .from(dailyPuzzles)
-    .orderBy(desc(dailyPuzzles.date))
-    .limit(1);
-  return row?.date;
+): Promise<number> {
+  const pool = await listPoolDriverIds(window, referenceYear);
+  return pickDailyDriverId(date, pool);
 }
 
