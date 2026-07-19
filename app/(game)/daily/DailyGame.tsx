@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { DriverAutocomplete, type DriverOption } from "@/components/game/DriverAutocomplete";
 import { GuessGrid, type Guess } from "@/components/game/GuessGrid";
+import { useToast } from "@/components/ui/Toast";
 import type { DriverSummary } from "@/lib/db/queries";
 import { MAX_GUESSES } from "@/lib/game/constants";
 import { buildShareText } from "@/lib/game/emojiGrid";
@@ -94,12 +95,12 @@ export function DailyGame({
   const router = useRouter();
   const { refresh } = useAuth();
   const { showFlags } = useSettings();
+  const toast = useToast();
   const todayKeyRef = useRef(todayUtcKey());
 
   const [status, setStatus] = useState<RoundStatus>("loading");
   const [guesses, setGuesses] = useState<Guess[]>([]);
   const [target, setTarget] = useState<DriverSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [shareState, setShareState] = useState<"idle" | "sharing" | "shared" | "copied">("idle");
   const [isPending, startTransition] = useTransition();
   const [countdown, setCountdown] = useState("");
@@ -118,7 +119,6 @@ export function DailyGame({
       setStatus("playing");
       setTarget(null);
     }
-    setError(null);
     setShareState("idle");
   }, []);
 
@@ -146,11 +146,10 @@ export function DailyGame({
   }, [isRoundOver, router, loadState]);
 
   function handleSelect(driver: DriverOption) {
-    setError(null);
     startTransition(async () => {
       const response = await submitDailyGuess(driver.id);
       if (!response.ok) {
-        setError(response.error);
+        toast.error(response.error);
         return;
       }
 
@@ -178,7 +177,7 @@ export function DailyGame({
         const revealedTarget = reveal.ok ? reveal.target : undefined;
         setStatus("lost");
         setTarget(revealedTarget ?? null);
-        if (!reveal.ok) setError(reveal.error);
+        if (!reveal.ok) toast.error(reveal.error);
         await recordDailyResult(false, newGuesses.length);
         await refresh();
         writePersisted(todayKeyRef.current, {
@@ -245,7 +244,7 @@ export function DailyGame({
         return;
       }
       console.error("Share failed", err);
-      setError("Couldn't share right now. Try again.");
+      toast.error("Couldn't share right now. Try again.");
       setShareState("idle");
     }
   }
@@ -276,12 +275,6 @@ export function DailyGame({
           {!isRoundOver && (
             <p className="text-center text-sm text-text-muted">
               {guessesLeft} guess{guessesLeft === 1 ? "" : "es"} left
-            </p>
-          )}
-
-          {error && (
-            <p role="alert" className="text-center text-sm text-red-400">
-              {error}
             </p>
           )}
 

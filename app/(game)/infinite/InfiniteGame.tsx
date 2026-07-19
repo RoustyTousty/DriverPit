@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { DriverAutocomplete, type DriverOption } from "@/components/game/DriverAutocomplete";
 import { GuessGrid, type Guess } from "@/components/game/GuessGrid";
 import { PoolSelect, type PoolSelectOption } from "@/components/game/PoolSelect";
+import { useToast } from "@/components/ui/Toast";
 import type { DriverSummary, DriverWithActivity } from "@/lib/db/queries";
 import { MAX_GUESSES } from "@/lib/game/constants";
 import { POOL_WINDOWS, poolCutoffYear, type PoolWindow } from "@/lib/game/poolWindow";
@@ -17,10 +18,10 @@ type RoundStatus = "loading" | "playing" | "won" | "lost";
 
 export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] }) {
   const { showFlags } = useSettings();
+  const toast = useToast();
   const [status, setStatus] = useState<RoundStatus>("loading");
   const [guesses, setGuesses] = useState<Guess[]>([]);
   const [target, setTarget] = useState<DriverSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   // Lazy initializer: reads localStorage on the client only, defaults to
   // the same window as Daily on the server / first paint.
@@ -45,7 +46,6 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
     setStatus("loading");
     setGuesses([]);
     setTarget(null);
-    setError(null);
     startTransition(async () => {
       await startInfiniteRound(window);
       setStatus("playing");
@@ -66,11 +66,10 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
   }
 
   function handleSelect(driver: DriverOption) {
-    setError(null);
     startTransition(async () => {
       const response = await submitGuess(driver.id);
       if (!response.ok) {
-        setError(response.error);
+        toast.error(response.error);
         return;
       }
 
@@ -125,12 +124,6 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
           {!isRoundOver && (
             <p className="text-center text-sm text-text-muted">
               {guessesLeft} guess{guessesLeft === 1 ? "" : "es"} left
-            </p>
-          )}
-
-          {error && (
-            <p role="alert" className="text-center text-sm text-red-400">
-              {error}
             </p>
           )}
 

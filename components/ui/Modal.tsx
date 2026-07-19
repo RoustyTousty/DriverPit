@@ -8,6 +8,25 @@ const FOCUSABLE_SELECTOR =
 
 const TRANSITION_MS = 200;
 
+// Module-level reference count, not a per-instance snapshot/restore of
+// body.style.overflow -- two Modals can be mounted at once for a moment
+// (e.g. Leaderboard's "sign in" hands off to Settings before Leaderboard's
+// own close animation finishes), and each one naively restoring whatever
+// overflow value *it* captured on mount stomps on the other's lock. A
+// shared counter means scroll only actually unlocks once the last modal
+// standing closes, regardless of open/close order.
+let scrollLockCount = 0;
+
+function lockScroll() {
+  scrollLockCount += 1;
+  if (scrollLockCount === 1) document.body.style.overflow = "hidden";
+}
+
+function unlockScroll() {
+  scrollLockCount = Math.max(0, scrollLockCount - 1);
+  if (scrollLockCount === 0) document.body.style.overflow = "";
+}
+
 type Phase = "closed" | "entering" | "open" | "closing";
 
 interface ModalProps {
@@ -45,11 +64,8 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
   // Scroll lock while mounted (covers the closing animation too).
   useEffect(() => {
     if (!isRendered) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
+    lockScroll();
+    return unlockScroll;
   }, [isRendered]);
 
   // Focus trap: move focus in on mount, cycle Tab within the panel, restore
@@ -95,7 +111,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
 
   return createPortal(
     <div
-      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 transition-opacity duration-200 motion-reduce:transition-none ${
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity duration-200 motion-reduce:transition-none ${
         isVisible ? "opacity-100" : "opacity-0"
       }`}
       onMouseDown={(event) => {

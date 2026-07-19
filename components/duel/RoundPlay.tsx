@@ -25,7 +25,6 @@ export function RoundPlay({
   onGuess,
   disabled,
   mySolved,
-  error,
 }: {
   roundIndex: number;
   remainingMs: number;
@@ -38,7 +37,6 @@ export function RoundPlay({
   onGuess: (driver: DriverOption) => void;
   disabled: boolean;
   mySolved: boolean;
-  error: string | null;
 }) {
   const { showFlags } = useSettings();
   const timeUp = remainingMs <= 0;
@@ -73,12 +71,6 @@ export function RoundPlay({
         disabled={disabled || mySolved || timeUp}
         placeholder={mySolved ? "Solved — waiting on your opponent…" : "Guess a driver…"}
       />
-
-      {error && (
-        <p role="alert" className="text-center text-sm text-red-400">
-          {error}
-        </p>
-      )}
 
       {mySolved && (
         <p className="text-center text-sm text-accent">Nice — waiting for the round to finish.</p>

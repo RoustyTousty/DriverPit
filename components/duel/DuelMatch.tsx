@@ -5,6 +5,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 
 import type { Profile } from "@/components/auth/AuthProvider";
 import type { DriverOption } from "@/components/game/DriverAutocomplete";
+import { useToast } from "@/components/ui/Toast";
 import {
   getDuelRoundState,
   requestRematch,
@@ -61,6 +62,7 @@ export function DuelMatch({
   onFindNewOpponent: () => void;
 }) {
   const { setActive } = useActiveMatch();
+  const toast = useToast();
 
   const [activeMatch, setActiveMatch] = useState(match);
   const [phase, setPhase] = useState<Phase>("loading");
@@ -74,7 +76,12 @@ export function DuelMatch({
   const [opponentProgress, setOpponentProgress] = useState(EMPTY_OPPONENT_PROGRESS);
   const [mySolved, setMySolved] = useState(false);
   const [pendingGuess, setPendingGuess] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Only for the "match failed to load" case -- there's genuinely nothing
+  // else to render then. Guess/rematch failures go to the toast system
+  // instead (see handleGuess/handleRematch) so they don't hijack this
+  // screen out from under whatever's already showing (e.g. the finished-
+  // match summary).
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [rematchState, setRematchState] = useState<RematchState>("idle");
 
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -128,7 +135,6 @@ export function DuelMatch({
     setMyGuesses([]);
     setMySolved(false);
     setOpponentProgress(EMPTY_OPPONENT_PROGRESS);
-    setError(null);
   }
 
   function broadcast(event: string, payload: unknown) {
@@ -165,7 +171,6 @@ export function DuelMatch({
     setCompletedRounds([]);
     setOpponentProgress(EMPTY_OPPONENT_PROGRESS);
     setMySolved(false);
-    setError(null);
     setRematchState("idle");
     roundIndexRef.current = -1;
     setActiveMatch((prev) => ({ ...prev, matchId: newMatchId }));
@@ -214,7 +219,7 @@ export function DuelMatch({
       const t1 = Date.now();
       if (cancelled) return;
       if (!state.ok) {
-        setError(state.error);
+        setLoadError(state.error);
         return;
       }
 
@@ -270,13 +275,12 @@ export function DuelMatch({
   }, [phase, activeMatch.matchId]);
 
   async function handleGuess(driver: DriverOption) {
-    setError(null);
     setPendingGuess(true);
     const res = await submitDuelGuess(activeMatch.matchId, driver.id);
     setPendingGuess(false);
 
     if (!res.ok) {
-      setError(res.error);
+      toast.error(res.error);
       return;
     }
 
@@ -307,7 +311,7 @@ export function DuelMatch({
     setRematchState("requested");
     const res = await requestRematch(activeMatch.matchId);
     if (!res.ok) {
-      setError(res.error);
+      toast.error(res.error);
       setRematchState("idle");
       return;
     }
@@ -318,12 +322,12 @@ export function DuelMatch({
     // else: requested, waiting on the REMATCH_READY_EVENT listener above.
   }
 
-  if (phase === "loading") {
-    return <p className="py-10 text-center text-sm text-text-muted">Loading match…</p>;
+  if (loadError) {
+    return <p className="py-10 text-center text-sm text-red-400">{loadError}</p>;
   }
 
-  if (error && phase !== "playing") {
-    return <p className="py-10 text-center text-sm text-red-400">{error}</p>;
+  if (phase === "loading") {
+    return <p className="py-10 text-center text-sm text-text-muted">Loading match…</p>;
   }
 
   if (phase === "finished") {
@@ -404,7 +408,6 @@ export function DuelMatch({
       onGuess={(driver) => void handleGuess(driver)}
       disabled={pendingGuess}
       mySolved={mySolved}
-      error={error}
     />
   );
 }

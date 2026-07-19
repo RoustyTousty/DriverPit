@@ -10,7 +10,7 @@
 // hardcodes the same two durations when it stamps round 0 at match
 // creation time.
 export const REVEAL_MS = 5_000;
-export const ROUND_MS = 45_000;
+export const ROUND_MS = 60_000;
 export const ROUND_TRANSITION_MS = 3_000;
 export const MAX_ROUNDS = 3;
 

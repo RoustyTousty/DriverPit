@@ -120,6 +120,13 @@
       "when": 1784493668790,
       "tag": "0016_cheerful_wendigo",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784502989325,
+      "tag": "0017_duel_round_60s",
+      "breakpoints": true
     }
   ]
 }

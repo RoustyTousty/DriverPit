@@ -38,7 +38,7 @@ function Row({
       }`}
     >
       <span className="w-5 shrink-0 text-right font-mono text-xs tabular-nums text-text-muted">{rank}</span>
-      <AvatarGlyph username={username} avatarUrl={avatarUrl} size="sm" />
+      <AvatarGlyph avatarUrl={avatarUrl} size="sm" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold text-text">{displayName || username}</p>
         {isYou && <p className="text-[10px] tracking-wide text-accent uppercase">You</p>}

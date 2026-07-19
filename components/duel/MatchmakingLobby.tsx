@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/components/auth/AuthProvider";
 import type { DriverOption } from "@/components/game/DriverAutocomplete";
+import { AvatarGlyph } from "@/components/ui/AvatarGlyph";
+import { useToast } from "@/components/ui/Toast";
 import {
   LOBBY_CHANNEL,
   MATCHED_EVENT,
@@ -18,6 +20,22 @@ import { DuelMatch } from "./DuelMatch";
 
 const POLL_INTERVAL_MS = 4_000;
 
+// Dashed-outline stand-in for the opponent slot while none is matched yet --
+// same size/shape as AvatarGlyph so it drops into the identical "me VS
+// them" layout MatchFoundReveal uses once a real opponent avatar lands,
+// making the transition from searching to matched feel continuous instead
+// of swapping to a different screen.
+function EmptyAvatarSlot() {
+  return (
+    <div
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-border"
+      aria-hidden="true"
+    >
+      <span className="h-2 w-2 animate-pulse rounded-full bg-text-muted motion-reduce:animate-none" />
+    </div>
+  );
+}
+
 export function MatchmakingLobby({
   eligibleDrivers,
   onCancel,
@@ -26,9 +44,9 @@ export function MatchmakingLobby({
   onCancel: () => void;
 }) {
   const { user, profile } = useAuth();
+  const toast = useToast();
   const [onlineCount, setOnlineCount] = useState(1);
   const [match, setMatch] = useState<MatchResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
   // Mirrors `match` synchronously so the poll/broadcast callbacks below
   // (captured once per effect run) can tell "already matched" apart from
   // stale state without re-subscribing the channel on every match update.
@@ -104,7 +122,7 @@ export function MatchmakingLobby({
       } catch (err) {
         pendingRef.current = false;
         console.error("matchOrQueue failed", err);
-        setError("Something went wrong finding a match. Try again.");
+        toast.error("Something went wrong finding a match. Try again.");
       }
     }
 
@@ -144,16 +162,33 @@ export function MatchmakingLobby({
   }
 
   return (
-    <div className="flex flex-col items-center gap-4 px-4 py-10 text-center">
-      <div
-        className="h-10 w-10 animate-spin rounded-full border-2 border-border border-t-accent motion-reduce:animate-none"
-        aria-hidden="true"
-      />
-      <div>
-        <p className="text-sm font-semibold text-text">Searching for an opponent…</p>
+    <div className="flex flex-col items-center gap-6 px-4 py-10 text-center">
+      <p className="text-xs font-semibold tracking-wide text-accent uppercase">Finding an opponent</p>
+
+      <div className="flex w-full items-center justify-center gap-4">
+        <div className="flex flex-1 flex-col items-center gap-2">
+          {profile && <AvatarGlyph avatarUrl={profile.avatarUrl} size="md" />}
+          <p className="max-w-full truncate text-sm font-semibold text-text">
+            {profile ? profile.displayName || profile.username : "You"}
+          </p>
+        </div>
+
+        <span className="text-lg font-bold text-text-muted">VS</span>
+
+        <div className="flex flex-1 flex-col items-center gap-2">
+          <EmptyAvatarSlot />
+          <p className="max-w-full truncate text-sm text-text-muted">Waiting…</p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <div
+          className="h-4 w-4 animate-spin rounded-full border-2 border-border border-t-accent motion-reduce:animate-none"
+          aria-hidden="true"
+        />
         <p className="text-xs text-text-muted">{onlineCount} online</p>
       </div>
-      {error && <p className="text-xs text-red-400">{error}</p>}
+
       <button
         type="button"
         onClick={handleCancel}

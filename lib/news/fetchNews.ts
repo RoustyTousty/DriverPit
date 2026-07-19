@@ -5,6 +5,7 @@ export interface NewsItem {
   link: string;
   source: string;
   publishedAt: string; // ISO 8601
+  imageUrl: string | null;
 }
 
 interface FeedConfig {
@@ -12,7 +13,16 @@ interface FeedConfig {
   source: string;
 }
 
-const FEEDS: FeedConfig[] = [{ url: "https://www.motorsport.com/rss/f1/news/", source: "Motorsport.com" }];
+// formula1.com's official feed was evaluated too, but its <item>s carry no
+// pubDate/dc:date at all -- parseRssItems (rightly) drops undated items, so
+// it would never contribute anything. Autosport is the same Motorsport
+// Network publisher/format as motorsport.com (dated items, enclosure
+// images), so it's a genuinely independent second byline without any
+// parser special-casing.
+const FEEDS: FeedConfig[] = [
+  { url: "https://www.motorsport.com/rss/f1/news/", source: "Motorsport.com" },
+  { url: "https://www.autosport.com/rss/f1/news/", source: "Autosport" },
+];
 
 const REVALIDATE_SECONDS = 60 * 60;
 const REQUEST_TIMEOUT_MS = 5000;
@@ -43,7 +53,7 @@ async function fetchFeed(feed: FeedConfig): Promise<NewsItem[]> {
 // Server-only: called from the News server component, never from the
 // client. Each feed fails independently so one dead source doesn't blank
 // out the others.
-export async function getLatestNews(limit = 6): Promise<NewsItem[]> {
+export async function getLatestNews(limit = 5): Promise<NewsItem[]> {
   const results = await Promise.all(FEEDS.map(fetchFeed));
 
   return results

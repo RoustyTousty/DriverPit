@@ -61,27 +61,34 @@ Daily results write to `user_stats` via `recordDailyResult` (`lib/stats/actions.
 
 ## Site architecture
 
-The whole thing is **one page** — a persistent shell wrapping a swappable game window:
+Two site sections share one root layout but have different chrome, split via App Router route groups:
 
-```
-+-----------------------------------------+
-|  TOP BAR   logo ....... [settings] [cup] |  <- persistent
-+-----------------------------------------+
-|        [ Daily | Infinite | Duel ]       |  <- mode tabs, persistent
-|  +-----------------------------------+   |
-|  |           GAME WINDOW             |   |  <- the only part that changes
-|  |      (swaps by selected mode)     |   |
-|  +-----------------------------------+   |
-|         [   AD BANNER SLOT   ]           |  <- persistent, fixed height
-+-----------------------------------------+
-|  --------------  divider  ------------   |
-|  How to play / FAQ / About / News (RSS)  |  <- persistent marketing content
-+-----------------------------------------+
-|  FOOTER                                  |  <- persistent
-+-----------------------------------------+
-```
+- **`app/(game)/`** — `/`, `/daily`, `/infinite`, `/duel`. The persistent game shell:
 
-App Router: a shared `layout.tsx` holds top bar, mode tabs, ad slot, marketing sections, footer. Routes `/daily`, `/infinite`, `/duel` render only their game window into `{children}`. Layouts persist across route changes, so switching modes swaps just the game window. `/` redirects to `/daily`. Mode tabs are `next/link`s highlighting the active route.
+  ```
+  +-----------------------------------------+
+  |  TOP BAR   logo ....... [settings] [cup] |  <- persistent
+  +-----------------------------------------+
+  |        [ Daily | Infinite | Duel ]       |  <- mode tabs, persistent
+  |  +-----------------------------------+   |
+  |  |           GAME WINDOW             |   |  <- the only part that changes
+  |  |      (swaps by selected mode)     |   |
+  |  +-----------------------------------+   |
+  |         [   AD BANNER SLOT   ]           |  <- persistent, fixed height
+  +-----------------------------------------+
+  |  --------------  divider  ------------   |
+  |   How to play / Game modes / FAQ / About  |  <- compact teasers, each with a
+  |          teasers / News (RSS)             |     "See more →" link out to (info)
+  +-----------------------------------------+
+  |  FOOTER                                  |
+  +-----------------------------------------+
+  ```
+
+  `app/(game)/layout.tsx` holds the top bar, mode tabs, ad slot, marketing teasers, footer. `/daily`, `/infinite`, `/duel` render only their game window into `{children}`. Layouts persist across route changes, so switching modes swaps just the game window. `/` redirects to `/daily`. Mode tabs are `next/link`s highlighting the active route.
+
+- **`app/(info)/`** — `/about`, `/faq`, `/game-modes`, `/how-to-play`. Standalone full-detail pages, same footer, but `InfoTopBar` instead of `TopBar`/mode tabs: logo, nav links to the other info pages, and a "Play now" CTA back into the game shell. No ad slot, no marketing teasers here — these pages *are* the detail the home teasers link out to. Each teaser component (e.g. `FaqTeaser`) and its full counterpart (`Faq`) are separate components sharing content style but not JSX, so the home page can stay short without truncating the real page.
+
+`(game)` and `(info)` are route groups — the parens are stripped from the URL, so paths stay flat (`/faq`, not `/info/faq`).
 
 `/duel` is a **landing** that offers a match type: **Duel** (live now) and **Knockout** (rendered but disabled / "coming soon" until built). Selecting Duel enters matchmaking.
 
@@ -153,7 +160,7 @@ Replaces the legacy room-code duel. A fast 1v1 where two matchmade players race 
 
 1. **Matchmaking.** Player enters the queue. A Postgres RPC pairs them atomically: `SELECT ... FOR UPDATE SKIP LOCKED` finds a waiting opponent (create match, mark both matched) or enqueues the player. No background worker — pairing happens on join. Match roughly by duel rating when possible; widen the rating window the longer someone waits; fall back to anyone after a timeout.
 2. **Lobby.** While queued, a Realtime **Presence** channel shows a searching state and an online-players count. On match, reveal both players' avatars + handles (guests: preset avatar + `userXXXXXX`) with a short "lights out" style countdown into round 1. This is where the F1-race theming lives — make the match-found moment feel like a grid start.
-3. **Rounds (x3).** Each round targets one 10-year-pool driver. A **synchronized countdown** (~45s, tunable) runs per round.
+3. **Rounds (x3).** Each round targets one 10-year-pool driver. A **synchronized countdown** (~60s, tunable) runs per round.
    - **Guessing:** unlimited guesses within the timer, each returning the normal 5-attribute comparison feedback (reuse `compare()`). This is guess-driven, not global-hint-driven (that's Knockout).
    - **Success:** points on a sliding scale by *speed* — solving at 5s is worth far more than at 40s. Pure fn `speedPoints(msToSolve, roundMs)`.
    - **DNF (timer expires unsolved):** minor **proximity points** from the player's *best* incorrect guess, derived from its `compare()` result (matched nationality / historical team / era closeness). Pure fn `proximityPoints(bestResult)`.
@@ -187,7 +194,7 @@ For context so the duel engine leaves room for it. A 20-player elimination game 
 
 ## News section — RSS, not X
 
-Recent F1 news from an RSS feed (motorsport.com / Autosport / formula1.com). Fetched server-side, revalidate hourly, render title + source + link + timestamp. Never client-side. Do **not** integrate the X/Twitter API — no free read tier, bills per request.
+Recent F1 news from RSS feeds — motorsport.com and Autosport (same publisher/format, both carry per-item `<enclosure>` images; formula1.com's official feed was evaluated but its items have no publish date, so `parseRssItems` correctly drops all of them and it was left out). Fetched server-side, revalidate hourly, merged and sorted by recency. Rendered client-side only as an interactive carousel (`NewsCarousel`): one big featured story (image + title + source + relative time) with a dot pager below to step through the top ~5 across both sources — no auto-advance, per the "no ambient loops" motion rule. The *fetch* stays server-side; only which slide is showing is client state. Do **not** integrate the X/Twitter API — no free read tier, bills per request.
 
 ## Ads — AdSense + consent
 

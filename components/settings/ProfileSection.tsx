@@ -4,32 +4,33 @@ import { useState } from "react";
 
 import { useAuth } from "@/components/auth/AuthProvider";
 import { AvatarGlyph } from "@/components/ui/AvatarGlyph";
+import { useToast } from "@/components/ui/Toast";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+
+import { AvatarPicker } from "./AvatarPicker";
 
 export function ProfileSection() {
   const { user, profile, loading, refresh, signOut } = useAuth();
+  const toast = useToast();
   const [supabase] = useState(() => createSupabaseBrowserClient());
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState(() => profile?.displayName ?? "");
   const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
 
   async function handleEmailUpgrade(event: React.FormEvent) {
     event.preventDefault();
     setPending(true);
-    setMessage(null);
     const { error } = await supabase.auth.updateUser({ email });
     setPending(false);
-    setMessage(
-      error
-        ? `Something went wrong: ${error.message}`
-        : "Check your email for a confirmation link to finish saving your progress.",
-    );
+    if (error) {
+      toast.error(`Something went wrong: ${error.message}`);
+      return;
+    }
+    toast.success("Check your email for a confirmation link to finish saving your progress.");
   }
 
   async function handleGoogleUpgrade() {
     setPending(true);
-    setMessage(null);
     const next = window.location.pathname;
     const { error } = await supabase.auth.linkIdentity({
       provider: "google",
@@ -39,7 +40,7 @@ export function ProfileSection() {
     // returns control to this component.
     if (error) {
       setPending(false);
-      setMessage(`Something went wrong: ${error.message}`);
+      toast.error(`Something went wrong: ${error.message}`);
     }
   }
 
@@ -47,17 +48,16 @@ export function ProfileSection() {
     event.preventDefault();
     if (!user) return;
     setPending(true);
-    setMessage(null);
     const { error } = await supabase
       .from("profiles")
       .update({ display_name: displayName.trim() || null })
       .eq("id", user.id);
     setPending(false);
     if (error) {
-      setMessage(`Something went wrong: ${error.message}`);
+      toast.error(`Something went wrong: ${error.message}`);
       return;
     }
-    setMessage("Display name saved.");
+    toast.success("Display name saved.");
     await refresh();
   }
 
@@ -74,14 +74,16 @@ export function ProfileSection() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-3">
-        <AvatarGlyph username={profile.username} avatarUrl={profile.avatarUrl} />
+        <AvatarGlyph avatarUrl={profile.avatarUrl} />
         <div className="min-w-0">
-          <p className="truncate font-mono text-sm font-semibold text-text">{profile.username}</p>
+          <p className="truncate text-sm font-semibold text-text">{profile.displayName || profile.username}</p>
           <p className="truncate text-xs text-text-muted">
             {profile.isGuest ? "Playing as guest" : (user.email ?? "Signed in")}
           </p>
         </div>
       </div>
+
+      <AvatarPicker userId={user.id} currentAvatarUrl={profile.avatarUrl} onSaved={refresh} />
 
       {profile.isGuest ? (
         <>
@@ -131,8 +133,6 @@ export function ProfileSection() {
           >
             Continue with Google
           </button>
-
-          {message && <p className="text-sm text-text-muted">{message}</p>}
         </>
       ) : (
         <>
@@ -159,7 +159,6 @@ export function ProfileSection() {
                 Save
               </button>
             </div>
-            {message && <p className="text-sm text-text-muted">{message}</p>}
           </form>
 
           <button

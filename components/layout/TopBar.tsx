@@ -52,7 +52,7 @@ export function TopBar() {
       <div className="mx-auto flex w-full max-w-[960px] items-center justify-between px-4 py-3">
         <Link
           href="/daily"
-          className="flex items-center gap-1.5 text-lg font-bold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="flex items-center text-lg font-bold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           <span>Driver</span>
           <span className="text-accent">Pit</span>

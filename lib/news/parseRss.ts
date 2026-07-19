@@ -2,6 +2,7 @@ export interface FeedItem {
   title: string;
   link: string;
   publishedAt: string; // ISO 8601
+  imageUrl: string | null;
 }
 
 // Handles the numeric/hex entities RSS titles commonly carry (curly quotes,
@@ -28,6 +29,15 @@ function extractTag(block: string, tag: string): string | null {
   return decodeEntities((cdata ? cdata[1] : raw).trim());
 }
 
+// <enclosure> is a self-closing tag with url/type as attributes, not text
+// content, and feeds don't agree on attribute order -- match both.
+function extractEnclosureImage(block: string): string | null {
+  const match =
+    block.match(/<enclosure\b[^>]*\burl="([^"]+)"[^>]*\btype="image\/[^"]*"/i) ??
+    block.match(/<enclosure\b[^>]*\btype="image\/[^"]*"[^>]*\burl="([^"]+)"/i);
+  return match ? decodeEntities(match[1]) : null;
+}
+
 // Deliberately not a general-purpose XML parser: RSS <item> blocks are
 // predictable enough that a couple of regexes cover title/link/pubDate
 // without pulling in a dependency for three fields.
@@ -44,7 +54,7 @@ export function parseRssItems(xml: string): FeedItem[] {
     const publishedAt = new Date(pubDate);
     if (Number.isNaN(publishedAt.getTime())) continue;
 
-    items.push({ title, link, publishedAt: publishedAt.toISOString() });
+    items.push({ title, link, publishedAt: publishedAt.toISOString(), imageUrl: extractEnclosureImage(block) });
   }
   return items;
 }

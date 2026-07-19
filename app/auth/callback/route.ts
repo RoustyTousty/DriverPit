@@ -20,5 +20,5 @@ export async function GET(request: NextRequest) {
     console.error("OAuth code exchange failed", error);
   }
 
-  return NextResponse.redirect(`${origin}/daily?error=oauth_callback_failed`);
+  return NextResponse.redirect(`${origin}${next}?error=oauth_callback_failed`);
 }

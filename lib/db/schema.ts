@@ -32,9 +32,10 @@ export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
   username: text("username").notNull().unique(),
   displayName: text("display_name"),
-  // A preset avatar key (e.g. "preset-3"), assigned by the signup trigger
-  // for guests. Not a real asset path yet -- no avatar UI exists to render
-  // it against.
+  // A preset avatar key ("preset-1".."preset-8", see lib/avatars.tsx),
+  // randomly assigned by the signup trigger and re-pickable afterward via
+  // Settings -> Profile. Not a real image URL despite the column name --
+  // there's no upload/Storage path, just this fixed icon set.
   avatarUrl: text("avatar_url").notNull(),
   isGuest: boolean("is_guest").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

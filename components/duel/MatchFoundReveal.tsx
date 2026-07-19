@@ -23,7 +23,7 @@ export function MatchFoundReveal({
 
       <div className="flex w-full items-center justify-center gap-4">
         <div className="flex flex-1 flex-col items-center gap-2">
-          <AvatarGlyph username={me.username} avatarUrl={me.avatarUrl} size="md" />
+          <AvatarGlyph avatarUrl={me.avatarUrl} size="md" />
           <p className="max-w-full truncate text-sm font-semibold text-text">
             {me.displayName || me.username}
           </p>
@@ -32,7 +32,7 @@ export function MatchFoundReveal({
         <span className="text-lg font-bold text-text-muted">VS</span>
 
         <div className="flex flex-1 flex-col items-center gap-2">
-          <AvatarGlyph username={opponent.username} avatarUrl={opponent.avatarUrl} size="md" />
+          <AvatarGlyph avatarUrl={opponent.avatarUrl} size="md" />
           <p className="max-w-full truncate text-sm font-semibold text-text">
             {opponent.displayName || opponent.username}
           </p>

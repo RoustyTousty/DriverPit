@@ -11,11 +11,13 @@ const SAMPLE_FEED = `<?xml version="1.0" encoding="UTF-8"?>
       <link>https://example.com/news/1/?utm_source=RSS&amp;utm_medium=referral</link>
       <description><![CDATA[Some HTML <b>description</b> we don't care about.]]></description>
       <pubDate>Sat, 18 Jul 2026 21:21:23 +0000</pubDate>
+      <enclosure url="https://example.com/img/1.jpg?w=800&amp;h=600" type="image/jpeg" length="12345"/>
     </item>
     <item>
       <title>Plain title without CDATA</title>
       <link>https://example.com/news/2/</link>
       <pubDate>Fri, 17 Jul 2026 09:00:00 +0000</pubDate>
+      <enclosure type="image/png" url="https://example.com/img/2.png"/>
     </item>
     <item>
       <title>Missing pubDate is dropped</title>
@@ -36,7 +38,21 @@ describe("parseRssItems", () => {
       title: "Plain title without CDATA",
       link: "https://example.com/news/2/",
       publishedAt: new Date("Fri, 17 Jul 2026 09:00:00 +0000").toISOString(),
+      imageUrl: "https://example.com/img/2.png",
     });
+  });
+
+  it("extracts the enclosure image regardless of url/type attribute order", () => {
+    const items = parseRssItems(SAMPLE_FEED);
+    expect(items[0].imageUrl).toBe("https://example.com/img/1.jpg?w=800&h=600");
+    expect(items[1].imageUrl).toBe("https://example.com/img/2.png");
+  });
+
+  it("leaves imageUrl null when an item has no enclosure", () => {
+    const items = parseRssItems(SAMPLE_FEED);
+    expect(items.find((item) => item.title === "Plain title without CDATA")).toBeTruthy();
+    const noImageFeed = parseRssItems(`<rss><channel><item><title>No image</title><link>https://example.com/x</link><pubDate>Fri, 17 Jul 2026 09:00:00 +0000</pubDate></item></channel></rss>`);
+    expect(noImageFeed[0].imageUrl).toBeNull();
   });
 
   it("unwraps CDATA and decodes entities in the title", () => {
