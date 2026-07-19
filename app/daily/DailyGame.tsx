@@ -7,6 +7,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { DriverAutocomplete, type DriverOption } from "@/components/game/DriverAutocomplete";
 import { GuessGrid, type Guess } from "@/components/game/GuessGrid";
 import type { DriverSummary } from "@/lib/db/queries";
+import { MAX_GUESSES } from "@/lib/game/constants";
 import { buildShareText } from "@/lib/game/emojiGrid";
 import { renderResultImage } from "@/lib/game/shareImage";
 import { useSettings } from "@/lib/settings/useSettings";
@@ -14,7 +15,6 @@ import { recordDailyResult } from "@/lib/stats/actions";
 
 import { revealDailyTarget, submitDailyGuess } from "./actions";
 
-const MAX_GUESSES = 5;
 const STORAGE_PREFIX = "f1dw:daily:";
 
 type RoundStatus = "loading" | "playing" | "won" | "lost";
@@ -253,7 +253,7 @@ export function DailyGame({
   const guessesLeft = MAX_GUESSES - guesses.length;
 
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 py-6">
+    <div className="mx-auto flex w-full flex-col gap-4 px-4 py-6">
       <header>
         <h1 className="text-xl font-bold text-text sm:text-2xl">DriverPit</h1>
         <p className="text-sm text-text-muted">Daily #{puzzleNumber}</p>

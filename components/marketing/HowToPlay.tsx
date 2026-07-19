@@ -32,7 +32,7 @@ export function HowToPlay() {
       <h2 className="text-2xl font-bold text-text">How to play</h2>
 
       <p className="text-sm text-text-muted">
-        Guess the mystery Formula 1 driver in five tries. Every guess has to be a real driver —
+        Guess the mystery Formula 1 driver in six tries. Every guess has to be a real driver —
         start typing in the box above the grid and pick from the matches. Suggestions are scoped to
         the active driver pool for better hints, but you can still submit a name from outside it if
         you type the whole thing. After each guess, the driver&apos;s F1DB code appears on the left
@@ -92,7 +92,7 @@ export function HowToPlay() {
       </div>
 
       <p className="text-sm text-text-muted">
-        You get five guesses. Match all five tiles green and you&apos;ve solved it.
+        You get six guesses. Match all five tiles green and you&apos;ve solved it.
       </p>
     </section>
   );

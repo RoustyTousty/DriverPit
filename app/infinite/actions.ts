@@ -10,11 +10,11 @@ import {
   type DriverSummary,
 } from "@/lib/db/queries";
 import { compare, isWin, type GuessResult } from "@/lib/game/compare";
+import { MAX_GUESSES } from "@/lib/game/constants";
 import { DEFAULT_POOL_WINDOW, isPoolWindow } from "@/lib/game/poolWindow";
 import { signRound, verifyRound } from "@/lib/game/session";
 
 const ROUND_COOKIE = "infinite_round";
-const MAX_GUESSES = 5;
 const ROUND_MAX_AGE_SECONDS = 60 * 60;
 
 async function setRoundCookie(driverId: number, guessCount: number) {

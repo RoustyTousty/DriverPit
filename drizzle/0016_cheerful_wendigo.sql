@@ -1,0 +1,1 @@
+ALTER TABLE "user_stats" ALTER COLUMN "guess_distribution" SET DEFAULT '[0,0,0,0,0,0]'::jsonb;

@@ -6,13 +6,12 @@ import { DriverAutocomplete, type DriverOption } from "@/components/game/DriverA
 import { GuessGrid, type Guess } from "@/components/game/GuessGrid";
 import { PoolSelect, type PoolSelectOption } from "@/components/game/PoolSelect";
 import type { DriverSummary, DriverWithActivity } from "@/lib/db/queries";
+import { MAX_GUESSES } from "@/lib/game/constants";
 import { POOL_WINDOWS, poolCutoffYear, type PoolWindow } from "@/lib/game/poolWindow";
 import { readPoolWindowPreference, writePoolWindowPreference } from "@/lib/settings/poolWindow";
 import { useSettings } from "@/lib/settings/useSettings";
 
 import { startInfiniteRound, submitGuess } from "./actions";
-
-const MAX_GUESSES = 5;
 
 type RoundStatus = "loading" | "playing" | "won" | "lost";
 
@@ -91,7 +90,7 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
   const guessesLeft = MAX_GUESSES - guesses.length;
 
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 py-6">
+    <div className="mx-auto flex w-full flex-col gap-4 px-4 py-6">
       <header className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-text sm:text-2xl">DriverPit</h1>

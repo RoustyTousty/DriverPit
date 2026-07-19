@@ -35,7 +35,7 @@ export function AdSlot() {
   }, [canServe]);
 
   return (
-    <div className="flex min-h-[100px] w-full max-w-[520px] items-center justify-center rounded-lg border border-border bg-surface text-xs text-text-muted">
+    <div className="flex min-h-[100px] w-full max-w-160 items-center justify-center rounded-lg border border-border bg-surface text-xs text-text-muted">
       {canServe ? (
         <ins
           className="adsbygoogle block w-full"

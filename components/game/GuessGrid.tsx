@@ -9,7 +9,7 @@ const COLUMN_LABELS = ["Nation", "Team", "Age", "Debut", "Wins"];
 // As narrow as the rotated 3-letter code actually needs — the previous w-6/
 // w-7 was oversized and ate into the five data tiles' width more than
 // necessary.
-const CODE_COLUMN_WIDTH = "w-5";
+const CODE_COLUMN_WIDTH = "w-7";
 
 // Orange intensity for a near-miss: a fixed subtle wash for "historical"
 // team hits, and one scaled by closeness (0-1) for numeric near-misses —
@@ -17,8 +17,8 @@ const CODE_COLUMN_WIDTH = "w-5";
 // miss grey the further off it was. Capped well under full opacity so it
 // stays a tint, never a solid block covering the text.
 const HISTORICAL_ORANGE_OPACITY = 0.35;
-const MIN_ORANGE_OPACITY = 0.12;
-const MAX_ORANGE_OPACITY = 0.68;
+const MIN_ORANGE_OPACITY = 0.05;
+const MAX_ORANGE_OPACITY = 0.70;
 
 export function Tile({
   feedback,

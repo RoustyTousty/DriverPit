@@ -1,5 +1,6 @@
+import { MAX_GUESSES } from "@/lib/game/constants";
+
 const STORAGE_KEY = "f1dw:stats";
-const MAX_GUESSES = 5;
 
 export interface StatsState {
   gamesPlayed: number;
@@ -17,7 +18,7 @@ function emptyStats(): StatsState {
     gamesWon: 0,
     currentStreak: 0,
     maxStreak: 0,
-    guessDistribution: [0, 0, 0, 0, 0],
+    guessDistribution: Array(MAX_GUESSES).fill(0),
     lastResult: null,
   };
 }

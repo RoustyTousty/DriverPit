@@ -25,7 +25,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "DriverPit",
-  description: "Guess the Formula 1 driver in 5 tries.",
+  description: "Guess the Formula 1 driver in 6 tries.",
 };
 
 export default function RootLayout({
@@ -46,7 +46,7 @@ export default function RootLayout({
             <ModeTabs />
 
             <main className="flex flex-1 flex-col items-center gap-6 px-4 py-6">
-              <div className="w-full max-w-[520px] rounded-lg border border-border bg-surface">
+              <div className="w-full max-w-160 rounded-lg border border-border bg-surface">
                 {children}
               </div>
               <AdSlotGate />

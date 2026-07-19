@@ -16,7 +16,7 @@ Five attribute columns per guess, with the guessed driver's F1DB code shown alon
 | Debut year  | correct / higher / lower (+ closeness)  |
 | Career wins | correct / higher / lower (+ closeness)  |
 
-"higher" means the target's value is higher than the guess. "historical" (team only) means the guess isn't the target's current team but is one they've raced for at some point. "Closeness" is a 0-1 hint on the three numeric columns — the tile shades from grey toward full orange the nearer the guess was, squared falloff; see `lib/game/compare.ts`. 5 guesses max in daily/infinite (duel changes this — see Duel).
+"higher" means the target's value is higher than the guess. "historical" (team only) means the guess isn't the target's current team but is one they've raced for at some point. "Closeness" is a 0-1 hint on the three numeric columns — the tile shades from grey toward full orange the nearer the guess was, squared falloff; see `lib/game/compare.ts`. 6 guesses max in daily/infinite (duel changes this — see Duel).
 
 The comparison engine (`lib/game/compare.ts`) is pure and unit-tested — don't change its rules unless a task explicitly says to.
 
@@ -124,7 +124,7 @@ Intentional scale (e.g. 12 / 14 / 16 / 20 / 28 / 40).
 ### Surface, spacing, motion, quality floor
 
 - Radius consistent, small-to-medium (`rounded-lg`). Separators 1px `--border`.
-- Game window: single `--surface` card, centered, max-width ~520px. Marketing content wider (~720-960px) and calmer.
+- Game window: single `--surface` card, centered, max-width ~640px. Marketing content wider (~720-960px) and calmer.
 - Motion minimal and purposeful: tile reveal, button press, modal enter/exit. Respect `prefers-reduced-motion`. No ambient loops — **except** the duel tug-of-war bar and countdown, which are live and must animate smoothly (still honor reduced-motion by snapping instead of easing).
 - Mobile-first (most players on phones). Visible `--accent` focus rings. Modals trap focus, close on Escape + backdrop.
 - Themed scrollbar; `html` has `scrollbar-gutter: stable` so modal scroll-lock doesn't shift content. Don't remove without an equivalent fix.

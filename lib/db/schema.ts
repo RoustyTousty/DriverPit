@@ -53,7 +53,7 @@ export const userStats = pgTable("user_stats", {
   guessDistribution: jsonb("guess_distribution")
     .$type<number[]>()
     .notNull()
-    .default([0, 0, 0, 0, 0]),
+    .default([0, 0, 0, 0, 0, 0]),
   // Powers the Statistics modal's "this bar is your latest win" highlight.
   // Null until a first result is recorded.
   lastResult: jsonb("last_result").$type<{ won: boolean; guessCount: number } | null>(),

@@ -4,11 +4,10 @@ import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { dailyResults, userStats } from "@/lib/db/schema";
+import { MAX_GUESSES } from "@/lib/game/constants";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 import type { StatsState } from "./store";
-
-const MAX_GUESSES = 5;
 
 function todayUtcDateString(): string {
   return new Date().toISOString().slice(0, 10);
@@ -117,7 +116,7 @@ export async function resetUserStats(): Promise<{ ok: boolean }> {
       wins: 0,
       currentStreak: 0,
       maxStreak: 0,
-      guessDistribution: [0, 0, 0, 0, 0],
+      guessDistribution: Array(MAX_GUESSES).fill(0),
       lastResult: null,
     })
     .where(eq(userStats.userId, userId));
