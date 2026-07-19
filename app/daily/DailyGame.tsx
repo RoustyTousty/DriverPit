@@ -8,6 +8,8 @@ import { DriverAutocomplete, type DriverOption } from "@/components/game/DriverA
 import { GuessGrid, type Guess } from "@/components/game/GuessGrid";
 import type { DriverSummary } from "@/lib/db/queries";
 import { buildShareText } from "@/lib/game/emojiGrid";
+import { renderResultImage } from "@/lib/game/shareImage";
+import { useSettings } from "@/lib/settings/useSettings";
 import { recordDailyResult } from "@/lib/stats/actions";
 
 import { revealDailyTarget, submitDailyGuess } from "./actions";
@@ -91,13 +93,14 @@ export function DailyGame({
 }) {
   const router = useRouter();
   const { refresh } = useAuth();
+  const { showFlags } = useSettings();
   const todayKeyRef = useRef(todayUtcKey());
 
   const [status, setStatus] = useState<RoundStatus>("loading");
   const [guesses, setGuesses] = useState<Guess[]>([]);
   const [target, setTarget] = useState<DriverSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [shareState, setShareState] = useState<"idle" | "sharing" | "shared" | "copied">("idle");
   const [isPending, startTransition] = useTransition();
   const [countdown, setCountdown] = useState("");
 
@@ -116,7 +119,7 @@ export function DailyGame({
       setTarget(null);
     }
     setError(null);
-    setCopied(false);
+    setShareState("idle");
   }, []);
 
   useEffect(() => {
@@ -200,12 +203,50 @@ export function DailyGame({
       won: status === "won",
       maxGuesses: MAX_GUESSES,
     });
+
+    setShareState("sharing");
+
+    // Prefer the native share sheet with an actual result-card image
+    // attached (real social-media targets: Messages, WhatsApp, X, Discord,
+    // Instagram, whatever the OS offers) -- clipboard-only text is the
+    // fallback, not the primary path, for anything that supports it.
     try {
+      const blob = await renderResultImage({
+        puzzleNumber,
+        results: guesses.map((g) => g.result),
+        won: status === "won",
+        maxGuesses: MAX_GUESSES,
+      });
+      const file = new File([blob], "driverpit-result.png", { type: "image/png" });
+
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ text, files: [file] });
+        setShareState("shared");
+        setTimeout(() => setShareState("idle"), 2000);
+        return;
+      }
+
+      // No file-share support (most desktop browsers): copy the text and
+      // hand over a downloadable image so there's still something to
+      // actually post, not just a wall of emoji.
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setError("Couldn't copy to clipboard.");
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "driverpit-result.png";
+      link.click();
+      URL.revokeObjectURL(link.href);
+      setShareState("copied");
+      setTimeout(() => setShareState("idle"), 2000);
+    } catch (err) {
+      // AbortError = the user closed the native share sheet -- not a
+      // failure, just quietly reset.
+      if (err instanceof Error && err.name === "AbortError") {
+        setShareState("idle");
+        return;
+      }
+      console.error("Share failed", err);
+      setError("Couldn't share right now. Try again.");
+      setShareState("idle");
     }
   }
 
@@ -244,7 +285,7 @@ export function DailyGame({
             </p>
           )}
 
-          <GuessGrid guesses={guesses} maxGuesses={MAX_GUESSES} />
+          <GuessGrid guesses={guesses} maxGuesses={MAX_GUESSES} showFlags={showFlags} />
 
           {status === "won" && target && (
             <div className="rounded-lg border border-border bg-surface-2 p-4 text-center">
@@ -265,10 +306,24 @@ export function DailyGame({
           {isRoundOver && (
             <div className="flex flex-col gap-2">
               <button
-                onClick={handleShare}
-                className="w-full rounded-lg bg-accent px-4 py-3 text-base font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                onClick={() => void handleShare()}
+                disabled={shareState === "sharing"}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-accent-weak bg-accent-weak/40 px-4 py-3 text-base font-semibold text-accent transition hover:border-accent/50 hover:bg-accent-weak/60 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
               >
-                {copied ? "Copied!" : "Share result"}
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.75}
+                  className="h-4 w-4"
+                  aria-hidden="true"
+                >
+                  <circle cx="18" cy="5" r="3" />
+                  <circle cx="6" cy="12" r="3" />
+                  <circle cx="18" cy="19" r="3" />
+                  <path d="M8.6 10.5 15.4 6.5M8.6 13.5l6.8 4" />
+                </svg>
+                {shareState === "shared" ? "Shared!" : shareState === "copied" ? "Copied + image saved" : "Share result"}
               </button>
               <p className="text-center text-sm text-text-muted">Next driver in {countdown}</p>
             </div>

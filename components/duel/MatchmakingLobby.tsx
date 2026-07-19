@@ -124,8 +124,23 @@ export function MatchmakingLobby({
     onCancel();
   }
 
+  // The finished match is no longer `status = 'active'`, so the very next
+  // poll tick's matchOrQueue() call naturally searches fresh -- no remount
+  // or new effect needed, just clearing what we already matched.
+  function handleFindNewOpponent() {
+    matchRef.current = null;
+    setMatch(null);
+  }
+
   if (match && profile) {
-    return <DuelMatch me={profile} match={match} eligibleDrivers={eligibleDrivers} />;
+    return (
+      <DuelMatch
+        me={profile}
+        match={match}
+        eligibleDrivers={eligibleDrivers}
+        onFindNewOpponent={handleFindNewOpponent}
+      />
+    );
   }
 
   return (

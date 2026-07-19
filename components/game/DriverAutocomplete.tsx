@@ -2,11 +2,13 @@
 
 import { useId, useMemo, useState } from "react";
 
+import { Flag } from "@/components/ui/Flag";
 import { fuzzyFilter } from "@/lib/game/fuzzyMatch";
 
 export interface DriverOption {
   id: number;
   fullName: string;
+  nationality: string;
 }
 
 interface DriverAutocompleteProps {
@@ -112,11 +114,12 @@ export function DriverAutocomplete({
                 selectDriver(driver);
               }}
               onMouseEnter={() => setActiveIndex(index)}
-              className={`cursor-pointer px-4 py-3 text-base transition ${
+              className={`flex cursor-pointer items-center gap-2 px-4 py-3 text-base transition ${
                 index === activeIndex ? "bg-accent-weak text-accent" : "text-text"
               }`}
             >
-              {driver.fullName}
+              <Flag nationality={driver.nationality} className="shrink-0 text-lg" />
+              <span className="truncate">{driver.fullName}</span>
             </li>
           ))}
         </ul>

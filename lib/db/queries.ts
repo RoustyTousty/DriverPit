@@ -10,21 +10,29 @@ export type DriverRow = typeof drivers.$inferSelect;
 export interface EligibleDriverOption {
   id: number;
   fullName: string;
+  nationality: string;
 }
 
-// id + fullName + lastActiveYear for every driver who's ever started a
-// race — the full roster, unfiltered. Small enough (~800 rows, a few
-// dozen KB) to ship to the client whole and filter by pool window there,
-// so switching windows in Infinite mode is instant with no round trip.
+// id + fullName + nationality + lastActiveYear for every driver who's ever
+// started a race — the full roster, unfiltered. Small enough (~800 rows, a
+// few dozen KB) to ship to the client whole and filter by pool window
+// there, so switching windows in Infinite mode is instant with no round
+// trip.
 export interface DriverWithActivity {
   id: number;
   fullName: string;
+  nationality: string;
   lastActiveYear: number;
 }
 
 export async function listAllDriverOptionsWithActivity(): Promise<DriverWithActivity[]> {
   const rows = await db
-    .select({ id: drivers.id, fullName: drivers.fullName, lastActiveYear: drivers.lastActiveYear })
+    .select({
+      id: drivers.id,
+      fullName: drivers.fullName,
+      nationality: drivers.nationality,
+      lastActiveYear: drivers.lastActiveYear,
+    })
     .from(drivers)
     .orderBy(drivers.fullName);
   // lastActiveYear is NOT NULL at the DB level; the select type just can't
@@ -42,7 +50,7 @@ export async function listPoolDriverOptions(
   referenceYear: number,
 ): Promise<EligibleDriverOption[]> {
   return db
-    .select({ id: drivers.id, fullName: drivers.fullName })
+    .select({ id: drivers.id, fullName: drivers.fullName, nationality: drivers.nationality })
     .from(drivers)
     .where(poolCondition(window, referenceYear))
     .orderBy(drivers.fullName);

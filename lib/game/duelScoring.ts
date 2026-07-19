@@ -34,20 +34,39 @@ function orderedFieldScore(feedback: OrderedFeedback, closeness: number | undefi
   return weight * (closeness ?? 0);
 }
 
+function weightedProximity(result: GuessResult): number {
+  let points = 0;
+
+  if (result.nationality === "exact") points += NATIONALITY_WEIGHT;
+
+  if (result.team === "exact") points += TEAM_EXACT_WEIGHT;
+  else if (result.team === "historical") points += TEAM_HISTORICAL_WEIGHT;
+
+  points += orderedFieldScore(result.age, result.ageCloseness, AGE_WEIGHT);
+  points += orderedFieldScore(result.debutYear, result.debutYearCloseness, DEBUT_YEAR_WEIGHT);
+  points += orderedFieldScore(result.careerWins, result.careerWinsCloseness, CAREER_WINS_WEIGHT);
+
+  return points;
+}
+
 // Minor consolation points for a DNF, from the player's single best
 // (closest) incorrect guess of the round. Never as much as any solve —
 // see MIN_SPEED_POINTS above.
 export function proximityPoints(bestResult: GuessResult): number {
-  let points = 0;
+  return Math.round(weightedProximity(bestResult));
+}
 
-  if (bestResult.nationality === "exact") points += NATIONALITY_WEIGHT;
+// Ceiling a guess could ever reach against weightedProximity -- team maxes
+// out at TEAM_EXACT_WEIGHT (not TEAM_HISTORICAL_WEIGHT), so this is the
+// sum of every field's exact/correct weight.
+const MAX_PROXIMITY_WEIGHT = NATIONALITY_WEIGHT + TEAM_EXACT_WEIGHT + AGE_WEIGHT + DEBUT_YEAR_WEIGHT + CAREER_WINS_WEIGHT;
 
-  if (bestResult.team === "exact") points += TEAM_EXACT_WEIGHT;
-  else if (bestResult.team === "historical") points += TEAM_HISTORICAL_WEIGHT;
-
-  points += orderedFieldScore(bestResult.age, bestResult.ageCloseness, AGE_WEIGHT);
-  points += orderedFieldScore(bestResult.debutYear, bestResult.debutYearCloseness, DEBUT_YEAR_WEIGHT);
-  points += orderedFieldScore(bestResult.careerWins, bestResult.careerWinsCloseness, CAREER_WINS_WEIGHT);
-
-  return Math.round(points);
+// 0-1 "how warm is this guess" reading, same weighting as proximityPoints
+// but normalized to its own ceiling instead of converted to a point value.
+// Backs the duel opponent feed (CLAUDE.md's Duel UI section): the feed only
+// ever sends this single number over the wire, never the underlying
+// per-attribute result -- so it can't be reverse-engineered into which
+// attributes matched, let alone the guessed driver.
+export function guessHeat(result: GuessResult): number {
+  return weightedProximity(result) / MAX_PROXIMITY_WEIGHT;
 }

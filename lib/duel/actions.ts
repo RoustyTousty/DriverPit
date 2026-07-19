@@ -17,7 +17,7 @@ import { updateDuelRatings } from "@/lib/game/duelRating";
 import { DAILY_POOL_WINDOW } from "@/lib/game/poolWindow";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-import { MAX_ROUNDS, ROUND_MS, ROUND_TRANSITION_MS } from "./liveMatch";
+import { MAX_ROUNDS, REVEAL_MS, ROUND_MS, ROUND_TRANSITION_MS } from "./liveMatch";
 
 async function getCurrentUserId(): Promise<string | null> {
   const supabase = await createSupabaseServerClient();
@@ -344,6 +344,57 @@ export async function tryAdvanceRound(matchId: number): Promise<TryAdvanceRoundR
       scoreA,
       scoreB,
     };
+  });
+}
+
+// --- requestRematch -------------------------------------------------------
+
+export type RequestRematchResult =
+  | { ok: true; newMatchId: number | null } // null = requested, waiting on the other player
+  | { ok: false; error: string };
+
+// Mutual-consent rematch: the first participant to call this just marks
+// intent (rematch_requested_by) and waits. The second participant's call
+// sees the *other* player's id already sitting there and creates the new
+// match itself, right there, in the same transaction -- so exactly one of
+// the two calls ever actually creates it, no matter how the timing lands.
+// Whichever client gets a real newMatchId back is responsible for
+// broadcasting it on the old match's channel so the still-waiting side
+// (which only sees `newMatchId: null` from its own call) finds out.
+export async function requestRematch(oldMatchId: number): Promise<RequestRematchResult> {
+  const userId = await getCurrentUserId();
+  if (!userId) return { ok: false, error: "Not signed in." };
+
+  return db.transaction(async (tx) => {
+    const [oldMatch] = await tx.select().from(duelMatches).where(eq(duelMatches.id, oldMatchId)).for("update");
+    if (!oldMatch) return { ok: false, error: "Match not found." };
+    if (oldMatch.playerA !== userId && oldMatch.playerB !== userId) {
+      return { ok: false, error: "You are not part of this match." };
+    }
+    if (oldMatch.status !== "finished") return { ok: false, error: "Match hasn't finished yet." };
+
+    if (oldMatch.rematchRequestedBy === null || oldMatch.rematchRequestedBy === userId) {
+      await tx.update(duelMatches).set({ rematchRequestedBy: userId }).where(eq(duelMatches.id, oldMatchId));
+      return { ok: true, newMatchId: null };
+    }
+
+    const targetDriverId = await getRandomPoolDriverId(DAILY_POOL_WINDOW, new Date().getUTCFullYear());
+    const [newMatch] = await tx
+      .insert(duelMatches)
+      .values({ playerA: oldMatch.playerA, playerB: oldMatch.playerB, status: "active", currentRound: 0 })
+      .returning();
+
+    const startedAt = new Date(newMatch.createdAt.getTime() + REVEAL_MS);
+    const endsAt = new Date(startedAt.getTime() + ROUND_MS);
+    await tx.insert(duelRounds).values({
+      matchId: newMatch.id,
+      roundIndex: 0,
+      driverId: targetDriverId,
+      startedAt,
+      endsAt,
+    });
+
+    return { ok: true, newMatchId: newMatch.id };
   });
 }
 

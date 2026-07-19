@@ -1,5 +1,7 @@
+import { Flag } from "@/components/ui/Flag";
 import type { DriverSummary } from "@/lib/db/queries";
 import type { ExactFeedback, GuessResult, OrderedFeedback, TeamFeedback } from "@/lib/game/compare";
+import { countryCode } from "@/lib/game/flags";
 
 type Feedback = ExactFeedback | OrderedFeedback | TeamFeedback;
 
@@ -111,12 +113,20 @@ function ColumnLabels() {
 function GuessRow({
   guessedDriver,
   result,
+  showFlags,
 }: {
   guessedDriver: DriverSummary;
   result: GuessResult;
+  showFlags: boolean;
 }) {
+  const nationalityValue =
+    showFlags && countryCode(guessedDriver.nationality) ? (
+      <Flag nationality={guessedDriver.nationality} className="text-2xl" />
+    ) : (
+      guessedDriver.nationality
+    );
   const columns: { feedback: Feedback; closeness?: number; value: React.ReactNode }[] = [
-    { feedback: result.nationality, value: guessedDriver.nationality },
+    { feedback: result.nationality, value: nationalityValue },
     { feedback: result.team, value: guessedDriver.team },
     { feedback: result.age, closeness: result.ageCloseness, value: guessedDriver.age },
     { feedback: result.debutYear, closeness: result.debutYearCloseness, value: guessedDriver.debutYear },
@@ -143,9 +153,11 @@ export interface Guess {
 export function GuessGrid({
   guesses,
   maxGuesses,
+  showFlags = false,
 }: {
   guesses: Guess[];
   maxGuesses: number;
+  showFlags?: boolean;
 }) {
   const emptyCount = maxGuesses - guesses.length;
 
@@ -153,7 +165,7 @@ export function GuessGrid({
     <div className="flex flex-col gap-2">
       <ColumnLabels />
       {guesses.map((guess, index) => (
-        <GuessRow key={index} guessedDriver={guess.guessedDriver} result={guess.result} />
+        <GuessRow key={index} guessedDriver={guess.guessedDriver} result={guess.result} showFlags={showFlags} />
       ))}
       {Array.from({ length: emptyCount }).map((_, index) => (
         <EmptyRow key={`empty-${index}`} />

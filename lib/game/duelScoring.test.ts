@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { compare, isWin, type Driver, type GuessResult } from "./compare";
-import { proximityPoints, speedPoints } from "./duelScoring";
+import { guessHeat, proximityPoints, speedPoints } from "./duelScoring";
 
 const ROUND_MS = 45_000;
 
@@ -150,5 +150,41 @@ describe("proximityPoints", () => {
     const points = proximityPoints(result);
     expect(points).toBeGreaterThan(0);
     expect(points).toBeLessThan(speedPoints(ROUND_MS, ROUND_MS));
+  });
+});
+
+describe("guessHeat", () => {
+  it("is 0 for a total miss and 1 for a perfect (winning) result", () => {
+    expect(guessHeat(makeResult({ ageCloseness: 0, debutYearCloseness: 0, careerWinsCloseness: 0 }))).toBe(0);
+    expect(
+      guessHeat(
+        makeResult({
+          nationality: "exact",
+          team: "exact",
+          age: "correct",
+          debutYear: "correct",
+          careerWins: "correct",
+        }),
+      ),
+    ).toBe(1);
+  });
+
+  it("always stays within 0-1", () => {
+    const partial = makeResult({
+      nationality: "exact",
+      team: "historical",
+      age: "higher",
+      ageCloseness: 0.9,
+    });
+    const heat = guessHeat(partial);
+    expect(heat).toBeGreaterThan(0);
+    expect(heat).toBeLessThanOrEqual(1);
+  });
+
+  it("ranks a closer guess above a colder one, same ordering as proximityPoints", () => {
+    const warm = makeResult({ nationality: "exact", age: "higher", ageCloseness: 0.8 });
+    const cold = makeResult({ ageCloseness: 0.1 });
+    expect(guessHeat(warm)).toBeGreaterThan(guessHeat(cold));
+    expect(proximityPoints(warm)).toBeGreaterThan(proximityPoints(cold));
   });
 });

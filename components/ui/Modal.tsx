@@ -108,11 +108,11 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`w-full max-w-sm rounded-lg border border-border bg-surface p-5 shadow-lg outline-none transition duration-200 motion-reduce:transition-none ${
+        className={`flex max-h-[85vh] w-full max-w-sm flex-col rounded-lg border border-border bg-surface shadow-lg outline-none transition duration-200 motion-reduce:transition-none ${
           isVisible ? "translate-y-0 scale-100 opacity-100" : "translate-y-2 scale-95 opacity-0"
         }`}
       >
-        <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex shrink-0 items-center justify-between gap-3 p-5 pb-4">
           <h2 id={titleId} className="text-lg font-bold text-text">
             {title}
           </h2>
@@ -134,7 +134,16 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
             </svg>
           </button>
         </div>
-        {children}
+        {/* Header stays put; only the body scrolls once content exceeds
+            max-h-[85vh] -- a long section (e.g. Settings) no longer runs
+            off the bottom of the screen with no way to reach the rest.
+            min-h-0 is load-bearing: a flex child defaults to min-height:
+            auto, which refuses to shrink below its content size -- without
+            it, overflow-y-auto here never actually kicks in, the panel
+            grows past max-h-[85vh] instead, and with body scroll locked
+            behind it there's no way to reach the rest of the content at
+            all (this is what broke page scroll). */}
+        <div className="min-h-0 overflow-y-auto px-5 pb-5">{children}</div>
       </div>
     </div>,
     document.body,

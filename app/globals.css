@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "flag-icons/css/flag-icons.min.css";
 
 :root {
   --bg: #0b0d10;
@@ -96,4 +97,13 @@ html {
   animation-iteration-count: 1 !important;
   transition-duration: 0.001ms !important;
   scroll-behavior: auto !important;
+}
+
+/* Colorblind mode (Settings): swap "correct" green for a blue that stays
+   distinguishable from the orange accent under red-green color vision
+   deficiencies -- green/orange can read as near-identical there, blue/orange
+   doesn't. --color-correct (Tile, etc.) re-reads this live since it's just
+   `var(--correct)`. */
+[data-colorblind="true"] {
+  --correct: #3b82f6;
 }

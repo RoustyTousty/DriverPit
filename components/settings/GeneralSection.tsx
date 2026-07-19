@@ -3,8 +3,6 @@
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/auth/AuthProvider";
-import { POOL_WINDOWS, type PoolWindow } from "@/lib/game/poolWindow";
-import { readPoolWindowPreference, writePoolWindowPreference } from "@/lib/settings/poolWindow";
 import { readSettings, writeSettings, type Settings } from "@/lib/settings/store";
 import { resetUserStats } from "@/lib/stats/actions";
 
@@ -35,9 +33,15 @@ export function ToggleRow({
           checked ? "border-accent bg-accent" : "border-border bg-surface-2"
         }`}
       >
+        {/* Explicit left-0.5 anchor + translate-x-0/5.5 (not translate alone
+            from an implicit static position) -- track is 44px, thumb 18px,
+            so the "on" resting spot is 44 - 18 - 2*2px inset = 22px away
+            from the "off" spot. Getting this from an unanchored translate
+            undershot by 2px and left the thumb visibly short of the right
+            edge when on. */}
         <span
-          className={`absolute top-0.5 h-4.5 w-4.5 rounded-full bg-white transition-transform motion-reduce:transition-none ${
-            checked ? "translate-x-5" : "translate-x-0.5"
+          className={`absolute top-0.5 left-0.5 h-4.5 w-4.5 rounded-full bg-white transition-transform motion-reduce:transition-none ${
+            checked ? "translate-x-5.5" : "translate-x-0"
           }`}
         />
       </button>
@@ -48,7 +52,6 @@ export function ToggleRow({
 export function GeneralSection() {
   const { refresh } = useAuth();
   const [settings, setSettings] = useState<Settings>(() => readSettings());
-  const [poolWindow, setPoolWindow] = useState<PoolWindow>(() => readPoolWindowPreference());
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [resetDone, setResetDone] = useState(false);
 
@@ -62,11 +65,6 @@ export function GeneralSection() {
     const next = { ...settings, ...partial };
     setSettings(next);
     writeSettings(next);
-  }
-
-  function handlePoolChange(next: PoolWindow) {
-    setPoolWindow(next);
-    writePoolWindowPreference(next);
   }
 
   async function handleResetClick() {
@@ -83,53 +81,25 @@ export function GeneralSection() {
   return (
     <div className="flex flex-col gap-5">
       <ToggleRow
-        label="Hard mode"
-        description="Any revealed constraints must be carried into later guesses."
-        checked={settings.hardMode}
-        onChange={(next) => update({ hardMode: next })}
-      />
-
-      <ToggleRow
         label="Reduce motion"
         description="Turn off tile flips and button animations, regardless of your system setting."
         checked={settings.reducedMotion}
         onChange={(next) => update({ reducedMotion: next })}
       />
 
-      <div className="flex flex-col gap-2 border-t border-border pt-4">
-        <p className="text-sm font-semibold text-text">Default Infinite pool</p>
-        <p className="text-xs text-text-muted">Which drivers Infinite mode draws from by default.</p>
-        <div className="flex flex-col gap-1.5">
-          {POOL_WINDOWS.map((window) => {
-            const isSelected = window.value === poolWindow;
-            return (
-              <button
-                key={window.value}
-                type="button"
-                role="radio"
-                aria-checked={isSelected}
-                onClick={() => handlePoolChange(window.value)}
-                className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                  isSelected
-                    ? "border-accent bg-accent-weak text-accent"
-                    : "border-border text-text hover:bg-surface-2"
-                }`}
-              >
-                <span className="font-semibold">{window.tier}</span>
-                <span className={isSelected ? "text-accent/70" : "text-text-muted"}>{window.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <ToggleRow
+        label="Colorblind mode"
+        description="Swap the correct-tile green for a blue that stays distinct from the orange accent."
+        checked={settings.colorblindMode}
+        onChange={(next) => update({ colorblindMode: next })}
+      />
 
-      <div className="flex flex-col gap-1 border-t border-border pt-4">
-        <p className="text-sm font-semibold text-text">Daily reset</p>
-        <p className="text-xs text-text-muted">
-          A new daily driver is chosen at 00:00 UTC. The countdown shown after you finish converts
-          that to your local time.
-        </p>
-      </div>
+      <ToggleRow
+        label="Show flags"
+        description="Nationality tiles show a flag instead of the country name."
+        checked={settings.showFlags}
+        onChange={(next) => update({ showFlags: next })}
+      />
 
       <div className="flex flex-col gap-2 border-t border-border pt-4">
         <p className="text-sm font-semibold text-text">Stats</p>

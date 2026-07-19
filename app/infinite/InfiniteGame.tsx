@@ -8,6 +8,7 @@ import { PoolSelect, type PoolSelectOption } from "@/components/game/PoolSelect"
 import type { DriverSummary, DriverWithActivity } from "@/lib/db/queries";
 import { POOL_WINDOWS, poolCutoffYear, type PoolWindow } from "@/lib/game/poolWindow";
 import { readPoolWindowPreference, writePoolWindowPreference } from "@/lib/settings/poolWindow";
+import { useSettings } from "@/lib/settings/useSettings";
 
 import { startInfiniteRound, submitGuess } from "./actions";
 
@@ -16,6 +17,7 @@ const MAX_GUESSES = 5;
 type RoundStatus = "loading" | "playing" | "won" | "lost";
 
 export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] }) {
+  const { showFlags } = useSettings();
   const [status, setStatus] = useState<RoundStatus>("loading");
   const [guesses, setGuesses] = useState<Guess[]>([]);
   const [target, setTarget] = useState<DriverSummary | null>(null);
@@ -28,7 +30,7 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
   const poolDrivers = useMemo<DriverOption[]>(() => {
     const cutoff = poolCutoffYear(poolWindow, new Date().getUTCFullYear());
     const inPool = cutoff === null ? allDrivers : allDrivers.filter((d) => d.lastActiveYear >= cutoff);
-    return inPool.map((d) => ({ id: d.id, fullName: d.fullName }));
+    return inPool.map((d) => ({ id: d.id, fullName: d.fullName, nationality: d.nationality }));
   }, [allDrivers, poolWindow]);
 
   const poolOptions = useMemo<PoolSelectOption[]>(() => {
@@ -133,7 +135,7 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
             </p>
           )}
 
-          <GuessGrid guesses={guesses} maxGuesses={MAX_GUESSES} />
+          <GuessGrid guesses={guesses} maxGuesses={MAX_GUESSES} showFlags={showFlags} />
 
           {status === "won" && target && (
             <div className="rounded-lg border border-border bg-surface-2 p-4 text-center">

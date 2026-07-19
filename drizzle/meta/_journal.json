@@ -99,6 +99,13 @@
       "when": 1784472529468,
       "tag": "0013_duel_round_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784476496210,
+      "tag": "0014_duel_rematch_column",
+      "breakpoints": true
     }
   ]
 }

@@ -121,6 +121,11 @@ export const duelMatches = pgTable("duel_matches", {
   winnerId: uuid("winner_id").references(() => profiles.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
+  // Set by requestRematch() the moment one finished-match participant asks
+  // for a rematch; null again once consumed (the second participant's
+  // matching request finds it set to the *other* player's id and creates
+  // the new match). Mutual-consent gate -- a lone request just waits.
+  rematchRequestedBy: uuid("rematch_requested_by").references(() => profiles.id),
 });
 
 // One row per round per match, server-stamped -- both clients count down to

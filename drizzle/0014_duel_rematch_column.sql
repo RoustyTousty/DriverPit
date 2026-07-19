@@ -1,0 +1,2 @@
+ALTER TABLE "duel_matches" ADD COLUMN "rematch_requested_by" uuid;--> statement-breakpoint
+ALTER TABLE "duel_matches" ADD CONSTRAINT "duel_matches_rematch_requested_by_profiles_id_fk" FOREIGN KEY ("rematch_requested_by") REFERENCES "public"."profiles"("id") ON DELETE no action ON UPDATE no action;
