@@ -10,8 +10,8 @@ import { getLeaderboard, type DuelLeaderboardEntry, type StreakLeaderboardEntry 
 type Board = "duel" | "streak";
 
 const BOARDS: { value: Board; label: string }[] = [
-  { value: "duel", label: "Duel rating" },
   { value: "streak", label: "Daily streak" },
+  { value: "duel", label: "Duel rating" },
 ];
 
 function Row({
@@ -61,14 +61,14 @@ export function LeaderboardModal({
   onUpgrade: () => void;
 }) {
   const { profile } = useAuth();
-  const [board, setBoard] = useState<Board>("duel");
+  const [board, setBoard] = useState<Board>("streak");
   const [duelBoard, setDuelBoard] = useState<DuelLeaderboardEntry[]>([]);
   const [streakBoard, setStreakBoard] = useState<StreakLeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!open) return;
-    setBoard("duel");
+    setBoard("streak");
     setLoading(true);
     void getLeaderboard().then((result) => {
       setDuelBoard(result.duelBoard);

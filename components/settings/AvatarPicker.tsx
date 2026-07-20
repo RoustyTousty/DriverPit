@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { AvatarGlyph } from "@/components/ui/AvatarGlyph";
 import { useToast } from "@/components/ui/Toast";
 import { CURATED_AVATAR_SEEDS, randomAvatarSeed } from "@/lib/avatars";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+
+const PANEL_WIDTH = 288; // matches w-72
+const PANEL_MAX_HEIGHT = 340; // header + shuffle row + ~5 grid rows, for the above/below flip check
+const VIEWPORT_MARGIN = 8;
 
 function ShuffleIcon() {
   return (
@@ -19,6 +24,13 @@ function ShuffleIcon() {
 // (closes on an outside click, Escape, or a successful pick) rather than
 // showing every option inline all the time. "Shuffle" swaps the grid for a
 // freshly rolled batch, since the seed space is effectively unlimited.
+//
+// Portaled to <body> and positioned via the trigger's own bounding rect
+// (not a plain `absolute` child) so it floats independently of whatever
+// scroll container it was opened from -- inside the Settings modal, an
+// `absolute` panel would instead force the modal's own body to grow and
+// scroll to fit it, stacking this grid's scrollbar inside the modal's,
+// which reads as a scroll-wheel-inside-a-scroll-wheel.
 export function AvatarPicker({
   userId,
   currentAvatarUrl,
@@ -34,30 +46,86 @@ export function AvatarPicker({
   const [open, setOpen] = useState(false);
   const [visible, setVisible] = useState(false);
   const [seeds, setSeeds] = useState<string[]>(CURATED_AVATAR_SEEDS);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState<{ top: number | null; bottom: number | null; left: number }>({
+    top: null,
+    bottom: null,
+    left: 0,
+  });
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
 
-  // Two-phase open so the panel transitions in rather than popping.
-  useEffect(() => {
+  // Two-phase open so the panel transitions in rather than popping, and
+  // recomputed on every open/scroll/resize since the trigger can move
+  // independently of this now-portaled panel.
+  useLayoutEffect(() => {
     if (!open) return;
+
+    function reposition() {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const openUpward = spaceBelow < PANEL_MAX_HEIGHT && rect.top > spaceBelow;
+      setPlacement({
+        top: openUpward ? null : rect.bottom + VIEWPORT_MARGIN,
+        bottom: openUpward ? window.innerHeight - rect.top + VIEWPORT_MARGIN : null,
+        left: Math.min(Math.max(rect.left, VIEWPORT_MARGIN), window.innerWidth - PANEL_WIDTH - VIEWPORT_MARGIN),
+      });
+    }
+
+    reposition();
     const raf = requestAnimationFrame(() => setVisible(true));
-    return () => cancelAnimationFrame(raf);
+    window.addEventListener("resize", reposition);
+    document.addEventListener("scroll", reposition, true);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", reposition);
+      document.removeEventListener("scroll", reposition, true);
+    };
   }, [open]);
 
+  // Focus trap scoped to just this panel (mirrors ui/Modal.tsx) -- once
+  // portaled out to <body>, the panel is no longer inside the Settings
+  // modal's own DOM subtree, so its focus trap can no longer see these
+  // buttons to include them.
   useEffect(() => {
     if (!open) return;
 
-    function handlePointerDown(event: MouseEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) closeMenu();
-    }
+    previouslyFocused.current = document.activeElement as HTMLElement | null;
+    panelRef.current?.querySelector<HTMLElement>("button")?.focus();
+
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") closeMenu();
+      if (event.key === "Escape") {
+        closeMenu();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = panelRef.current?.querySelectorAll<HTMLElement>("button:not([disabled])");
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
 
-    document.addEventListener("mousedown", handlePointerDown);
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node;
+      if (!panelRef.current?.contains(target) && !triggerRef.current?.contains(target)) closeMenu();
+    }
+
     document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("mousedown", handlePointerDown);
     return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("mousedown", handlePointerDown);
+      previouslyFocused.current?.focus();
     };
   }, [open]);
 
@@ -84,8 +152,9 @@ export function AvatarPicker({
   }
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => (open ? closeMenu() : setOpen(true))}
         aria-haspopup="true"
@@ -101,49 +170,58 @@ export function AvatarPicker({
         </span>
       </button>
 
-      {open && (
-        <div
-          role="menu"
-          aria-label="Choose an avatar"
-          className={`absolute top-full left-0 z-20 mt-2 w-72 origin-top-left rounded-lg border border-border bg-surface p-3 shadow-lg transition duration-150 motion-reduce:transition-none ${
-            visible ? "scale-100 opacity-100" : "scale-95 opacity-0"
-          }`}
-        >
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold tracking-wide text-text-muted uppercase">Choose an avatar</p>
-            <button
-              type="button"
-              onClick={handleShuffle}
-              disabled={pending}
-              className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold text-text-muted transition hover:bg-surface-2 hover:text-text disabled:opacity-50"
-            >
-              <ShuffleIcon />
-              Shuffle
-            </button>
-          </div>
-          <div className="grid max-h-64 grid-cols-5 gap-1.5 overflow-y-auto pr-0.5">
-            {seeds.map((seed) => {
-              const selected = seed === currentAvatarUrl;
-              return (
-                <button
-                  key={seed}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={selected}
-                  onClick={() => void handlePick(seed)}
-                  disabled={pending}
-                  aria-label={seed}
-                  className={`flex items-center justify-center rounded-lg border p-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 ${
-                    selected ? "border-accent bg-accent-weak/40" : "border-border hover:border-accent/50 hover:bg-surface-2"
-                  }`}
-                >
-                  <AvatarGlyph avatarUrl={seed} size="md" />
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div
+            ref={panelRef}
+            role="menu"
+            aria-label="Choose an avatar"
+            style={{
+              width: PANEL_WIDTH,
+              top: placement.top ?? undefined,
+              bottom: placement.bottom ?? undefined,
+              left: placement.left,
+            }}
+            className={`fixed z-50 rounded-lg border border-border bg-surface p-3 shadow-lg transition duration-150 motion-reduce:transition-none ${
+              visible ? "scale-100 opacity-100" : "scale-95 opacity-0"
+            }`}
+          >
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold tracking-wide text-text-muted uppercase">Choose an avatar</p>
+              <button
+                type="button"
+                onClick={handleShuffle}
+                disabled={pending}
+                className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold text-text-muted transition hover:bg-surface-2 hover:text-text disabled:opacity-50"
+              >
+                <ShuffleIcon />
+                Shuffle
+              </button>
+            </div>
+            <div className="grid max-h-64 grid-cols-5 gap-1.5 overflow-y-auto pr-0.5">
+              {seeds.map((seed) => {
+                const selected = seed === currentAvatarUrl;
+                return (
+                  <button
+                    key={seed}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={selected}
+                    onClick={() => void handlePick(seed)}
+                    disabled={pending}
+                    aria-label={seed}
+                    className={`flex items-center justify-center rounded-lg border p-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 ${
+                      selected ? "border-accent bg-accent-weak/40" : "border-border hover:border-accent/50 hover:bg-surface-2"
+                    }`}
+                  >
+                    <AvatarGlyph avatarUrl={seed} size="md" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
