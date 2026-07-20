@@ -49,36 +49,35 @@ export function TopBar() {
 
   return (
     <header className="border-b border-border">
-      <div className="mx-auto flex w-full max-w-[960px] items-center justify-between px-4 py-3">
+      <div className="mx-auto grid w-full max-w-[960px] grid-cols-[auto_1fr_auto] items-center gap-2 px-4 py-3">
+        <button
+          type="button"
+          aria-label="Leaderboard"
+          className={iconButtonClass}
+          onClick={() => setOpenModal("leaderboard")}
+        >
+          <LeaderboardIcon />
+        </button>
+
         <Link
           href="/daily"
-          className="flex items-center text-lg font-bold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="flex items-center justify-center text-3xl font-bold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          <span>Driver</span>
-          <span className="text-accent">Pit</span>
+          <span>DRIVER</span>
+          <span className="text-accent">PIT</span>
         </Link>
 
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            aria-label="Settings"
-            className={iconButtonClass}
-            onClick={() => {
-              setSettingsSection("general");
-              setOpenModal("settings");
-            }}
-          >
-            <SettingsIcon />
-          </button>
-          <button
-            type="button"
-            aria-label="Leaderboard"
-            className={iconButtonClass}
-            onClick={() => setOpenModal("leaderboard")}
-          >
-            <LeaderboardIcon />
-          </button>
-        </div>
+        <button
+          type="button"
+          aria-label="Settings"
+          className={`${iconButtonClass} justify-self-end`}
+          onClick={() => {
+            setSettingsSection("general");
+            setOpenModal("settings");
+          }}
+        >
+          <SettingsIcon />
+        </button>
       </div>
 
       <SettingsModal

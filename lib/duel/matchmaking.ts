@@ -39,7 +39,7 @@ function toMatchResult(row: MatchOrQueueRow): MatchResult | null {
     opponentId: row.opponent_id,
     opponentUsername: row.opponent_username ?? "",
     opponentDisplayName: row.opponent_display_name,
-    opponentAvatarUrl: row.opponent_avatar_url ?? "preset-1",
+    opponentAvatarUrl: row.opponent_avatar_url ?? "opponent",
     youAre: row.you_are ?? "a",
     matchCreatedAt: row.match_created_at ?? new Date().toISOString(),
   };

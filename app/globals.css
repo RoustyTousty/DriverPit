@@ -39,6 +39,14 @@ body {
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
 
+/* Browsers default <button> to cursor: default, not pointer (only <a href>
+   gets that for free) -- without this every button on the site looks
+   unclickable on hover. Excludes disabled buttons, which should keep
+   showing they can't be interacted with. */
+button:not(:disabled) {
+  cursor: pointer;
+}
+
 /* Reserve the scrollbar gutter permanently so opening a modal (which sets
    body overflow to hidden to lock scroll) never changes the viewport width
    -- without this, losing the scrollbar mid-interaction shifts everything

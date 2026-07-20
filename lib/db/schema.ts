@@ -32,10 +32,10 @@ export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
   username: text("username").notNull().unique(),
   displayName: text("display_name"),
-  // A preset avatar key ("preset-1".."preset-8", see lib/avatars.tsx),
-  // randomly assigned by the signup trigger and re-pickable afterward via
-  // Settings -> Profile. Not a real image URL despite the column name --
-  // there's no upload/Storage path, just this fixed icon set.
+  // A DiceBear seed string (see lib/avatars.tsx), not a real image URL --
+  // there's no upload/Storage path. Defaults to the user's own id (set by
+  // the signup trigger, so every guest gets a distinct character for
+  // free) and is re-pickable afterward via Settings -> Profile.
   avatarUrl: text("avatar_url").notNull(),
   isGuest: boolean("is_guest").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

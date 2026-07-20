@@ -15,13 +15,18 @@ interface FeedConfig {
 
 // formula1.com's official feed was evaluated too, but its <item>s carry no
 // pubDate/dc:date at all -- parseRssItems (rightly) drops undated items, so
-// it would never contribute anything. Autosport is the same Motorsport
-// Network publisher/format as motorsport.com (dated items, enclosure
-// images), so it's a genuinely independent second byline without any
-// parser special-casing.
+// it would never contribute anything. planetf1.com's feed URL currently
+// 404s/redirects to a WordPress error page -- also skipped. Everything
+// below returned well-formed, dated items as of the last check; RaceFans
+// doesn't carry <enclosure> images (independent blog-style site, images
+// live in the HTML body instead), so its cards fall back to the plain
+// placeholder -- NewsCarousel already handles that.
 const FEEDS: FeedConfig[] = [
   { url: "https://www.motorsport.com/rss/f1/news/", source: "Motorsport.com" },
   { url: "https://www.autosport.com/rss/f1/news/", source: "Autosport" },
+  { url: "https://www.crash.net/rss/f1", source: "Crash.net" },
+  { url: "https://www.skysports.com/rss/12433", source: "Sky Sports" },
+  { url: "https://www.racefans.net/feed/", source: "RaceFans" },
 ];
 
 const REVALIDATE_SECONDS = 60 * 60;

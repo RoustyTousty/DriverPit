@@ -12,6 +12,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@dicebear/core": "^10.3.0",
+    "@dicebear/styles": "^10.2.0",
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.7",
     "drizzle-orm": "^0.45.2",

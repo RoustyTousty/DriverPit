@@ -127,6 +127,13 @@
       "when": 1784502989325,
       "tag": "0017_duel_round_60s",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1784540531255,
+      "tag": "0018_dicebear_avatar_seed",
+      "breakpoints": true
     }
   ]
 }

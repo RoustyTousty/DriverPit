@@ -116,7 +116,7 @@ export function NewsCarousel({ items }: { items: NewsItem[] }) {
       </div>
 
       {items.length > 1 && (
-        <div className="flex items-center justify-center gap-1">
+        <div className="flex items-center justify-center">
           {items.map((story, i) => (
             <button
               key={story.link}
@@ -124,7 +124,7 @@ export function NewsCarousel({ items }: { items: NewsItem[] }) {
               aria-label={`Show story ${i + 1} of ${items.length}`}
               aria-current={i === index}
               onClick={() => setIndex(i)}
-              className="flex items-center justify-center rounded-full p-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="flex items-center justify-center rounded-full p-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               <span
                 className={`block h-1.5 rounded-full transition-all ${

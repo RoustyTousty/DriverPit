@@ -14,22 +14,27 @@ const LINKS = [
 // border-b, max-w-240 container) but the settings/leaderboard icon buttons
 // are swapped for text nav between the info pages plus a "Play now" CTA
 // back into the game shell, since neither settings nor a leaderboard exist
-// outside it.
+// outside it. Logo pinned left; the nav's `ml-auto` pushes it and "Play
+// now" together as one group against the right edge. The nav itself is the
+// only part that can shrink/scroll (`min-w-0 overflow-x-auto` -- min-w-0 is
+// load-bearing, a flex item defaults to min-width: auto and won't actually
+// shrink below its content without it), so "Play now" always stays fully
+// visible and everything stays on one line on a narrow phone.
 export function InfoTopBar() {
   const pathname = usePathname();
 
   return (
     <header className="border-b border-border">
-      <div className="mx-auto flex w-full max-w-240 flex-wrap items-center justify-between gap-3 px-4 py-3">
+      <div className="mx-auto flex w-full max-w-240 items-center gap-2 px-4 py-3">
         <Link
           href="/daily"
-          className="flex items-center text-lg font-bold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="flex shrink-0 items-center text-2xl font-bold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          <span>Driver</span>
-          <span className="text-accent">Pit</span>
+          <span>DRIVER</span>
+          <span className="text-accent">PIT</span>
         </Link>
 
-        <nav aria-label="Info pages" className="flex flex-wrap items-center gap-1">
+        <nav aria-label="Info pages" className="ml-auto flex min-w-0 items-center gap-1 overflow-x-auto">
           {LINKS.map((link) => {
             const active = pathname === link.href;
             return (
@@ -37,7 +42,7 @@ export function InfoTopBar() {
                 key={link.href}
                 href={link.href}
                 aria-current={active ? "page" : undefined}
-                className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                   active ? "bg-surface-2 text-text" : "text-text-muted hover:bg-surface-2 hover:text-text"
                 }`}
               >
@@ -45,13 +50,14 @@ export function InfoTopBar() {
               </Link>
             );
           })}
-          <Link
-            href="/daily"
-            className="ml-1 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            Play now
-          </Link>
         </nav>
+
+        <Link
+          href="/daily"
+          className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          Play now
+        </Link>
       </div>
     </header>
   );
