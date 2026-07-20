@@ -11,17 +11,20 @@ export function ToggleRow({
   description,
   checked,
   onChange,
+  preview,
 }: {
   label: string;
   description: string;
   checked: boolean;
   onChange: (next: boolean) => void;
+  preview?: React.ReactNode;
 }) {
   return (
     <div className="flex items-start justify-between gap-4">
       <div>
         <p className="text-sm font-semibold text-text">{label}</p>
         <p className="text-xs text-text-muted">{description}</p>
+        {preview}
       </div>
       <button
         type="button"
@@ -45,6 +48,40 @@ export function ToggleRow({
           }`}
         />
       </button>
+    </div>
+  );
+}
+
+// Miniature live preview of the three tile colors this toggle affects --
+// updates instantly as the switch flips (mirrors the CSS values in
+// globals.css) so the effect is shown, not just described. Values duplicated
+// here rather than read from computed styles: this renders inline with the
+// toggle before the setting is applied to <html>, so it can't depend on the
+// DOM attribute the CSS keys off of.
+function ColorblindPreview({ colorblind }: { colorblind: boolean }) {
+  const correct = colorblind ? "#3b82f6" : "#2e7d46";
+  const miss = "#2a2f37";
+  const accent = "#ff6a00";
+  const closenessOpacity = Math.min(1, 0.5 + (colorblind ? 0.18 : 0));
+
+  const swatches: { label: string; node: React.ReactNode }[] = [
+    { label: "Correct", node: <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: correct }} /> },
+    {
+      label: "Close",
+      node: (
+        <div className="relative h-2.5 w-2.5 overflow-hidden rounded-full" style={{ backgroundColor: miss }}>
+          <div className="absolute inset-0" style={{ backgroundColor: accent, opacity: closenessOpacity }} />
+        </div>
+      ),
+    },
+    { label: "Miss", node: <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: miss }} /> },
+  ];
+
+  return (
+    <div className="mt-1.5 flex items-center gap-1" aria-hidden="true">
+      {swatches.map((swatch) => (
+        <div key={swatch.label}>{swatch.node}</div>
+      ))}
     </div>
   );
 }
@@ -89,9 +126,10 @@ export function GeneralSection() {
 
       <ToggleRow
         label="Colorblind mode"
-        description="Swap the correct-tile green for a blue that stays distinct from the orange accent."
+        description="Swaps the correct-tile green for a blue that stays distinct from the orange accent, and boosts near-miss tint contrast."
         checked={settings.colorblindMode}
         onChange={(next) => update({ colorblindMode: next })}
+        preview={<ColorblindPreview colorblind={settings.colorblindMode} />}
       />
 
       <ToggleRow

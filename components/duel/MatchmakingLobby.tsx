@@ -17,6 +17,7 @@ import {
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 import { DuelMatch } from "./DuelMatch";
+import { RatingBadge } from "./MatchFoundReveal";
 
 const POLL_INTERVAL_MS = 4_000;
 
@@ -43,7 +44,7 @@ export function MatchmakingLobby({
   eligibleDrivers: DriverOption[];
   onCancel: () => void;
 }) {
-  const { user, profile } = useAuth();
+  const { user, profile, stats } = useAuth();
   const toast = useToast();
   const [onlineCount, setOnlineCount] = useState(1);
   const [match, setMatch] = useState<MatchResult | null>(null);
@@ -84,6 +85,7 @@ export function MatchmakingLobby({
           opponentUsername: data.opponentUsername,
           opponentDisplayName: data.opponentDisplayName,
           opponentAvatarUrl: data.opponentAvatarUrl,
+          opponentRating: data.opponentRating,
           youAre: data.youAre,
           matchCreatedAt: data.matchCreatedAt,
         });
@@ -116,6 +118,7 @@ export function MatchmakingLobby({
             opponentUsername: profile.username,
             opponentDisplayName: profile.displayName,
             opponentAvatarUrl: profile.avatarUrl,
+            opponentRating: stats?.duelRating ?? null,
           };
           await channel.send({ type: "broadcast", event: MATCHED_EVENT, payload });
         }
@@ -154,6 +157,7 @@ export function MatchmakingLobby({
     return (
       <DuelMatch
         me={profile}
+        myRating={stats?.duelRating ?? null}
         match={match}
         eligibleDrivers={eligibleDrivers}
         onFindNewOpponent={handleFindNewOpponent}
@@ -165,28 +169,29 @@ export function MatchmakingLobby({
     <div className="flex flex-col items-center gap-6 px-4 py-10 text-center">
       <p className="text-xs font-semibold tracking-wide text-accent uppercase">Finding an opponent</p>
 
+      <div
+        className="h-4 w-4 animate-spin rounded-full border-2 border-border border-t-accent motion-reduce:animate-none"
+        aria-hidden="true"
+      />
+
       <div className="flex w-full items-center justify-center gap-4">
         <div className="flex flex-1 flex-col items-center gap-2">
           {profile && <AvatarGlyph avatarUrl={profile.avatarUrl} size="md" />}
           <p className="max-w-full truncate text-sm font-semibold text-text">
             {profile ? profile.displayName || profile.username : "You"}
           </p>
+          <RatingBadge rating={stats?.duelRating ?? null} />
         </div>
 
-        <span className="text-lg font-bold text-text-muted">VS</span>
+        <div className="flex flex-col items-center gap-1">
+          <span className="text-lg font-bold text-text-muted">VS</span>
+          <p className="text-xs text-text-muted">{onlineCount} online</p>
+        </div>
 
         <div className="flex flex-1 flex-col items-center gap-2">
           <EmptyAvatarSlot />
           <p className="max-w-full truncate text-sm text-text-muted">Waiting…</p>
         </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <div
-          className="h-4 w-4 animate-spin rounded-full border-2 border-border border-t-accent motion-reduce:animate-none"
-          aria-hidden="true"
-        />
-        <p className="text-xs text-text-muted">{onlineCount} online</p>
       </div>
 
       <button

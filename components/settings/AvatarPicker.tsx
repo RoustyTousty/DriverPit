@@ -9,7 +9,7 @@ import { CURATED_AVATAR_SEEDS, randomAvatarSeed } from "@/lib/avatars";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 const PANEL_WIDTH = 288; // matches w-72
-const PANEL_MAX_HEIGHT = 340; // header + shuffle row + ~5 grid rows, for the above/below flip check
+const PANEL_MAX_HEIGHT = 300; // header + shuffle row + 4 grid rows, for the above/below flip check
 const VIEWPORT_MARGIN = 8;
 
 function ShuffleIcon() {
@@ -54,6 +54,12 @@ export function AvatarPicker({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
+
+  // Roll a fresh batch every time the panel opens (not just on manual
+  // Shuffle) so the grid is never the same selection twice in a row.
+  useEffect(() => {
+    if (open) setSeeds(Array.from({ length: CURATED_AVATAR_SEEDS.length }, randomAvatarSeed));
+  }, [open]);
 
   // Two-phase open so the panel transitions in rather than popping, and
   // recomputed on every open/scroll/resize since the trigger can move
@@ -198,7 +204,7 @@ export function AvatarPicker({
                 Shuffle
               </button>
             </div>
-            <div className="grid max-h-64 grid-cols-5 gap-1.5 overflow-y-auto pr-0.5">
+            <div className="grid max-h-56 grid-cols-5 gap-1.5 overflow-y-auto pr-0.5">
               {seeds.map((seed) => {
                 const selected = seed === currentAvatarUrl;
                 return (

@@ -44,13 +44,18 @@ export function Tile({
 
   return (
     <div
+      data-tile={isCorrect ? "correct" : undefined}
       className={`animate-tile-reveal motion-reduce:animate-none relative flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg px-0.5 py-2 text-center font-mono text-xs leading-tight font-semibold tabular-nums sm:text-sm ${
         isCorrect ? "bg-correct text-white" : "bg-miss text-text"
       }`}
       style={delayMs ? { animationDelay: `${delayMs}ms` } : undefined}
     >
       {orangeOpacity > 0 && (
-        <span aria-hidden="true" className="absolute inset-0 bg-accent" style={{ opacity: orangeOpacity }} />
+        <span
+          aria-hidden="true"
+          className="absolute inset-0 bg-accent"
+          style={{ opacity: `min(1, calc(${orangeOpacity} + var(--closeness-boost, 0)))` }}
+        />
       )}
       <span className="relative z-10 line-clamp-2 w-full min-w-0 break-words">{children}</span>
       {arrow && (

@@ -134,6 +134,13 @@
       "when": 1784540531255,
       "tag": "0018_dicebear_avatar_seed",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1784583000604,
+      "tag": "0019_match_or_queue_opponent_rating",
+      "breakpoints": true
     }
   ]
 }

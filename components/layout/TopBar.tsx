@@ -1,7 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
+
+import driverpitBanner from "@/public/driverpit-banner.png";
 
 import { LeaderboardModal } from "@/components/leaderboard/LeaderboardModal";
 import { SettingsModal, type SettingsSection } from "@/components/settings/SettingsModal";
@@ -61,10 +64,9 @@ export function TopBar() {
 
         <Link
           href="/daily"
-          className="flex items-center justify-center text-3xl font-bold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          <span>DRIVER</span>
-          <span className="text-accent">PIT</span>
+          <Image src={driverpitBanner} alt="DriverPit" priority className="h-12 w-auto" />
         </Link>
 
         <button

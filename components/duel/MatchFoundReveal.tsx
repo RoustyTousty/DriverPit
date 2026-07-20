@@ -1,17 +1,26 @@
 import type { Profile } from "@/components/auth/AuthProvider";
 import { AvatarGlyph } from "@/components/ui/AvatarGlyph";
 
+// Shared with MatchmakingLobby's own searching screen, which shows the
+// player's own rating before an opponent (and their rating) is known.
+export function RatingBadge({ rating }: { rating: number | null }) {
+  if (rating === null) return null;
+  return <p className="font-mono text-xs tabular-nums text-text-muted">{rating} rating</p>;
+}
+
 // Purely presentational -- `remainingMs` is owned by the parent (DuelMatch),
 // which runs a single useServerCountdown instance for whatever phase is
 // active (this reveal, or later the round timer) rather than each display
 // component running its own clock.
 export function MatchFoundReveal({
   me,
+  myRating,
   opponent,
   remainingMs,
 }: {
   me: Profile;
-  opponent: { username: string; displayName: string | null; avatarUrl: string };
+  myRating: number | null;
+  opponent: { username: string; displayName: string | null; avatarUrl: string; rating: number | null };
   remainingMs: number;
 }) {
   const secondsLeft = Math.ceil(remainingMs / 1000);
@@ -27,6 +36,7 @@ export function MatchFoundReveal({
           <p className="max-w-full truncate text-sm font-semibold text-text">
             {me.displayName || me.username}
           </p>
+          <RatingBadge rating={myRating} />
         </div>
 
         <span className="text-lg font-bold text-text-muted">VS</span>
@@ -36,6 +46,7 @@ export function MatchFoundReveal({
           <p className="max-w-full truncate text-sm font-semibold text-text">
             {opponent.displayName || opponent.username}
           </p>
+          <RatingBadge rating={opponent.rating} />
         </div>
       </div>
 

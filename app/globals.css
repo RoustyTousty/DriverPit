@@ -13,6 +13,8 @@
 
   --correct: #2e7d46;
   --miss: #2a2f37;
+
+  --closeness-boost: 0;
 }
 
 @theme inline {
@@ -111,7 +113,22 @@ html {
    distinguishable from the orange accent under red-green color vision
    deficiencies -- green/orange can read as near-identical there, blue/orange
    doesn't. --color-correct (Tile, etc.) re-reads this live since it's just
-   `var(--correct)`. */
+   `var(--correct)`.
+
+   --closeness-boost raises the near-miss/historical orange tint's opacity
+   floor (see Tile in GuessGrid.tsx, which reads this var via calc()) --
+   independent of the hue swap above, low-opacity tints are a *contrast*
+   problem: at 5-15% opacity the tint is nearly invisible against --miss
+   regardless of which colors are involved, so hue-shifting --correct alone
+   doesn't help someone tell "close" from "not close" apart. */
 [data-colorblind="true"] {
   --correct: #3b82f6;
+  --closeness-boost: 0.18;
+}
+
+/* Extra edge contrast on the "correct" tile itself under colorblind mode --
+   a redundant, non-hue cue (a tile can be right at a glance from its outline
+   alone) layered on top of the blue swap, not a replacement for it. */
+[data-colorblind="true"] [data-tile="correct"] {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
 }

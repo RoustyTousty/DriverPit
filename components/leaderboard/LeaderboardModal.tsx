@@ -14,6 +14,23 @@ const BOARDS: { value: Board; label: string }[] = [
   { value: "duel", label: "Duel rating" },
 ];
 
+// Always exactly this many slots at the top, real entries or not -- with
+// only a handful of accounts so far, a board that just stops after 2-3 real
+// rows reads as broken rather than "not many people yet." Matches Row's
+// layout (rank column, sm AvatarGlyph) so a real row slotting into an empty
+// one later doesn't shift anything around it.
+const TOP_SLOTS = 10;
+
+function EmptySlotRow({ rank }: { rank: number }) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-dashed border-border px-3 py-2">
+      <span className="w-5 shrink-0 text-right font-mono text-xs tabular-nums text-text-muted">{rank}</span>
+      <div className="h-7 w-7 shrink-0 rounded-full border-2 border-dashed border-border" aria-hidden="true" />
+      <p className="min-w-0 flex-1 truncate text-sm text-text-muted">Open</p>
+    </div>
+  );
+}
+
 function Row({
   rank,
   username,
@@ -64,6 +81,8 @@ export function LeaderboardModal({
   const [board, setBoard] = useState<Board>("streak");
   const [duelBoard, setDuelBoard] = useState<DuelLeaderboardEntry[]>([]);
   const [streakBoard, setStreakBoard] = useState<StreakLeaderboardEntry[]>([]);
+  const [myDuelRank, setMyDuelRank] = useState<{ rank: number; entry: DuelLeaderboardEntry } | undefined>();
+  const [myStreakRank, setMyStreakRank] = useState<{ rank: number; entry: StreakLeaderboardEntry } | undefined>();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -73,11 +92,11 @@ export function LeaderboardModal({
     void getLeaderboard().then((result) => {
       setDuelBoard(result.duelBoard);
       setStreakBoard(result.streakBoard);
+      setMyDuelRank(result.myDuelRank);
+      setMyStreakRank(result.myStreakRank);
       setLoading(false);
     });
   }, [open]);
-
-  const rows = board === "duel" ? duelBoard : streakBoard;
 
   return (
     <Modal open={open} onClose={onClose} title="Leaderboard">
@@ -120,35 +139,74 @@ export function LeaderboardModal({
 
         {loading ? (
           <p className="py-6 text-center text-sm text-text-muted">Loading…</p>
-        ) : rows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-text-muted">No ranked players yet.</p>
         ) : (
           <div className="flex max-h-80 flex-col gap-1.5 overflow-y-auto">
             {board === "duel"
-              ? duelBoard.map((entry, index) => (
-                  <Row
-                    key={entry.id}
-                    rank={index + 1}
-                    username={entry.username}
-                    displayName={entry.displayName}
-                    avatarUrl={entry.avatarUrl}
-                    metric={entry.duelRating}
-                    metricLabel="Rating"
-                    isYou={entry.id === profile?.id}
-                  />
-                ))
-              : streakBoard.map((entry, index) => (
-                  <Row
-                    key={entry.id}
-                    rank={index + 1}
-                    username={entry.username}
-                    displayName={entry.displayName}
-                    avatarUrl={entry.avatarUrl}
-                    metric={entry.currentStreak}
-                    metricLabel="Streak"
-                    isYou={entry.id === profile?.id}
-                  />
-                ))}
+              ? Array.from({ length: TOP_SLOTS }).map((_, index) => {
+                  const entry = duelBoard[index];
+                  return entry ? (
+                    <Row
+                      key={entry.id}
+                      rank={index + 1}
+                      username={entry.username}
+                      displayName={entry.displayName}
+                      avatarUrl={entry.avatarUrl}
+                      metric={entry.duelRating}
+                      metricLabel="Rating"
+                      isYou={entry.id === profile?.id}
+                    />
+                  ) : (
+                    <EmptySlotRow key={`empty-${index}`} rank={index + 1} />
+                  );
+                })
+              : Array.from({ length: TOP_SLOTS }).map((_, index) => {
+                  const entry = streakBoard[index];
+                  return entry ? (
+                    <Row
+                      key={entry.id}
+                      rank={index + 1}
+                      username={entry.username}
+                      displayName={entry.displayName}
+                      avatarUrl={entry.avatarUrl}
+                      metric={entry.currentStreak}
+                      metricLabel="Streak"
+                      isYou={entry.id === profile?.id}
+                    />
+                  ) : (
+                    <EmptySlotRow key={`empty-${index}`} rank={index + 1} />
+                  );
+                })}
+
+            {/* Not in the top slots above -- shown separately with a real
+                rank/value instead of never appearing at all. */}
+            {board === "duel" && myDuelRank && (
+              <>
+                <div className="my-1 border-t border-dashed border-border" aria-hidden="true" />
+                <Row
+                  rank={myDuelRank.rank}
+                  username={myDuelRank.entry.username}
+                  displayName={myDuelRank.entry.displayName}
+                  avatarUrl={myDuelRank.entry.avatarUrl}
+                  metric={myDuelRank.entry.duelRating}
+                  metricLabel="Rating"
+                  isYou
+                />
+              </>
+            )}
+            {board === "streak" && myStreakRank && (
+              <>
+                <div className="my-1 border-t border-dashed border-border" aria-hidden="true" />
+                <Row
+                  rank={myStreakRank.rank}
+                  username={myStreakRank.entry.username}
+                  displayName={myStreakRank.entry.displayName}
+                  avatarUrl={myStreakRank.entry.avatarUrl}
+                  metric={myStreakRank.entry.currentStreak}
+                  metricLabel="Streak"
+                  isYou
+                />
+              </>
+            )}
           </div>
         )}
       </div>

@@ -263,7 +263,7 @@ export function DailyGame({
           No puzzle is scheduled for today. Check back soon.
         </div>
       ) : status === "loading" ? (
-        <div className="py-12 text-center text-text-muted">Loading today&apos;s puzzle…</div>
+        <div className="py-12 text-center text-sm text-text-muted">Loading today&apos;s puzzle…</div>
       ) : (
         <>
           <DriverAutocomplete

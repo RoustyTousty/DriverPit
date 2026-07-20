@@ -24,7 +24,7 @@ export function renderAvatarSvg(seed: string): string {
 export const CURATED_AVATAR_SEEDS: string[] = [
   "Apex", "Blaze", "Comet", "Delta", "Ember", "Flux", "Grid", "Havoc",
   "Ignite", "Jetstream", "Kilo", "Lumen", "Mach", "Nova", "Orbit", "Pace",
-  "Quantum", "Rally", "Surge", "Torque", "Uplift", "Vertex", "Watt", "Zenith",
+  "Quantum", "Rally", "Surge", "Torque",
 ];
 
 export function randomAvatarSeed(): string {

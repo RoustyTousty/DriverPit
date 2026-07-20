@@ -1,8 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+
+import driverpitBanner from "@/public/driverpit-banner.png";
 
 const LINKS = [
   { href: "/about", label: "About" },
@@ -54,10 +57,9 @@ export function InfoTopBar() {
       <div className="mx-auto flex w-full max-w-240 items-center gap-2 px-4 py-3">
         <Link
           href="/daily"
-          className="flex shrink-0 items-center text-2xl font-bold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="flex shrink-0 items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          <span>DRIVER</span>
-          <span className="text-accent">PIT</span>
+          <Image src={driverpitBanner} alt="DriverPit" priority className="h-7 w-auto" />
         </Link>
 
         <nav aria-label="Info pages" className="ml-auto hidden items-center gap-1 sm:flex">

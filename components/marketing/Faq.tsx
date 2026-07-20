@@ -33,7 +33,27 @@ const QA: { q: string; a: string }[] = [
   },
   {
     q: "Do you store any personal information?",
-    a: "No accounts and no tracking of who you are. Stats and settings are saved in your browser's local storage, on your device only — clearing it, or using Settings → Reset local stats, wipes it for good.",
+    a: "Every visitor gets an anonymous guest identity automatically, just so stats and duel matchmaking work — no personal information involved. If you create a full account (email or Google), we store your email, username, avatar, and gameplay stats so they follow you across devices. See the Privacy policy for the full details, and what to do if you'd rather not.",
+  },
+  {
+    q: "Do I need an account to play?",
+    a: "No — every visitor can play Daily, Infinite, and Duel straight away as a guest, no sign-up required. Creating a full account (email or Google) is only needed to appear on the global leaderboard and set a custom username, display name, or avatar.",
+  },
+  {
+    q: "How does Duel matchmaking and rating work?",
+    a: "Joining the queue matches you against another waiting player, roughly by duel rating when possible — the pairing widens how far apart your ratings can be the longer you wait. A match is 3 rounds, one driver each, unlimited guesses against a countdown timer; solving faster scores more, and even a DNF earns a few points for how close your best guess was. Your rating updates once the match ends.",
+  },
+  {
+    q: "Why do I see ads?",
+    a: "DriverPit is free to play and ad-supported through Google AdSense — ads only ever show outside of an active Duel match, never mid-race. If you're in the EEA, UK, or Switzerland, you'll get a consent choice before any ad personalization is switched on.",
+  },
+  {
+    q: "Can I change my avatar or display name?",
+    a: "Yes, under Settings → Profile — full accounts can pick a new avatar from the picker (with a shuffle for more options) and edit their display name any time. Guests get a random avatar and a generated handle until they sign up.",
+  },
+  {
+    q: "What is Knockout mode?",
+    a: "A planned 20-player elimination mode, not live yet — you'll see it listed (marked \"coming soon\") when you open Duel's matchmaking screen. It'll reuse the same live-match engine as Duel, with everyone guessing the same driver as new hints reveal automatically and the slowest players eliminated each round.",
   },
 ];
 

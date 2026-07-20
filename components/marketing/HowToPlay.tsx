@@ -27,7 +27,7 @@ const LEGEND: {
 }[] = [
   { feedback: "exact", value: "Ferrari", label: "Exact match" },
   { feedback: "historical", value: "McLaren", label: "Raced for them before, not currently" },
-  { feedback: "miss", value: "British", label: "No match at all" },
+  { feedback: "miss", value: "Italy", label: "No match at all" },
   { feedback: "higher", value: "39", closeness: 0.15, label: "Numeric miss, wide off" },
   { feedback: "lower", value: "2007", closeness: 0.85, label: "Numeric miss, close" },
 ];

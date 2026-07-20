@@ -52,11 +52,13 @@ const EMPTY_OPPONENT_PROGRESS = { guessCount: 0, bestHeat: 0, solved: false };
 
 export function DuelMatch({
   me,
+  myRating,
   match,
   eligibleDrivers,
   onFindNewOpponent,
 }: {
   me: Profile;
+  myRating: number | null;
   match: MatchResult;
   eligibleDrivers: DriverOption[];
   onFindNewOpponent: () => void;
@@ -376,10 +378,12 @@ export function DuelMatch({
       return (
         <MatchFoundReveal
           me={me}
+          myRating={myRating}
           opponent={{
             username: activeMatch.opponentUsername,
             displayName: activeMatch.opponentDisplayName,
             avatarUrl: activeMatch.opponentAvatarUrl,
+            rating: activeMatch.opponentRating,
           }}
           remainingMs={remainingToStart}
         />

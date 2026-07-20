@@ -18,6 +18,7 @@ interface MatchOrQueueRow {
   opponent_username: string | null;
   opponent_display_name: string | null;
   opponent_avatar_url: string | null;
+  opponent_rating: number | null;
   you_are: "a" | "b" | null;
   match_created_at: string | null;
 }
@@ -28,6 +29,7 @@ export interface MatchResult {
   opponentUsername: string;
   opponentDisplayName: string | null;
   opponentAvatarUrl: string;
+  opponentRating: number | null;
   youAre: "a" | "b";
   matchCreatedAt: string;
 }
@@ -40,6 +42,7 @@ function toMatchResult(row: MatchOrQueueRow): MatchResult | null {
     opponentUsername: row.opponent_username ?? "",
     opponentDisplayName: row.opponent_display_name,
     opponentAvatarUrl: row.opponent_avatar_url ?? "opponent",
+    opponentRating: row.opponent_rating,
     youAre: row.you_are ?? "a",
     matchCreatedAt: row.match_created_at ?? new Date().toISOString(),
   };
@@ -78,4 +81,9 @@ export interface MatchedBroadcastPayload {
   opponentUsername: string;
   opponentDisplayName: string | null;
   opponentAvatarUrl: string;
+  // The sender's own rating -- from the recipient's point of view, that's
+  // their opponent's rating. Sent from the sender's already-known
+  // stats.duelRating rather than round-tripping through match_or_queue
+  // again, same reasoning as every other field here.
+  opponentRating: number | null;
 }
