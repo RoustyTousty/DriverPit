@@ -28,19 +28,31 @@ export function GameChrome({
 }) {
   const { active } = useActiveMatch();
 
-  if (active) return <>{children}</>;
-
+  // `children` (the actual game window -- DuelRoot's whole match/queue
+  // state tree, among others) must stay at the same position in this
+  // fragment's children across the active/inactive branches. Without
+  // this, toggling `active` (DuelMatch calls setActive(true) the instant
+  // a round starts) shifts children's index in React's eyes -- from 1
+  // (after ModeTabs) to 0 -- which reads as a type mismatch at that slot
+  // and makes React tear down and remount the whole subtree from scratch,
+  // resetting DuelRoot's inQueue state back to the landing screen the
+  // moment a match actually starts. Conditionally rendering *around*
+  // children instead of conditionally returning different trees keeps its
+  // slot stable no matter what active is.
   return (
     <>
-      <ModeTabs />
+      {!active && <ModeTabs />}
       {children}
+      {!active && (
+        <>
+          <div className="mx-auto w-full max-w-240 px-4">
+            <hr className="border-border" />
+          </div>
 
-      <div className="mx-auto w-full max-w-240 px-4">
-        <hr className="border-border" />
-      </div>
-
-      {marketing}
-      {footer}
+          {marketing}
+          {footer}
+        </>
+      )}
     </>
   );
 }
