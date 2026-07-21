@@ -70,3 +70,34 @@ const MAX_PROXIMITY_WEIGHT = NATIONALITY_WEIGHT + TEAM_EXACT_WEIGHT + AGE_WEIGHT
 export function guessHeat(result: GuessResult): number {
   return weightedProximity(result) / MAX_PROXIMITY_WEIGHT;
 }
+
+// Both players start a match at this many points so the tug-of-war bar
+// opens centered and never snaps to an end before either has scored
+// (CLAUDE.md's Duel "Live standing" section). Not persisted -- confirmed
+// round points in duel_matches.score_a/b exclude it; it's added back only
+// for display/realtime.
+export const DUEL_BASELINE = 100;
+
+// A player's live, moment-to-moment score: the shared baseline, plus
+// confirmed points from rounds already closed, plus how the *current*
+// round is going so far (provisional). Never persisted per guess -- purely
+// a realtime/display value recomputed from whatever the client already has.
+export function liveScore({
+  baseline,
+  confirmedPoints,
+  provisional,
+}: {
+  baseline: number;
+  confirmedPoints: number;
+  provisional: number;
+}): number {
+  return baseline + confirmedPoints + provisional;
+}
+
+// Tug-of-war fill: my share of the combined live score, in [0, 1] -- 0.5 is
+// dead center (a tie), driving the bar toward whoever's ahead. Both players
+// share the same DUEL_BASELINE floor, so the denominator is always positive
+// and this can't divide by zero.
+export function tugFill(liveMine: number, liveOpp: number): number {
+  return liveMine / (liveMine + liveOpp);
+}

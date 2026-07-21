@@ -2,12 +2,10 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
 
 import driverpitBanner from "@/public/driverpit-banner.png";
 
-import { LeaderboardModal } from "@/components/leaderboard/LeaderboardModal";
-import { SettingsModal, type SettingsSection } from "@/components/settings/SettingsModal";
+import { useSettingsModal } from "./SettingsModalContext";
 
 function SettingsIcon() {
   return (
@@ -44,11 +42,12 @@ function LeaderboardIcon() {
 const iconButtonClass =
   "rounded-lg p-2 text-text-muted transition hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
-type OpenModal = "settings" | "leaderboard" | null;
-
+// The modals themselves (and their open/close state) live in GameModals,
+// the client wrapper around this whole shell -- this bar just triggers
+// them, same as any other descendant (e.g. the duel results panel's guest
+// upgrade prompt).
 export function TopBar() {
-  const [openModal, setOpenModal] = useState<OpenModal>(null);
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
+  const { openSettings, openLeaderboard } = useSettingsModal();
 
   return (
     <header className="border-b border-border">
@@ -57,7 +56,7 @@ export function TopBar() {
           type="button"
           aria-label="Leaderboard"
           className={iconButtonClass}
-          onClick={() => setOpenModal("leaderboard")}
+          onClick={openLeaderboard}
         >
           <LeaderboardIcon />
         </button>
@@ -73,28 +72,11 @@ export function TopBar() {
           type="button"
           aria-label="Settings"
           className={`${iconButtonClass} justify-self-end`}
-          onClick={() => {
-            setSettingsSection("general");
-            setOpenModal("settings");
-          }}
+          onClick={() => openSettings("general")}
         >
           <SettingsIcon />
         </button>
       </div>
-
-      <SettingsModal
-        open={openModal === "settings"}
-        onClose={() => setOpenModal(null)}
-        initialSection={settingsSection}
-      />
-      <LeaderboardModal
-        open={openModal === "leaderboard"}
-        onClose={() => setOpenModal(null)}
-        onUpgrade={() => {
-          setSettingsSection("profile");
-          setOpenModal("settings");
-        }}
-      />
     </header>
   );
 }

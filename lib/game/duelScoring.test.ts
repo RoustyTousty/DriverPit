@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { compare, isWin, type Driver, type GuessResult } from "./compare";
-import { guessHeat, proximityPoints, speedPoints } from "./duelScoring";
+import { DUEL_BASELINE, guessHeat, liveScore, proximityPoints, speedPoints, tugFill } from "./duelScoring";
 
 const ROUND_MS = 45_000;
 
@@ -186,5 +186,46 @@ describe("guessHeat", () => {
     const cold = makeResult({ ageCloseness: 0.1 });
     expect(guessHeat(warm)).toBeGreaterThan(guessHeat(cold));
     expect(proximityPoints(warm)).toBeGreaterThan(proximityPoints(cold));
+  });
+});
+
+describe("liveScore", () => {
+  const cases: Array<{
+    name: string;
+    baseline: number;
+    confirmedPoints: number;
+    provisional: number;
+    expected: number;
+  }> = [
+    { name: "match start, nothing yet", baseline: DUEL_BASELINE, confirmedPoints: 0, provisional: 0, expected: 100 },
+    { name: "one confirmed round, current round untouched", baseline: DUEL_BASELINE, confirmedPoints: 140, provisional: 0, expected: 240 },
+    { name: "still on round 1, best guess so far only", baseline: DUEL_BASELINE, confirmedPoints: 0, provisional: 22, expected: 122 },
+    { name: "confirmed rounds plus a provisional lead in the current one", baseline: DUEL_BASELINE, confirmedPoints: 140, provisional: 340, expected: 580 },
+  ];
+
+  it.each(cases)("$name", ({ baseline, confirmedPoints, provisional, expected }) => {
+    expect(liveScore({ baseline, confirmedPoints, provisional })).toBe(expected);
+  });
+});
+
+describe("tugFill", () => {
+  it("is exactly centered when both players are level", () => {
+    expect(tugFill(100, 100)).toBe(0.5);
+  });
+
+  it("leans toward whoever is ahead", () => {
+    expect(tugFill(240, 100)).toBeGreaterThan(0.5);
+    expect(tugFill(100, 240)).toBeLessThan(0.5);
+  });
+
+  it("is symmetric -- swapping the two inputs mirrors around 0.5", () => {
+    const mine = tugFill(300, 120);
+    const theirs = tugFill(120, 300);
+    expect(mine + theirs).toBeCloseTo(1, 10);
+  });
+
+  it("stays within (0, 1) for any positive scores, never fully snapping to an end", () => {
+    expect(tugFill(1000, 1)).toBeLessThan(1);
+    expect(tugFill(1, 1000)).toBeGreaterThan(0);
   });
 });

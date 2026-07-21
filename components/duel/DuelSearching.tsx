@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 import { useAuth } from "@/components/auth/AuthProvider";
-import type { DriverOption } from "@/components/game/DriverAutocomplete";
 import { AvatarGlyph } from "@/components/ui/AvatarGlyph";
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -14,18 +13,17 @@ import {
   type MatchedBroadcastPayload,
   type MatchResult,
 } from "@/lib/duel/matchmaking";
+import { useOnlineCount } from "@/lib/duel/useOnlineCount";
+import { LOBBY_MIN_SEARCH_MS, MATCHMAKE_POLL_INTERVAL_MS } from "@/lib/game/duelTiming";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
-import { DuelMatch } from "./DuelMatch";
 import { RatingBadge } from "./MatchFoundReveal";
-
-const POLL_INTERVAL_MS = 4_000;
 
 // Dashed-outline stand-in for the opponent slot while none is matched yet --
 // same size/shape as AvatarGlyph so it drops into the identical "me VS
-// them" layout MatchFoundReveal uses once a real opponent avatar lands,
-// making the transition from searching to matched feel continuous instead
-// of swapping to a different screen.
+// them" layout the match-found staging screen uses once a real opponent
+// avatar lands, making the transition feel continuous rather than a jump
+// to a different layout.
 function EmptyAvatarSlot() {
   return (
     <div
@@ -37,22 +35,36 @@ function EmptyAvatarSlot() {
   );
 }
 
-export function MatchmakingLobby({
-  eligibleDrivers,
+// CLAUDE.md's Duel "Flow" step 2: renders the searching UI first (this
+// screen) and enforces LOBBY_MIN_SEARCH_MS before ever calling onFound --
+// even a match resolved on the very first matchOrQueue() poll still holds
+// here for the full minimum so the lobby always visibly loads in, rather
+// than a click-through flash straight to the next screen.
+export function DuelSearching({
+  onFound,
   onCancel,
 }: {
-  eligibleDrivers: DriverOption[];
+  onFound: (match: MatchResult) => void;
   onCancel: () => void;
 }) {
   const { user, profile, stats } = useAuth();
   const toast = useToast();
-  const [onlineCount, setOnlineCount] = useState(1);
-  const [match, setMatch] = useState<MatchResult | null>(null);
-  // Mirrors `match` synchronously so the poll/broadcast callbacks below
-  // (captured once per effect run) can tell "already matched" apart from
-  // stale state without re-subscribing the channel on every match update.
+  const onlineCount = useOnlineCount();
+  // Mirrors state the poll/broadcast callbacks below (captured once per
+  // effect run) need to read synchronously without re-subscribing the
+  // channel on every update.
   const matchRef = useRef<MatchResult | null>(null);
-  const pendingRef = useRef(false);
+  const minHoldElapsedRef = useRef(false);
+  const foundRef = useRef(onFound);
+  foundRef.current = onFound;
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      minHoldElapsedRef.current = true;
+      if (matchRef.current) foundRef.current(matchRef.current);
+    }, LOBBY_MIN_SEARCH_MS);
+    return () => clearTimeout(timeout);
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -69,13 +81,12 @@ export function MatchmakingLobby({
     function handleMatched(found: MatchResult) {
       if (matchRef.current) return;
       matchRef.current = found;
-      setMatch(found);
+      // Only actually hand off once the minimum search hold has elapsed --
+      // otherwise the timeout above does it the moment that hold ends.
+      if (minHoldElapsedRef.current) foundRef.current(found);
     }
 
     channel
-      .on("presence", { event: "sync" }, () => {
-        setOnlineCount(Object.keys(channel.presenceState()).length);
-      })
       .on("broadcast", { event: MATCHED_EVENT }, ({ payload }) => {
         const data = payload as MatchedBroadcastPayload;
         if (data.forUserId !== userId) return;
@@ -86,6 +97,8 @@ export function MatchmakingLobby({
           opponentDisplayName: data.opponentDisplayName,
           opponentAvatarUrl: data.opponentAvatarUrl,
           opponentRating: data.opponentRating,
+          opponentDuelWins: data.opponentDuelWins,
+          opponentDuelLosses: data.opponentDuelLosses,
           youAre: data.youAre,
           matchCreatedAt: data.matchCreatedAt,
         });
@@ -96,13 +109,16 @@ export function MatchmakingLobby({
         }
       });
 
+    let cancelled = false;
+    const pendingRef = { current: false };
+
     async function attempt() {
       if (pendingRef.current || matchRef.current) return;
       pendingRef.current = true;
       try {
         const result = await matchOrQueue();
         pendingRef.current = false;
-        if (!result || matchRef.current) return;
+        if (cancelled || !result || matchRef.current) return;
         handleMatched(result);
 
         // Only the joiner (the call that found a pre-existing waiting
@@ -119,6 +135,8 @@ export function MatchmakingLobby({
             opponentDisplayName: profile.displayName,
             opponentAvatarUrl: profile.avatarUrl,
             opponentRating: stats?.duelRating ?? null,
+            opponentDuelWins: stats?.duelWins ?? 0,
+            opponentDuelLosses: stats?.duelLosses ?? 0,
           };
           await channel.send({ type: "broadcast", event: MATCHED_EVENT, payload });
         }
@@ -130,9 +148,10 @@ export function MatchmakingLobby({
     }
 
     void attempt();
-    const interval = setInterval(() => void attempt(), POLL_INTERVAL_MS);
+    const interval = setInterval(() => void attempt(), MATCHMAKE_POLL_INTERVAL_MS);
 
     return () => {
+      cancelled = true;
       clearInterval(interval);
       supabase.removeChannel(channel);
       if (!matchRef.current) void leaveQueue(userId);
@@ -143,26 +162,6 @@ export function MatchmakingLobby({
   function handleCancel() {
     if (user) void leaveQueue(user.id);
     onCancel();
-  }
-
-  // The finished match is no longer `status = 'active'`, so the very next
-  // poll tick's matchOrQueue() call naturally searches fresh -- no remount
-  // or new effect needed, just clearing what we already matched.
-  function handleFindNewOpponent() {
-    matchRef.current = null;
-    setMatch(null);
-  }
-
-  if (match && profile) {
-    return (
-      <DuelMatch
-        me={profile}
-        myRating={stats?.duelRating ?? null}
-        match={match}
-        eligibleDrivers={eligibleDrivers}
-        onFindNewOpponent={handleFindNewOpponent}
-      />
-    );
   }
 
   return (
@@ -185,7 +184,9 @@ export function MatchmakingLobby({
 
         <div className="flex flex-col items-center gap-1">
           <span className="text-lg font-bold text-text-muted">VS</span>
-          <p className="text-xs text-text-muted">{onlineCount} online</p>
+          <p className="font-mono text-xs tabular-nums text-text-muted" aria-live="polite">
+            {onlineCount} online
+          </p>
         </div>
 
         <div className="flex flex-1 flex-col items-center gap-2">
@@ -197,7 +198,7 @@ export function MatchmakingLobby({
       <button
         type="button"
         onClick={handleCancel}
-        className="rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-muted transition hover:bg-surface-2 hover:text-text"
+        className="rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-muted transition hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         Cancel
       </button>

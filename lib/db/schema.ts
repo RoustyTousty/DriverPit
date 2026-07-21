@@ -1,4 +1,5 @@
-import { boolean, date, integer, jsonb, numeric, pgTable, pgView, primaryKey, serial, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, date, integer, jsonb, numeric, pgTable, pgView, primaryKey, serial, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const drivers = pgTable("drivers", {
   id: serial("id").primaryKey(),
@@ -98,29 +99,47 @@ export const matchmakingQueue = pgTable("matchmaking_queue", {
   queuedAt: timestamp("queued_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const duelMatches = pgTable("duel_matches", {
-  id: serial("id").primaryKey(),
-  playerA: uuid("player_a")
-    .notNull()
-    .references(() => profiles.id),
-  playerB: uuid("player_b")
-    .notNull()
-    .references(() => profiles.id),
-  status: text("status").notNull().default("active"),
-  currentRound: integer("current_round").notNull().default(1),
-  // Cached aggregate score, mirrored from duel_round_results -- drives the
-  // tug-of-war bar without recomputing a sum on every read.
-  scoreA: integer("score_a").notNull().default(0),
-  scoreB: integer("score_b").notNull().default(0),
-  winnerId: uuid("winner_id").references(() => profiles.id),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  finishedAt: timestamp("finished_at", { withTimezone: true }),
-  // Set by requestRematch() the moment one finished-match participant asks
-  // for a rematch; null again once consumed (the second participant's
-  // matching request finds it set to the *other* player's id and creates
-  // the new match). Mutual-consent gate -- a lone request just waits.
-  rematchRequestedBy: uuid("rematch_requested_by").references(() => profiles.id),
-});
+export const duelMatches = pgTable(
+  "duel_matches",
+  {
+    id: serial("id").primaryKey(),
+    playerA: uuid("player_a")
+      .notNull()
+      .references(() => profiles.id),
+    playerB: uuid("player_b")
+      .notNull()
+      .references(() => profiles.id),
+    // Full lifecycle per CLAUDE.md's "Duel (real-time race)": lobby ->
+    // countdown -> active -> intermission -> (loop rounds) -> finished, or
+    // abandoned (forfeit/disconnect) from any state.
+    status: text("status").notNull().default("active"),
+    currentRound: integer("current_round").notNull().default(1),
+    // Cached aggregate score, mirrored from duel_round_results -- drives the
+    // tug-of-war bar without recomputing a sum on every read.
+    scoreA: integer("score_a").notNull().default(0),
+    scoreB: integer("score_b").notNull().default(0),
+    winnerId: uuid("winner_id").references(() => profiles.id),
+    // Rating change applied to each player when the match finished, cached
+    // here (rather than only in user_stats, which just holds the current
+    // total) so the results screen can show "+/-N" without re-deriving it
+    // from a before/after snapshot. Null until the match finishes.
+    ratingDeltaA: integer("rating_delta_a"),
+    ratingDeltaB: integer("rating_delta_b"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    // Set by requestRematch() the moment one finished-match participant asks
+    // for a rematch; null again once consumed (the second participant's
+    // matching request finds it set to the *other* player's id and creates
+    // the new match). Mutual-consent gate -- a lone request just waits.
+    rematchRequestedBy: uuid("rematch_requested_by").references(() => profiles.id),
+  },
+  (table) => [
+    check(
+      "duel_matches_status_check",
+      sql`${table.status} IN ('lobby', 'countdown', 'active', 'intermission', 'finished', 'abandoned')`,
+    ),
+  ],
+);
 
 // One row per round per match, server-stamped -- both clients count down to
 // `endsAt`, never trusting their own clock. round_index is 0-based (3
@@ -137,6 +156,10 @@ export const duelRounds = pgTable(
       .references(() => drivers.id),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    // Server-stamped the moment duel_close_round() closes this round --
+    // both clients count down to the same instant before the ready-gated
+    // next round begins. Null while the round is still active.
+    intermissionEndsAt: timestamp("intermission_ends_at", { withTimezone: true }),
   },
   (table) => [primaryKey({ columns: [table.matchId, table.roundIndex] })],
 );

@@ -1,6 +1,16 @@
+"use client";
+
+import { useOnlineCount } from "@/lib/duel/useOnlineCount";
+
 export function DuelLanding({ onSelectDuel }: { onSelectDuel: () => void }) {
+  const onlineCount = useOnlineCount();
+
   return (
     <div className="flex flex-col gap-3 px-4 py-6">
+      <p className="text-xs text-text-muted" aria-live="polite">
+        <span className="font-mono tabular-nums text-text">{onlineCount}</span> online now
+      </p>
+
       <button
         type="button"
         onClick={onSelectDuel}

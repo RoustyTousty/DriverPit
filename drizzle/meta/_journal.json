@@ -148,6 +148,48 @@
       "when": 1784627028982,
       "tag": "0020_match_or_queue_advisory_lock",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1784633527516,
+      "tag": "0021_duel_lifecycle_rpcs",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1784635584628,
+      "tag": "0022_duel_submit_guess_rpc",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1784645091187,
+      "tag": "0023_match_or_queue_lobby_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1784648714587,
+      "tag": "0024_duel_close_round_reveal",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1784650391851,
+      "tag": "0025_duel_submit_guess_clock_grace",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1784655122620,
+      "tag": "0026_duel_forfeit_rpc",
+      "breakpoints": true
     }
   ]
 }

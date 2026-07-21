@@ -1,6 +1,7 @@
 import { AdSlotGate } from "@/components/ads/AdSlotGate";
 import { Footer } from "@/components/layout/Footer";
 import { GameChrome } from "@/components/layout/GameChrome";
+import { GameModals } from "@/components/layout/GameModals";
 import { TopBar } from "@/components/layout/TopBar";
 import { MarketingSections } from "@/components/marketing/MarketingSections";
 
@@ -11,9 +12,11 @@ import { MarketingSections } from "@/components/marketing/MarketingSections";
 // top bar and the game window itself during a live duel match. Marketing
 // and Footer are rendered here (Server Components) and passed down as
 // elements, not imported inside GameChrome -- see the comment there.
+// GameModals wraps the whole shell (not just TopBar) so the game window's
+// own subtree can open the Settings/Leaderboard modals too.
 export default function GameLayout({ children }: { children: React.ReactNode }) {
   return (
-    <>
+    <GameModals>
       <TopBar />
       <GameChrome marketing={<MarketingSections />} footer={<Footer />}>
         <main className="flex flex-1 flex-col items-center gap-6 px-4 pt-2 pb-6">
@@ -21,6 +24,6 @@ export default function GameLayout({ children }: { children: React.ReactNode }) 
           <AdSlotGate />
         </main>
       </GameChrome>
-    </>
+    </GameModals>
   );
 }

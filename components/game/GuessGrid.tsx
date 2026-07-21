@@ -8,8 +8,10 @@ type Feedback = ExactFeedback | OrderedFeedback | TeamFeedback;
 const COLUMN_LABELS = ["Nation", "Team", "Age", "Debut", "Wins"];
 // As narrow as the rotated 3-letter code actually needs — the previous w-6/
 // w-7 was oversized and ate into the five data tiles' width more than
-// necessary.
-const CODE_COLUMN_WIDTH = "w-7";
+// necessary. Exported so the duel board's optimistic shimmer placeholder
+// (components/duel/ClosestGuessesBoard.tsx) can match this exact width
+// instead of hardcoding a second copy of it.
+export const CODE_COLUMN_WIDTH = "w-7";
 
 // Orange intensity for a near-miss: a fixed subtle wash for "historical"
 // team hits, and one scaled by closeness (0-1) for numeric near-misses —
@@ -75,7 +77,7 @@ export function Tile({
 // current drivers share a code, e.g. Jos and Max Verstappen both being
 // "VER"), but it's always shown attached to one specific guess row, so
 // there's no ambiguity about which driver it refers to in context.
-function DriverCodeBadge({ code }: { code: string | null }) {
+export function DriverCodeBadge({ code }: { code: string | null }) {
   return (
     <div
       className={`flex min-h-14 ${CODE_COLUMN_WIDTH} shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-surface-2`}
@@ -102,7 +104,7 @@ function EmptyRow() {
   );
 }
 
-function ColumnLabels() {
+export function ColumnLabels() {
   return (
     <div className="flex gap-1 px-0.5 text-[10px] font-semibold tracking-wide text-text-muted uppercase sm:text-xs">
       <div className={`${CODE_COLUMN_WIDTH} shrink-0`} aria-hidden="true" />
@@ -115,7 +117,14 @@ function ColumnLabels() {
   );
 }
 
-function GuessRow({
+// Shared by daily/infinite (chronological, fixed-length grid below) and the
+// duel board (components/duel/ClosestGuessesBoard.tsx, closeness-sorted,
+// unlimited length) -- CLAUDE.md's "Duel visual consistency": the duel
+// board must be the daily board's row, not a bespoke second one. Don't add
+// duel-only decoration (a rank number, etc.) inside this component --
+// anything duel-specific belongs in a wrapper around it, never inside it,
+// or the two boards drift.
+export function GuessRow({
   guessedDriver,
   result,
   showFlags,
@@ -179,48 +188,3 @@ export function GuessGrid({
   );
 }
 
-// For an opponent's guesses in duel mode: colors and arrows only, no driver
-// name/code or attribute values — we never learn who they guessed, only
-// the tile feedback, which carries no identifying information by
-// construction. Keeps a blank spacer where the code badge would go so
-// columns still line up with the labels and the player's own grid.
-function ResultOnlyRow({ result }: { result: GuessResult }) {
-  const feedbacks: { feedback: Feedback; closeness?: number }[] = [
-    { feedback: result.nationality },
-    { feedback: result.team },
-    { feedback: result.age, closeness: result.ageCloseness },
-    { feedback: result.debutYear, closeness: result.debutYearCloseness },
-    { feedback: result.careerWins, closeness: result.careerWinsCloseness },
-  ];
-
-  return (
-    <div className="flex gap-1 [perspective:600px]">
-      <div className={`${CODE_COLUMN_WIDTH} shrink-0`} aria-hidden="true" />
-      {feedbacks.map((column, index) => (
-        <Tile key={index} feedback={column.feedback} closeness={column.closeness} delayMs={index * 70} />
-      ))}
-    </div>
-  );
-}
-
-export function ResultOnlyGrid({
-  results,
-  maxGuesses,
-}: {
-  results: GuessResult[];
-  maxGuesses: number;
-}) {
-  const emptyCount = maxGuesses - results.length;
-
-  return (
-    <div className="flex flex-col gap-2">
-      <ColumnLabels />
-      {results.map((result, index) => (
-        <ResultOnlyRow key={index} result={result} />
-      ))}
-      {Array.from({ length: emptyCount }).map((_, index) => (
-        <EmptyRow key={`empty-${index}`} />
-      ))}
-    </div>
-  );
-}

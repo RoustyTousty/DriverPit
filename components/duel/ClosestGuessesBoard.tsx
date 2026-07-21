@@ -1,11 +1,6 @@
-import { Tile, type Guess } from "@/components/game/GuessGrid";
-import { Flag } from "@/components/ui/Flag";
-import type { ExactFeedback, OrderedFeedback, TeamFeedback } from "@/lib/game/compare";
-import { guessHeat } from "@/lib/game/duelScoring";
-import { countryCode } from "@/lib/game/flags";
+import { CODE_COLUMN_WIDTH, ColumnLabels, GuessRow, type Guess } from "@/components/game/GuessGrid";
 import { CLOSEST_BOARD_SIZE } from "@/lib/duel/liveMatch";
-
-type Feedback = ExactFeedback | OrderedFeedback | TeamFeedback;
+import { guessHeat } from "@/lib/game/duelScoring";
 
 // A submission-order id, since guesses are unlimited and get re-sorted by
 // closeness every render -- React needs a stable key that survives the
@@ -15,83 +10,64 @@ export interface RankedGuess extends Guess {
   id: number;
 }
 
-const COLUMN_LABELS = ["Nation", "Team", "Age", "Debut", "Wins"];
-
-function BoardRow({
-  rank,
-  guess,
-  opacity,
-  showFlags,
-}: {
-  rank: number;
-  guess: RankedGuess;
-  opacity: number;
-  showFlags: boolean;
-}) {
-  const { guessedDriver, result } = guess;
-  const nationalityValue =
-    showFlags && countryCode(guessedDriver.nationality) ? (
-      <Flag nationality={guessedDriver.nationality} className="text-lg" />
-    ) : (
-      guessedDriver.nationality
-    );
-  const columns: { feedback: Feedback; closeness?: number; value: React.ReactNode }[] = [
-    { feedback: result.nationality, value: nationalityValue },
-    { feedback: result.team, value: guessedDriver.team },
-    { feedback: result.age, closeness: result.ageCloseness, value: guessedDriver.age },
-    { feedback: result.debutYear, closeness: result.debutYearCloseness, value: guessedDriver.debutYear },
-    { feedback: result.careerWins, closeness: result.careerWinsCloseness, value: guessedDriver.careerWins },
-  ];
-
+// Shimmer placeholder for a guess that's been submitted but hasn't resolved
+// yet (CLAUDE.md's "Instant guesses": optimistic render, shimmer -> fill).
+// Exact same outer shape as a real GuessRow -- the code-badge width plus
+// five flex-1 tiles -- so nothing shifts size when the real row (a fresh
+// GuessRow mount, which plays Tile's own reveal animation) replaces this.
+function PendingGuessRow() {
   return (
-    <div
-      className="flex items-center gap-1 transition-opacity duration-300 motion-reduce:transition-none"
-      style={{ opacity }}
-    >
-      <span className="w-4 shrink-0 text-center font-mono text-[10px] font-bold text-text-muted">{rank}</span>
-      <div className="flex flex-1 gap-1 [perspective:600px]">
-        {columns.map((column, index) => (
-          <Tile key={index} feedback={column.feedback} closeness={column.closeness}>
-            {column.value}
-          </Tile>
-        ))}
-      </div>
+    <div className="flex gap-1" aria-hidden="true">
+      <div
+        className={`min-h-14 ${CODE_COLUMN_WIDTH} shrink-0 animate-pulse rounded-lg bg-surface-2 motion-reduce:animate-none`}
+      />
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="min-h-14 flex-1 animate-pulse rounded-lg bg-surface-2 motion-reduce:animate-none" />
+      ))}
     </div>
   );
 }
 
 // Ranked by closeness (TikTok-leaderboard style), not submission order --
-// replaces the fixed 5-row grid now that a round allows unlimited guesses.
-// A better guess slots into position and pushes the worst off the visible
-// top CLOSEST_BOARD_SIZE; rank fades toward the bottom so a busy round
-// still reads as "best guesses first," not a wall of tiles.
-export function ClosestGuessesBoard({ guesses, showFlags }: { guesses: RankedGuess[]; showFlags: boolean }) {
-  const ranked = [...guesses]
-    .sort((a, b) => guessHeat(b.result) - guessHeat(a.result))
-    .slice(0, CLOSEST_BOARD_SIZE);
+// replaces the fixed 6-row grid daily/infinite use, since a duel round
+// allows unlimited guesses. A better guess slots into position and pushes
+// the worst off the visible top CLOSEST_BOARD_SIZE; rank fades toward the
+// bottom so a busy round still reads as "best guesses first," not a wall
+// of tiles.
+//
+// Reuses GuessRow (components/game/GuessGrid.tsx) completely unmodified --
+// same tiles, same driver-initials badge, same everything -- per CLAUDE.md's
+// "Duel visual consistency": the duel board is the daily board plus duel
+// chrome (this ranking/fade), never a bespoke second board. No rank number
+// is rendered inside or beside the row for exactly that reason; position
+// alone conveys rank.
+export function ClosestGuessesBoard({
+  guesses,
+  pending,
+  showFlags,
+}: {
+  guesses: RankedGuess[];
+  pending: boolean;
+  showFlags: boolean;
+}) {
+  const ranked = [...guesses].sort((a, b) => guessHeat(b.result) - guessHeat(a.result)).slice(0, CLOSEST_BOARD_SIZE);
 
-  if (ranked.length === 0) {
+  if (ranked.length === 0 && !pending) {
     return <p className="py-4 text-center text-xs text-text-muted">Your guesses will rank here by closeness.</p>;
   }
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-1 px-0.5 text-[10px] font-semibold tracking-wide text-text-muted uppercase">
-        <span className="w-4 shrink-0" aria-hidden="true" />
-        {COLUMN_LABELS.map((label) => (
-          <span key={label} className="flex-1 text-center">
-            {label}
-          </span>
-        ))}
-      </div>
+      <ColumnLabels />
+      {pending && <PendingGuessRow />}
       {ranked.map((guess, index) => (
-        <BoardRow
+        <div
           key={guess.id}
-          rank={index + 1}
-          guess={guess}
-          opacity={Math.max(0.55, 1 - index * 0.05)}
-          showFlags={showFlags}
-        />
+          className="transition-opacity duration-300 motion-reduce:transition-none"
+          style={{ opacity: Math.max(0.55, 1 - index * 0.05) }}
+        >
+          <GuessRow guessedDriver={guess.guessedDriver} result={guess.result} showFlags={showFlags} />
+        </div>
       ))}
     </div>
   );

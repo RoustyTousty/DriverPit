@@ -2,7 +2,7 @@
 
 A daily Wordle-style web game presented as a full website. Players guess a Formula 1 driver in 5 guesses. Each guess reveals how the guessed driver compares to the target across five attributes.
 
-Daily, infinite, and duel modes work, wrapped in the full site shell (top bar, modals, marketing sections, ads). **Current work: (1) accounts & profiles via auth, (2) settings restructure + a global leaderboard, (3) a full overhaul of duel into a real-time race format.** A fourth mode, **Knockout**, is planned but not yet built — it's documented here so the duel engine is built with the right seams. Do not change the comparison engine or the daily/infinite game logic unless a task explicitly says to. The existing room-code duel is being *replaced* by the new format below — treat it as legacy.
+Daily, infinite, and duel modes work, wrapped in the full site shell (top bar, modals, marketing sections, ads). **Current work: (1) accounts & profiles via auth, (2) settings restructure + a global leaderboard, (3) a UX/quality overhaul of the real-time duel — the engine matchmakes and plays, but the moment-to-moment experience (staging, sync, live feedback, exit handling) is being rebuilt to feel like a real head-to-head race.** A fourth mode, **Knockout**, is planned but not yet built — it's documented here so the duel engine is built with the right seams. Do not change the comparison engine or the daily/infinite game logic unless a task explicitly says to.
 
 ## Game rules
 
@@ -24,7 +24,7 @@ The comparison engine (`lib/game/compare.ts`) is pure and unit-tested — don't 
 
 - **Infinite** — random driver from a player-selectable pool, unlimited plays, no persistence beyond the current round.
 - **Daily** — one driver per day, same for everyone, resets at UTC midnight. Progress persists per-account (localStorage for signed-out legacy, migrated to the account on sign-in). Always the 10-year pool.
-- **Duel** — real-time 1v1 race, matchmade against a random opponent. 3 rounds, tug-of-war scoring. See the Duel section — this is being rebuilt.
+- **Duel** — real-time 1v1 race, matchmade against a random opponent. 3 rounds, tug-of-war scoring. See the Duel section.
 - **Knockout** *(planned, not built)* — 20-player F1-qualifying-format elimination game, lives under `/duel`. See the Knockout section.
 
 ## Driver pools
@@ -90,7 +90,7 @@ Two site sections share one root layout but have different chrome, split via App
 
 `(game)` and `(info)` are route groups — the parens are stripped from the URL, so paths stay flat (`/faq`, not `/info/faq`).
 
-`/duel` is a **landing** that offers a match type: **Duel** (live now) and **Knockout** (rendered but disabled / "coming soon" until built). Selecting Duel enters matchmaking.
+`/duel` is a **landing** that offers a match type: **Duel** (live now) and **Knockout** (rendered but disabled / "coming soon" until built). The landing shows a **live online count** (presence). Selecting Duel enters the lobby/matchmaking flow.
 
 ## Design system
 
@@ -136,6 +136,10 @@ Intentional scale (e.g. 12 / 14 / 16 / 20 / 28 / 40).
 - Mobile-first (most players on phones). Visible `--accent` focus rings. Modals trap focus, close on Escape + backdrop.
 - Themed scrollbar; `html` has `scrollbar-gutter: stable` so modal scroll-lock doesn't shift content. Don't remove without an equivalent fix.
 
+### Duel visual consistency (important)
+
+The duel **guess board must look and behave exactly like the daily/infinite board** — the same guess-row component, the same driver-initials treatment on the side, the same tiles, the same input + autocomplete. The duel is *daily's board plus duel chrome* (tug-of-war, opponent panel, round/timer header), never a bespoke second board. Extract the daily row/tile/initials/input into shared components under `components/game/` and consume them in all three modes so styling can never drift. Anything net-new in duel (tug-of-war, opponent avatars, reveal card, results panel) uses the same tokens, radii, fonts, and motion rules as the rest of the site.
+
 ## Modals
 
 One reusable `Modal` primitive (focus trap, Escape, backdrop close, scroll lock) backs all of these.
@@ -152,36 +156,87 @@ Restructure the settings modal into **three sections** (tabs or a left rail):
 
 The top-bar **cup** button now opens a **global Leaderboard** (not personal stats — those moved to Settings → Statistics). Content: rankings by duel rating, and a daily-streak board. Full accounts only are ranked; guests see the board with an upgrade prompt. Reads go through the public leaderboard view. Label it "Leaderboard".
 
-## Duel (real-time race — the overhaul)
+## Duel (real-time race)
 
-Replaces the legacy room-code duel. A fast 1v1 where two matchmade players race across **3 rounds (3 different drivers)**, scoring on speed, visualized as a **tug-of-war**.
+A fast 1v1 where two matchmade players race across **3 rounds (3 different drivers)**, scoring on speed, visualized as a **tug-of-war**. The whole point is *presence*: it has to feel like a live human is trying to beat you, right now. The engine works; this section defines the experience it must deliver.
+
+### The core problem the lifecycle solves
+
+The round clock must **never** start before both players are actually looking at the board. The old flow stamped the round timer at pairing time, so a slow client loaded into an already-expired round and never saw its opponent. The fix is a staged, server-authoritative lifecycle with **ready-gates**: a round's `started_at`/`ends_at` are stamped only after both clients report they're loaded (or a short fallback timeout). Same gate guards every round and the between-round intermission.
+
+### Match lifecycle (`duel_matches.status`)
+
+```
+lobby ──▶ countdown ──▶ active ──▶ intermission ──▶ (next round) active ... ──▶ finished
+                                        └── loop rounds 1→3 ──┘
+any state ─▶ abandoned   (forfeit / disconnect)
+```
+
+- **`lobby`** — pair created, both on the match staging screen. Avatars, handles, ratings, W/L records revealed (grid-start feel). Held ~`MATCH_FOUND_HOLD_MS`. Both clients send a `ready` presence flag.
+- **`countdown`** — once both `ready` (or `READY_TIMEOUT_MS` elapses), an RPC stamps round 1's clock and the F1 **lights-out** countdown runs to the absolute `started_at`.
+- **`active`** — a round is live (`current_round`). Board + tug-of-war + opponent panel. Ends when both solved or the timer expires.
+- **`intermission`** — reveal the correct driver, animate both players' round points, settle the bar, mini-countdown into the next round. Server-stamped `intermission_ends_at` (so both see it the same length), plus a ready-gate before the next `active`.
+- **`finished`** — winner decided, ratings + records written; clients drop out of the immersive view back to the site shell to show results.
+- **`abandoned`** — someone forfeited or disconnected past the grace window; the remaining player is the winner.
+
+### Timing constants (`lib/game/duelTiming.ts`, tunable)
+
+```
+LOBBY_MIN_SEARCH_MS   1000   min time the "searching" UI shows before a match resolves
+MATCH_FOUND_HOLD_MS   2500   how long "Match found" + avatars/ratings hold before countdown
+COUNTDOWN_MS          4000    F1 lights-out into round 1 (and shorter mini-countdowns after)
+ROUND_MS             60000    per-round guessing window (server-stamped)
+INTERMISSION_MS       6000    reveal + points animation + mini-countdown between rounds
+READY_TIMEOUT_MS      4000    fallback if a client never reports ready
+DISCONNECT_GRACE_MS  10000    reconnect window before a dropped opponent forfeits
+```
+
+These fix the "everything's too fast to see" complaints: the intermission is a real, unrushed beat and the between-round countdown gates on readiness.
 
 ### Flow
 
-1. **Matchmaking.** Player enters the queue. A Postgres RPC pairs them atomically: `SELECT ... FOR UPDATE SKIP LOCKED` finds a waiting opponent (create match, mark both matched) or enqueues the player. No background worker — pairing happens on join. Match roughly by duel rating when possible; widen the rating window the longer someone waits; fall back to anyone after a timeout.
-2. **Lobby.** While queued, a Realtime **Presence** channel shows a searching state and an online-players count. On match, reveal both players' avatars + handles (guests: preset avatar + `userXXXXXX`) with a short "lights out" style countdown into round 1. This is where the F1-race theming lives — make the match-found moment feel like a grid start.
-3. **Rounds (x3).** Each round targets one 10-year-pool driver. A **synchronized countdown** (~60s, tunable) runs per round.
-   - **Guessing:** unlimited guesses within the timer, each returning the normal 5-attribute comparison feedback (reuse `compare()`). This is guess-driven, not global-hint-driven (that's Knockout).
-   - **Success:** points on a sliding scale by *speed* — solving at 5s is worth far more than at 40s. Pure fn `speedPoints(msToSolve, roundMs)`.
-   - **DNF (timer expires unsolved):** minor **proximity points** from the player's *best* incorrect guess, derived from its `compare()` result (matched nationality / historical team / era closeness). Pure fn `proximityPoints(bestResult)`.
-4. **Match end.** After round 3, higher aggregate score wins; update both players' duel rating and record. Offer **rematch** (re-queue the same pair) and "find new opponent".
+1. **Mode select.** `/duel` landing shows Duel / Knockout with a live **online count** (presence on the global `lobby` channel).
+2. **Lobby / matchmaking.** Selecting Duel renders the lobby UI *first* (searching animation, online count) and enforces `LOBBY_MIN_SEARCH_MS` before resolving, so the player always sees the lobby load in. A Postgres RPC pairs atomically: `SELECT ... FOR UPDATE SKIP LOCKED` finds a waiting opponent (create match, mark both matched) or enqueues. No background worker. Match by rating when possible; widen the window the longer someone waits; fall back to anyone after a timeout.
+3. **Match found (staging).** Both avatars slide in from opposite sides (grid-start), with handles, ratings, and duel W/L. Held `MATCH_FOUND_HOLD_MS`. Both clients report `ready`.
+4. **Lights-out countdown.** On both-ready (or timeout), `duel_begin_round` stamps round 1's `started_at = now() + COUNTDOWN_MS`, `ends_at = started_at + ROUND_MS`. Five red lights fill, then out = GO. Clients count to the absolute `started_at`, corrected for clock offset.
+5. **Rounds (×3).** Each round targets one 10-year-pool driver.
+   - **Guessing:** unlimited guesses within the timer, each returning the normal 5-attribute comparison (reuse `compare()`). Submission must feel **instant** — see "Instant guesses".
+   - **Live standing:** every guess updates the tug-of-war live (not just at round end). Each player's **live score** = `100 (baseline) + confirmed round points + current-round provisional`. Provisional = locked speed points once solved, else the proximity value of the best guess so far. Both start at 100 so the bar opens centered and never snaps to an end.
+   - **Success:** speed points — solving at 5s worth far more than at 40s. Pure `speedPoints(msToSolve, roundMs)`. The solving client shows the real earned points (e.g. `+140`), not `+0`.
+   - **DNF (timer expires unsolved):** minor **proximity points** from the best incorrect guess. Pure `proximityPoints(bestResult)`.
+6. **Intermission.** Reveal the correct driver (card: initials/photo, name, the five stats), count-up both players' round points, settle the tug-of-war, mini-countdown. Ready-gate into the next round.
+7. **Match end.** Higher aggregate (excluding the equal 100 baseline) wins; update both ratings + records. Clients leave the immersive view and return to the **site shell**, which renders a results panel: WIN/LOSE, final score, rating delta (±), per-round breakdown, and CTAs (**Rematch** re-queues the pair, **Find new opponent**, **Back to modes**). Guests get an upgrade prompt on a win.
+
+### Live opponent presence (make it feel like a fight)
+
+- **Both avatars on screen the whole match** — you (accent side) vs opponent (muted side), each with handle, live provisional points, and guess count.
+- **Opponent activity is live but abstracted** — never their guessed driver or the target. On each opponent guess: a pulse on their avatar and a tick on their guess count. Their **best heat** (0-1 closeness of their best guess) drives a glow intensity. On solve: a burst + `SOLVED +N` and the bar jumps. This is the "rival closing in" read, spoiler-free.
+- **Tug-of-war** (top, prominent): the one place orange dominates — your accent fill vs the opponent's muted fill, center = tie, driven live by the live-score balance `liveMine / (liveMine + liveOpp)`. Animate smoothly; snap under reduced-motion.
+
+### Board (consistent with daily)
+
+The guess board is the **shared daily/infinite board** (same row, tiles, driver initials on the side, input, autocomplete). Because guesses are unlimited, the list may be sorted by closeness (best on top) — but it is the same row component, not a bespoke grid. Round indicator (1/2/3) and the countdown in mono tabular figures sit in the duel header above the board.
+
+### Instant guesses (perceived latency ~0)
+
+Guessing must feel immediate. Requirements:
+- **One hop, warm path.** Evaluate a guess via a single fast call — prefer a Postgres RPC `duel_submit_guess(match, round, guess_driver_id)` returning `{ tiles, solved, points, bestHeat }` in one round trip (no Vercel serverless cold start). If the compare rules are kept solely in `lib/game/compare.ts` (single source of truth), use a **warm Edge route handler** instead of an RPC; either way, one hop, no cold start. If porting the compare rules into SQL, add a parity test against `compare.ts` fixtures so they can't diverge.
+- **Optimistic render.** The guessed row appears instantly with a shimmer and fills when the result returns.
+- **Preload the pool.** Fetch the 10-year driver list once on match start so autocomplete is local and instant — no per-keystroke fetch.
+- **Note on dev:** part of the current slowness is the Next.js dev server compiling routes on first hit; always sanity-check latency against a production build, not `next dev`.
 
 ### Server authority (fairness)
 
-- Round timing is **server-stamped**: an RPC sets `started_at` / `ends_at` using DB `now()`; both clients count down to the absolute `ends_at`, correcting for clock offset (ping server time once at match start to estimate offset). Never let a client run its own authoritative clock.
-- Round advancement is **client-triggered but idempotent**: when a client observes both players done or the timer expired, it calls an advance RPC guarded on current round state — whichever client fires first advances, the other is a no-op. (A `pg_cron` sweep of expired rounds can back this up but isn't required for v1.)
-- Guesses are validated and scored **server-side**. Never send the target driver to either client. Never send the opponent's guessed driver names — see the feed.
+- Round timing is **server-stamped**: `duel_begin_round` sets `started_at`/`ends_at` from DB `now()`; both clients count down to the absolute `ends_at`, correcting for clock offset (ping server time once at match start). Never a client-authoritative clock.
+- Round advancement is **client-triggered but idempotent**: when a client observes both done or the timer expired, it calls `duel_close_round` guarded on current round state — whichever fires first advances; the other is a no-op. A `pg_cron` sweep of expired rounds can back this up but isn't required for v1.
+- Guesses are validated and scored **server-side**. Never send the target driver to either client during a round; the target is disclosed only in the intermission, after the round is closed. Never send the opponent's guessed names — only abstracted heat/counts.
+- **Resume:** a `duel_state(match_id)` RPC returns the full current phase (status, current round, server timestamps, scores, both players) so a reloaded client rejoins at the right beat.
 
-### Duel UI (distinct from the daily board)
+### Exit, forfeit & disconnect
 
-- **Tug-of-war bar** (top, prominent): the one place orange is allowed to dominate — one player's accent fill vs the opponent's muted fill, center = tie, driven live by aggregate score balance `scoreMine / (scoreMine + scoreOpp)`. Animate smoothly; snap under reduced-motion.
-- **Opponent feed** (side/under the bar): an *abstracted* read on how the opponent is doing — heat/closeness of their best guess, guess count, solved/DNF — **never their guessed names or the driver**. "Rival closing in" energy, not a spoiler.
-- **Closest-guesses board** (replaces the fixed 5-row grid, since guesses are now unlimited): a ranked list of the player's own guesses sorted by closeness, TikTok-leaderboard style — top ~10 shown, a better guess slots into position and pushes the worst off-screen, older/worse guesses fade. Keeps a busy round legible.
-- Clear **round indicator** (1/2/3), the countdown in mono tabular figures, and per-round result cards (solved in Xs / DNF + proximity).
-
-### Build seam for Knockout
-
-Build the round lifecycle (server-stamped timers, synchronized countdown, per-round driver selection, scoring hooks, match/round state broadcast) as a **reusable "live match" core**, not hard-wired to 2 players. Knockout is the same machinery with N players, an elimination step, and a different hint source. Don't build Knockout now — just don't wall the duel engine off from it.
+- **Explicit exit:** an Exit control (confirm modal) calls `duel_forfeit(match_id)` — marks the match `abandoned`/finished with the opponent as winner, updates ratings — then broadcasts `forfeit`. The leaver returns to the shell with a "You forfeited" result.
+- **Tab close / disconnect:** best-effort `forfeit` broadcast on `beforeunload`, plus **presence** on `duel:{matchId}`: when a client sees the opponent's presence leave and they don't rejoin within `DISCONNECT_GRACE_MS`, it calls `duel_forfeit` on the absent player's behalf (idempotent, guarded) and shows "Opponent left — you win."
+- A finished/abandoned match can't be re-entered; `duel_state` reflects the terminal result for a late-loading client.
 
 ## Knockout (planned — do not build yet)
 
@@ -190,7 +245,11 @@ For context so the duel engine leaves room for it. A 20-player elimination game 
 - **Format:** 3 rounds, F1-qualifying style. All players guess the same driver simultaneously.
 - **Hints:** unlike duel, clues are **global auto-reveals** — every ~5s a new fact about the target surfaces to everyone (nationality, then debut era, then a team, etc.), independent of guessing.
 - **Elimination:** the bottom 5 each round (slowest / furthest / lowest score) are knocked out; survivors advance; a winner emerges from round 3.
-- Reuses the live-match core (timers, rounds, scoring, broadcast) with a many-player lobby, an elimination visualization, and the global-hint reveal system.
+- Reuses the live-match core (lifecycle, timers, rounds, scoring, broadcast, ready-gates) with a many-player lobby, an elimination visualization, and the global-hint reveal system.
+
+### Build seam for Knockout
+
+Build the round lifecycle (server-stamped timers, synchronized countdown, per-round driver selection, scoring hooks, match/round state broadcast, ready-gates) as a **reusable "live match" core**, not hard-wired to 2 players. Knockout is the same machinery with N players, an elimination step, and a different hint source. Don't build Knockout now — just don't wall the duel engine off from it.
 
 ## News section — RSS, not X
 
@@ -204,7 +263,7 @@ Single responsive banner in the fixed-height slot under the game window.
 - AdSense script via `next/script` `strategy="afterInteractive"`, gated behind consent.
 - **EU audience → consent required:** Google Consent Mode v2 + a Google-certified CMP (built-in Google consent messages are the free default). Ad cookies must not load until consent; default all signals to denied.
 - `NEXT_PUBLIC_ADSENSE_CLIENT` from env, never hardcoded. Approval is external and needs the deployed site with real content. All ad logic isolated in `components/ads/` + a consent hook.
-- **Hide the ad slot during an active duel/knockout match** — a live race is the wrong moment for a banner; show it on daily/infinite and the /duel landing, not mid-match.
+- **Hide the ad slot during an active duel/knockout match** — a live race is the wrong moment for a banner; show it on daily/infinite and the /duel landing, and again on the duel **results** screen (which is back in the shell), not during lobby/countdown/active/intermission.
 
 ## Stack
 
@@ -227,7 +286,7 @@ Existing:
 drivers(id, full_name, driver_code, nationality, date_of_birth, date_of_death, debut_year, career_wins, last_team, previous_teams text[], last_active_year)
 ```
 
-Accounts (new):
+Accounts:
 ```
 profiles(id PK = auth.users.id, username, display_name, avatar_url, is_guest bool, created_at)
 user_stats(user_id PK FK, games_played, wins, current_streak, max_streak,
@@ -243,18 +302,36 @@ connection, which bypasses RLS, so a permissive client policy would just be a ta
 guard for `recordDailyResult`, self-`SELECT` only. Leaderboard reads (once built) go through a
 `SECURITY DEFINER` view of public columns only.
 
-Duel (new — replaces `duel_rooms` / `duel_players`):
+Duel:
 ```
 matchmaking_queue(user_id PK, pool_window, rating, status, queued_at)
-duel_matches(id PK, player_a FK, player_b FK, status, current_round int,
-             score_a int, score_b int, winner_id FK null, created_at, finished_at)
-duel_rounds(match_id FK, round_index, driver_id FK, started_at, ends_at,
-            PRIMARY KEY (match_id, round_index))     -- server timestamps
+duel_matches(id PK, player_a FK, player_b FK,
+             status,            -- lobby | countdown | active | intermission | finished | abandoned
+             current_round int,
+             score_a int, score_b int,      -- CONFIRMED round points (baseline 100 applied in the bar, not stored)
+             winner_id FK null,
+             rating_delta_a int null, rating_delta_b int null,   -- stored at finish for the results screen
+             created_at, finished_at)
+duel_rounds(match_id FK, round_index, driver_id FK,
+            started_at, ends_at,            -- server timestamps, stamped at ready-gate
+            intermission_ends_at null,      -- server-stamped when the round closes
+            PRIMARY KEY (match_id, round_index))
 duel_round_results(match_id FK, round_index, user_id FK, solved_at null,
                    guess_count, best_proximity numeric, points int,
                    PRIMARY KEY (match_id, round_index, user_id))
 ```
-`score_a` / `score_b` cached on `duel_matches` for the tug-of-war; derivable from `duel_round_results`.
+`score_a`/`score_b` cache confirmed round points for the tug-of-war and winner check; derivable from `duel_round_results`. The 100-point tug-of-war baseline and the live *provisional* score are display/realtime concerns — not persisted per guess (avoid write storms). Player **readiness** is realtime-only (presence/broadcast), never a DB column.
+
+RPCs (Postgres functions, all idempotent where they mutate round/match state):
+```
+duel_matchmake(pool_window, rating)         -> pairs atomically or enqueues
+duel_begin_round(match_id, round_index)     -> stamps started_at/ends_at once both ready
+duel_submit_guess(match_id, round_index, guess_driver_id)
+                                            -> { tiles, solved, points, bestHeat }, one hop
+duel_close_round(match_id, round_index)     -> stamps intermission_ends_at, persists points/scores, advances or finishes
+duel_forfeit(match_id)                      -> marks abandoned/finished, opponent wins, writes ratings
+duel_state(match_id)                        -> full current phase for resume/reconnect
+```
 
 Knockout (planned — not yet created):
 ```
@@ -265,15 +342,26 @@ Knockout (planned — not yet created):
 
 ## Realtime channels
 
-- **`lobby`** (presence) — queued players; drives the online count and searching state.
-- **`duel:{matchId}`** (broadcast) — round start/end, score updates, abstracted opponent-progress events, match end. Never carries target driver or opponent guess names.
+- **`lobby`** (presence) — queued + online players; drives the online count on the `/duel` landing and the searching state.
+- **`duel:{matchId}`** (broadcast + presence) — the live match. Presence carries connection + `ready` flags (drives the ready-gates and disconnect detection). Broadcast events (all opponent data abstracted — never target or guessed names):
+  ```
+  round_start  { roundIndex, startedAt, endsAt }
+  guess        { playerId, guessCount, bestHeat, provisionalPoints }   -- opponent activity + live bar
+  solved       { playerId, points, solveMs }                           -- "+N" burst + bar jump
+  round_end    { roundIndex, targetDriverPublic, pointsA, pointsB, scoreA, scoreB, intermissionEndsAt }
+  match_end    { winnerId, scoreA, scoreB, ratingDeltaA, ratingDeltaB, breakdown }
+  forfeit      { playerId }
+  ```
+  Payload types live in one shared module so client and (relaying) server can't drift.
 
 ## Architecture constraints
 
-- `lib/game/compare.ts` and the new `lib/game/duelScoring.ts` (speed + proximity) are pure and unit-tested. Don't touch compare's rules unless a task says to.
-- Never send the target driver to the client in daily/duel/knockout — comparison and scoring are server-side; clients get tile results and abstracted opponent heat only.
+- `lib/game/compare.ts` and `lib/game/duelScoring.ts` (speed + proximity + live-score helpers) are pure and unit-tested. Don't touch compare's rules unless a task says to.
+- Never send the target driver to a client during a round; comparison and scoring are server-side (via `duel_submit_guess`). The target is revealed only at round end. Opponent reads are abstracted heat/counts only.
+- Guess evaluation is **one warm hop** (RPC or Edge handler) with optimistic client render — no serverless cold start on the guessing path.
 - Vercel can't hold WebSockets; all realtime goes through Supabase Realtime.
-- Matchmaking pairing is atomic (`FOR UPDATE SKIP LOCKED` RPC), never a background worker. Round timing is server-stamped; round advancement is idempotent.
+- Matchmaking pairing is atomic (`FOR UPDATE SKIP LOCKED` RPC), never a background worker. Round timing is server-stamped; round advancement, forfeit, and match finish are all idempotent.
+- Every phase transition is **ready-gated or server-timestamped** so the two clients stay in sync; a reloaded client resumes via `duel_state`.
 - Auth identity is continuous: anonymous upgrades link to the same row, never orphan guest data.
 
 ## Conventions
@@ -281,4 +369,4 @@ Knockout (planned — not yet created):
 - Server Components by default; `"use client"` only where interactivity requires it (game windows, modals, auth, ad consent, all live-match UI).
 - Drizzle queries in `lib/db/`; Supabase RPCs/policies in `supabase/` migrations. Never inline queries in components.
 - No `any`. If a type is unclear, ask.
-- Focused, reviewable diffs over sweeping rewrites.
+- Focused, reviewable diffs over sweeping rewrites. The duel overhaul is sequenced into small PRs — do one prompt at a time, in order.

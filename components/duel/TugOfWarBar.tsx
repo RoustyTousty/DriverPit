@@ -2,33 +2,40 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { tugFill } from "@/lib/game/duelScoring";
+
 // The one deliberate exception to both "orange stays minimal" *and* "no
 // ambient loops" (CLAUDE.md's design system section) -- driven live by
-// aggregate score balance. A striped texture on each fill and a sliding
-// "pull point" marker (which briefly pulses whenever the balance actually
-// shifts) read as active back-and-forth pressure rather than a single
-// static gauge. Smooth transitions; snaps under reduced motion instead of
-// easing, and the pulse is skipped outright.
-export function TugOfWarBar({ myScore, opponentScore }: { myScore: number; opponentScore: number }) {
-  const total = myScore + opponentScore;
-  const myPct = total === 0 ? 50 : Math.round((myScore / total) * 100);
+// tugFill(liveMine, liveOpponent) (lib/game/duelScoring.ts), where each
+// live score already folds in the 100-point baseline, confirmed round
+// points, and the current round's provisional (best-guess-so-far, or
+// locked speed points once solved) -- so this moves on every new best
+// guess and jumps on a solve, not only when a round actually closes. A
+// striped texture on each fill and a sliding "pull point" marker (which
+// briefly pulses whenever the balance actually shifts) read as active
+// back-and-forth pressure rather than a single static gauge. Smooth
+// transitions; snaps under reduced motion instead of easing, and the pulse
+// is skipped outright.
+export function TugOfWarBar({ liveMine, liveOpponent }: { liveMine: number; liveOpponent: number }) {
+  const fill = tugFill(liveMine, liveOpponent);
+  const myPct = Math.round(fill * 100);
 
   const [pulsing, setPulsing] = useState(false);
-  const prevTotalRef = useRef(total);
+  const prevFillRef = useRef(fill);
 
   useEffect(() => {
-    if (total === prevTotalRef.current) return;
-    prevTotalRef.current = total;
+    if (Math.abs(fill - prevFillRef.current) < 0.001) return;
+    prevFillRef.current = fill;
     setPulsing(true);
     const timeout = setTimeout(() => setPulsing(false), 400);
     return () => clearTimeout(timeout);
-  }, [total]);
+  }, [fill]);
 
   return (
     <div
       className="relative h-5 w-full rounded-full bg-surface-2 shadow-inner"
       role="img"
-      aria-label={`Score balance: you ${myScore}, opponent ${opponentScore}`}
+      aria-label={`Score balance: you ${Math.round(liveMine)}, opponent ${Math.round(liveOpponent)}`}
     >
       <div className="absolute inset-0 overflow-hidden rounded-full">
         <div
