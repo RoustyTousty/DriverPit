@@ -9,7 +9,7 @@ import { readPoolWindowPreference } from "@/lib/settings/poolWindow";
 const TABS = [
   { href: "/daily", label: "Daily" },
   { href: "/infinite", label: "Infinite" },
-  { href: "/duel", label: "Duel" },
+  { href: "/online", label: "Online" },
 ];
 
 // Hovering/focusing Infinite is a strong signal the user is about to

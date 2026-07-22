@@ -118,6 +118,13 @@ export function GeneralSection() {
   return (
     <div className="flex flex-col gap-5">
       <ToggleRow
+        label="Show flags"
+        description="Nationality tiles show a flag instead of the country name."
+        checked={settings.showFlags}
+        onChange={(next) => update({ showFlags: next })}
+      />
+
+      <ToggleRow
         label="Reduce motion"
         description="Turn off tile flips and button animations, regardless of your system setting."
         checked={settings.reducedMotion}
@@ -130,13 +137,6 @@ export function GeneralSection() {
         checked={settings.colorblindMode}
         onChange={(next) => update({ colorblindMode: next })}
         preview={<ColorblindPreview colorblind={settings.colorblindMode} />}
-      />
-
-      <ToggleRow
-        label="Show flags"
-        description="Nationality tiles show a flag instead of the country name."
-        checked={settings.showFlags}
-        onChange={(next) => update({ showFlags: next })}
       />
 
       <div className="flex flex-col gap-2 border-t border-border pt-4">

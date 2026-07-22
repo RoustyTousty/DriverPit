@@ -9,7 +9,7 @@ interface ActiveMatchContextValue {
 
 const ActiveMatchContext = createContext<ActiveMatchContextValue | null>(null);
 
-// Lets DuelMatch (deep under /duel) tell the root layout's ad slot (a
+// Lets DuelMatch (deep under /online) tell the root layout's ad slot (a
 // sibling, not an ancestor/descendant of it) to hide itself for the
 // duration of a live match -- see CLAUDE.md: "Hide the ad slot during an
 // active duel/knockout match."

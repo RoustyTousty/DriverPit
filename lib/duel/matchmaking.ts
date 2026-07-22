@@ -1,7 +1,7 @@
 import { DAILY_POOL_WINDOW } from "@/lib/game/poolWindow";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
-// The shared channel every /duel visitor subscribes to -- Presence for the
+// The shared channel every /online visitor subscribes to -- Presence for the
 // online count, broadcast for pushing a just-created match to the player
 // who was waiting for it (see MatchmakingLobby). Not "duel:{matchId}" --
 // nobody knows the matchId yet at this point.

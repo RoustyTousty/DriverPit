@@ -8,7 +8,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { LOBBY_CHANNEL } from "./matchmaking";
 
 // Live count of everyone currently on the `lobby` presence channel --
-// backs the online count on the /duel landing (CLAUDE.md: "shows a live
+// backs the online count on the /online landing (CLAUDE.md: "shows a live
 // online count (presence)") and the searching screen. Each mount tracks its
 // own short-lived presence entry rather than sharing one subscription
 // app-wide; that's cheap and self-heals instantly on unmount/remount

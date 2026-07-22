@@ -357,7 +357,7 @@ export type GetMyLiveMatchResult =
   | { ok: true; match: MatchResult | null; matchStatus: string | null }
   | { ok: false; error: string };
 
-// On /duel mount: is there a live (non-terminal) match this user should be
+// On /online mount: is there a live (non-terminal) match this user should be
 // back inside? Returns everything DuelRoot needs to rehydrate -- the
 // MatchResult shape the normal matchmaking path produces, plus the status
 // so it can pick the right phase (lobby -> staging, anything else ->

@@ -95,7 +95,7 @@ export function DuelMatch({
   // slightly different offset for the same match.
   clockOffsetMs: number;
   onFindNewOpponent: () => void;
-  // Results-panel CTA back to the /duel landing (mode select) -- DuelRoot
+  // Results-panel CTA back to the /online landing (mode select) -- DuelRoot
   // owns that phase state, so it provides the handler.
   onBackToModes: () => void;
 }) {

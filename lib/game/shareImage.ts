@@ -41,6 +41,15 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`Failed to load ${src}`));
+    img.src = src;
+  });
+}
+
 export interface ShareImageOptions {
   puzzleNumber: number;
   results: GuessResult[];
@@ -52,23 +61,35 @@ const TILE = 44;
 const GAP = 8;
 const COLS = 5;
 const WIDTH = 560;
-const HEADER_HEIGHT = 130;
+// public/driverpit-banner.png is 720x240 (3:1) -- kept at that ratio here so
+// it's never stretched.
+const BANNER_SRC = "/driverpit-banner.png";
+const BANNER_WIDTH = 200;
+const BANNER_HEIGHT = (BANNER_WIDTH * 240) / 720;
+const BANNER_TOP = 16;
+const HEADER_HEIGHT = 165;
 const FOOTER_HEIGHT = 60;
 const PIXEL_SCALE = 2; // crisp on retina without a huge file
+const EMPTY_DASH = [4, 3];
 
 // Never renders the target driver or any attribute values -- colors only,
 // same "closeness echo, not a replay" convention as buildShareText's emoji
 // grid (lib/game/emojiGrid.ts).
-export function renderResultImage({ puzzleNumber, results, won, maxGuesses }: ShareImageOptions): Promise<Blob> {
+export async function renderResultImage({ puzzleNumber, results, won, maxGuesses }: ShareImageOptions): Promise<Blob> {
+  const banner = await loadImage(BANNER_SRC);
+
+  // Always render `maxGuesses` rows -- win in 2 or 6, the card is the same
+  // height, padded with the board's own dashed empty-slot style so a shared
+  // image never gives away the guess count via its scale.
   const rowHeight = TILE + GAP;
-  const gridHeight = results.length * TILE + Math.max(0, results.length - 1) * GAP;
+  const gridHeight = maxGuesses * TILE + Math.max(0, maxGuesses - 1) * GAP;
   const height = HEADER_HEIGHT + gridHeight + FOOTER_HEIGHT;
 
   const canvas = document.createElement("canvas");
   canvas.width = WIDTH * PIXEL_SCALE;
   canvas.height = height * PIXEL_SCALE;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return Promise.reject(new Error("Canvas not supported"));
+  if (!ctx) throw new Error("Canvas not supported");
   ctx.scale(PIXEL_SCALE, PIXEL_SCALE);
 
   ctx.fillStyle = COLORS.bg;
@@ -78,55 +99,60 @@ export function renderResultImage({ puzzleNumber, results, won, maxGuesses }: Sh
   roundRect(ctx, 0.5, 0.5, WIDTH - 1, height - 1, 16);
   ctx.stroke();
 
-  // Wordmark: "Driver" in text color + "Pit" in accent, same split as the
-  // site header.
-  ctx.textBaseline = "alphabetic";
-  ctx.font = "700 28px Arial, sans-serif";
-  const driverWidth = ctx.measureText("Driver").width;
-  const pitWidth = ctx.measureText("Pit").width;
-  const wordmarkX = (WIDTH - (driverWidth + pitWidth)) / 2;
-  ctx.fillStyle = COLORS.text;
-  ctx.fillText("Driver", wordmarkX, 46);
-  ctx.fillStyle = COLORS.accent;
-  ctx.fillText("Pit", wordmarkX + driverWidth, 46);
+  ctx.drawImage(banner, (WIDTH - BANNER_WIDTH) / 2, BANNER_TOP, BANNER_WIDTH, BANNER_HEIGHT);
 
+  ctx.textBaseline = "alphabetic";
   ctx.textAlign = "center";
   ctx.font = "500 15px Arial, sans-serif";
   ctx.fillStyle = COLORS.textMuted;
-  ctx.fillText(`Daily #${puzzleNumber}`, WIDTH / 2, 70);
+  ctx.fillText(`Daily #${puzzleNumber}`, WIDTH / 2, BANNER_TOP + BANNER_HEIGHT + 24);
 
   const score = won ? `${results.length}/${maxGuesses}` : `X/${maxGuesses}`;
   ctx.font = "700 22px Arial, sans-serif";
   ctx.fillStyle = won ? COLORS.accent : COLORS.text;
-  ctx.fillText(score, WIDTH / 2, 104);
+  ctx.fillText(score, WIDTH / 2, BANNER_TOP + BANNER_HEIGHT + 58);
   ctx.textAlign = "left";
 
   const gridWidth = COLS * TILE + (COLS - 1) * GAP;
   const gridX = (WIDTH - gridWidth) / 2;
   let y = HEADER_HEIGHT;
-  for (const result of results) {
-    const columns: { feedback: Feedback; closeness?: number }[] = [
-      { feedback: result.nationality },
-      { feedback: result.team },
-      { feedback: result.age, closeness: result.ageCloseness },
-      { feedback: result.debutYear, closeness: result.debutYearCloseness },
-      { feedback: result.careerWins, closeness: result.careerWinsCloseness },
-    ];
-    columns.forEach((column, index) => {
-      const x = gridX + index * (TILE + GAP);
-      const { base, orangeOpacity } = tileFill(column.feedback, column.closeness);
-      ctx.fillStyle = base;
-      roundRect(ctx, x, y, TILE, TILE, 8);
-      ctx.fill();
-      if (orangeOpacity > 0) {
-        ctx.save();
-        ctx.globalAlpha = orangeOpacity;
-        ctx.fillStyle = COLORS.accent;
+  for (let row = 0; row < maxGuesses; row++) {
+    const result = results[row];
+    if (result) {
+      const columns: { feedback: Feedback; closeness?: number }[] = [
+        { feedback: result.nationality },
+        { feedback: result.team },
+        { feedback: result.age, closeness: result.ageCloseness },
+        { feedback: result.debutYear, closeness: result.debutYearCloseness },
+        { feedback: result.careerWins, closeness: result.careerWinsCloseness },
+      ];
+      columns.forEach((column, index) => {
+        const x = gridX + index * (TILE + GAP);
+        const { base, orangeOpacity } = tileFill(column.feedback, column.closeness);
+        ctx.fillStyle = base;
         roundRect(ctx, x, y, TILE, TILE, 8);
         ctx.fill();
+        if (orangeOpacity > 0) {
+          ctx.save();
+          ctx.globalAlpha = orangeOpacity;
+          ctx.fillStyle = COLORS.accent;
+          roundRect(ctx, x, y, TILE, TILE, 8);
+          ctx.fill();
+          ctx.restore();
+        }
+      });
+    } else {
+      for (let col = 0; col < COLS; col++) {
+        const x = gridX + col * (TILE + GAP);
+        ctx.save();
+        ctx.setLineDash(EMPTY_DASH);
+        ctx.strokeStyle = COLORS.border;
+        ctx.lineWidth = 2;
+        roundRect(ctx, x + 1, y + 1, TILE - 2, TILE - 2, 8);
+        ctx.stroke();
         ctx.restore();
       }
-    });
+    }
     y += rowHeight;
   }
 

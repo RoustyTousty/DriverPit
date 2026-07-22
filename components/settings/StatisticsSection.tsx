@@ -29,7 +29,11 @@ export function StatisticsSection() {
   const duelLosses = stats?.duelLosses ?? 0;
 
   const winPct = gamesPlayed > 0 ? Math.round((wins / gamesPlayed) * 100) : 0;
-  const maxCount = Math.max(1, ...guessDistribution);
+  // Bar width is each bin's share of total wins (a real distribution), not
+  // scaled to whichever bin happens to be the mode -- otherwise two bins
+  // tied at 1 win each (out of 2 total) both render as a full 100% bar
+  // instead of the 50/50 split they actually represent.
+  const totalWins = guessDistribution.reduce((sum, count) => sum + count, 0);
 
   return (
     <div className="flex flex-col gap-5">
@@ -48,7 +52,7 @@ export function StatisticsSection() {
           {guessDistribution.map((count, index) => {
             const guessNumber = index + 1;
             const isLastResult = lastResult?.won && lastResult.guessCount === guessNumber;
-            const widthPct = count === 0 ? 0 : Math.max((count / maxCount) * 100, 6);
+            const widthPct = count === 0 ? 0 : Math.max((count / Math.max(totalWins, 1)) * 100, 6);
 
             return (
               <div key={guessNumber} className="flex items-center gap-2">
@@ -56,7 +60,7 @@ export function StatisticsSection() {
                 <div className="h-5 flex-1 overflow-hidden rounded border border-border bg-surface-2">
                   <div
                     className={`h-full rounded transition-[width] motion-reduce:transition-none ${
-                      isLastResult ? "bg-correct" : "bg-border"
+                      isLastResult ? "bg-correct" : "bg-text-muted/45"
                     }`}
                     style={{ width: `${widthPct}%` }}
                   />

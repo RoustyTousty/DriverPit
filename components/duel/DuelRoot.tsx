@@ -19,6 +19,24 @@ import { DuelSearching } from "./DuelSearching";
 
 type Phase = "landing" | "searching" | "found" | "countdown" | "in-match";
 
+// Same header + container as app/(game)/online/loading.tsx and
+// DuelLanding's own header -- the Suspense fallback, this component's own
+// "resuming"/"!profile" loading states, and the eventual landing screen are
+// three separate returns that all show up in the same slot in quick
+// succession on a cold /online load, so they need to be pixel-identical or
+// the page visibly jumps size and title between each one.
+function LoadingShell() {
+  return (
+    <div className="flex flex-col gap-3 px-4 py-6">
+      <header>
+        <h1 className="text-xl font-bold text-text sm:text-2xl">DriverPit</h1>
+        <p className="text-sm text-text-muted">Online</p>
+      </header>
+      <div className="py-12 text-center text-sm text-text-muted">Loading…</div>
+    </div>
+  );
+}
+
 // Owns CLAUDE.md's Duel "Flow" steps 1-4 (mode select -> lobby/matchmaking
 // -> match-found staging -> lights-out countdown) and hands off to
 // DuelMatch, the still-stub in-match view, on GO. Also owns the ad-slot
@@ -138,7 +156,7 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
     setPhase("searching");
   }
 
-  // Results-panel "Back to modes" -- back to the /duel landing (mode
+  // Results-panel "Back to modes" -- back to the /online landing (mode
   // select). The route never changed; only this phase state did.
   function handleBackToModes() {
     setMatch(null);
@@ -146,7 +164,7 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
   }
 
   if (resuming) {
-    return <p className="py-10 text-center text-sm text-text-muted">Loading…</p>;
+    return <LoadingShell />;
   }
 
   if (phase === "landing") {
@@ -168,7 +186,7 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
   if (!profile) {
     // A resumed match can be ready before AuthProvider has loaded the
     // profile -- brief; don't bounce to the landing screen over it.
-    return <p className="py-10 text-center text-sm text-text-muted">Loading…</p>;
+    return <LoadingShell />;
   }
 
   if (phase === "found") {

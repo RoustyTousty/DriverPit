@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { DriverAutocomplete, type DriverOption } from "@/components/game/DriverAutocomplete";
 import { GuessGrid, type Guess } from "@/components/game/GuessGrid";
+import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import type { DriverSummary } from "@/lib/db/queries";
 import { MAX_GUESSES } from "@/lib/game/constants";
@@ -103,6 +104,8 @@ export function DailyGame({
   const [guesses, setGuesses] = useState<Guess[]>([]);
   const [target, setTarget] = useState<DriverSummary | null>(null);
   const [shareState, setShareState] = useState<"idle" | "sharing" | "shared" | "copied">("idle");
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [lastShareFormat, setLastShareFormat] = useState<"image" | "text" | null>(null);
   const [isPending, startTransition] = useTransition();
   const [countdown, setCountdown] = useState("");
 
@@ -196,7 +199,13 @@ export function DailyGame({
     });
   }
 
-  async function handleShare() {
+  // "Share result" opens a popup asking image vs. emoji text (same Modal
+  // primitive as Settings/Leaderboard/the duel forfeit confirm) rather than
+  // a persisted setting -- the choice is per-share, not a standing
+  // preference, so there's nothing to remember between rounds.
+  async function handleShare(format: "image" | "text") {
+    setShareModalOpen(false);
+    setLastShareFormat(format);
     const text = buildShareText({
       puzzleNumber,
       results: guesses.map((g) => g.result),
@@ -205,6 +214,28 @@ export function DailyGame({
     });
 
     setShareState("sharing");
+
+    if (format === "text") {
+      try {
+        if (navigator.share) {
+          await navigator.share({ text });
+          setShareState("shared");
+        } else {
+          await navigator.clipboard.writeText(text);
+          setShareState("copied");
+        }
+        setTimeout(() => setShareState("idle"), 2000);
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          setShareState("idle");
+          return;
+        }
+        console.error("Share failed", err);
+        toast.error("Couldn't share right now. Try again.");
+        setShareState("idle");
+      }
+      return;
+    }
 
     // Prefer the native share sheet with an actual result-card image
     // attached (real social-media targets: Messages, WhatsApp, X, Discord,
@@ -300,7 +331,7 @@ export function DailyGame({
           {isRoundOver && (
             <div className="flex flex-col gap-2">
               <button
-                onClick={() => void handleShare()}
+                onClick={() => setShareModalOpen(true)}
                 disabled={shareState === "sharing"}
                 className="flex w-full items-center justify-center gap-2 rounded-lg border border-accent-weak bg-accent-weak/40 px-4 py-3 text-base font-semibold text-accent transition hover:border-accent/50 hover:bg-accent-weak/60 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
               >
@@ -317,13 +348,42 @@ export function DailyGame({
                   <circle cx="18" cy="19" r="3" />
                   <path d="M8.6 10.5 15.4 6.5M8.6 13.5l6.8 4" />
                 </svg>
-                {shareState === "shared" ? "Shared!" : shareState === "copied" ? "Copied + image saved" : "Share result"}
+                {shareState === "shared"
+                  ? "Shared!"
+                  : shareState === "copied"
+                    ? lastShareFormat === "image"
+                      ? "Copied + image saved"
+                      : "Copied"
+                    : "Share result"}
               </button>
               <p className="text-center text-sm text-text-muted">Next driver in {countdown}</p>
             </div>
           )}
         </>
       )}
+
+      <Modal open={shareModalOpen} onClose={() => setShareModalOpen(false)} title="Share result">
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => void handleShare("image")}
+            className="flex flex-col items-start gap-1 rounded-lg border border-border bg-surface-2 p-4 text-left transition hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <span className="text-base font-bold text-text">Image</span>
+            <span className="text-sm text-text-muted">
+              A result-card image of your board, ready to post or save.
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleShare("text")}
+            className="flex flex-col items-start gap-1 rounded-lg border border-border bg-surface-2 p-4 text-left transition hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <span className="text-base font-bold text-text">Emoji text</span>
+            <span className="text-sm text-text-muted">Just the emoji grid — paste it anywhere.</span>
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

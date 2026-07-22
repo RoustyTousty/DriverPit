@@ -25,7 +25,7 @@ The comparison engine (`lib/game/compare.ts`) is pure and unit-tested — don't 
 - **Infinite** — random driver from a player-selectable pool, unlimited plays, no persistence beyond the current round.
 - **Daily** — one driver per day, same for everyone, resets at UTC midnight. Progress persists per-account (localStorage for signed-out legacy, migrated to the account on sign-in). Always the 10-year pool.
 - **Duel** — real-time 1v1 race, matchmade against a random opponent. 3 rounds, tug-of-war scoring. See the Duel section.
-- **Knockout** *(planned, not built)* — 20-player F1-qualifying-format elimination game, lives under `/duel`. See the Knockout section.
+- **Knockout** *(planned, not built)* — 20-player F1-qualifying-format elimination game, lives under `/online`. See the Knockout section.
 
 ## Driver pools
 
@@ -63,13 +63,13 @@ Daily results write to `user_stats` via `recordDailyResult` (`lib/stats/actions.
 
 Two site sections share one root layout but have different chrome, split via App Router route groups:
 
-- **`app/(game)/`** — `/`, `/daily`, `/infinite`, `/duel`. The persistent game shell:
+- **`app/(game)/`** — `/`, `/daily`, `/infinite`, `/online`. The persistent game shell:
 
   ```
   +-----------------------------------------+
   |  TOP BAR   logo ....... [settings] [cup] |  <- persistent
   +-----------------------------------------+
-  |        [ Daily | Infinite | Duel ]       |  <- mode tabs, persistent
+  |       [ Daily | Infinite | Online ]      |  <- mode tabs, persistent
   |  +-----------------------------------+   |
   |  |           GAME WINDOW             |   |  <- the only part that changes
   |  |      (swaps by selected mode)     |   |
@@ -84,13 +84,13 @@ Two site sections share one root layout but have different chrome, split via App
   +-----------------------------------------+
   ```
 
-  `app/(game)/layout.tsx` holds the top bar, mode tabs, ad slot, marketing teasers, footer. `/daily`, `/infinite`, `/duel` render only their game window into `{children}`. Layouts persist across route changes, so switching modes swaps just the game window. `/` redirects to `/daily`. Mode tabs are `next/link`s highlighting the active route.
+  `app/(game)/layout.tsx` holds the top bar, mode tabs, ad slot, marketing teasers, footer. `/daily`, `/infinite`, `/online` render only their game window into `{children}`. Layouts persist across route changes, so switching modes swaps just the game window. `/` redirects to `/daily`. Mode tabs are `next/link`s highlighting the active route.
 
 - **`app/(info)/`** — `/about`, `/faq`, `/game-modes`, `/how-to-play`. Standalone full-detail pages, same footer, but `InfoTopBar` instead of `TopBar`/mode tabs: logo, nav links to the other info pages, and a "Play now" CTA back into the game shell. No ad slot, no marketing teasers here — these pages *are* the detail the home teasers link out to. Each teaser component (e.g. `FaqTeaser`) and its full counterpart (`Faq`) are separate components sharing content style but not JSX, so the home page can stay short without truncating the real page.
 
 `(game)` and `(info)` are route groups — the parens are stripped from the URL, so paths stay flat (`/faq`, not `/info/faq`).
 
-`/duel` is a **landing** that offers a match type: **Duel** (live now) and **Knockout** (rendered but disabled / "coming soon" until built). The landing shows a **live online count** (presence). Selecting Duel enters the lobby/matchmaking flow.
+`/online` is a **landing** that offers a match type: **Duel** (live now) and **Knockout** (rendered but disabled / "coming soon" until built). Guests see a "save your progress" upgrade prompt above the mode options, same copy as Settings. Selecting Duel enters the lobby/matchmaking flow, which is where the **live online count** (presence) shows up.
 
 ## Design system
 
@@ -195,7 +195,7 @@ These fix the "everything's too fast to see" complaints: the intermission is a r
 
 ### Flow
 
-1. **Mode select.** `/duel` landing shows Duel / Knockout with a live **online count** (presence on the global `lobby` channel).
+1. **Mode select.** `/online` landing shows Duel / Knockout (plus a guest upgrade prompt above them, same as Settings).
 2. **Lobby / matchmaking.** Selecting Duel renders the lobby UI *first* (searching animation, online count) and enforces `LOBBY_MIN_SEARCH_MS` before resolving, so the player always sees the lobby load in. A Postgres RPC pairs atomically: `SELECT ... FOR UPDATE SKIP LOCKED` finds a waiting opponent (create match, mark both matched) or enqueues. No background worker. Match by rating when possible; widen the window the longer someone waits; fall back to anyone after a timeout.
 3. **Match found (staging).** Both avatars slide in from opposite sides (grid-start), with handles, ratings, and duel W/L. Held `MATCH_FOUND_HOLD_MS`. Both clients report `ready`.
 4. **Lights-out countdown.** On both-ready (or timeout), `duel_begin_round` stamps round 1's `started_at = now() + COUNTDOWN_MS`, `ends_at = started_at + ROUND_MS`. Five red lights fill, then out = GO. Clients count to the absolute `started_at`, corrected for clock offset.
@@ -240,7 +240,7 @@ Guessing must feel immediate. Requirements:
 
 ## Knockout (planned — do not build yet)
 
-For context so the duel engine leaves room for it. A 20-player elimination game under `/duel`:
+For context so the duel engine leaves room for it. A 20-player elimination game under `/online`:
 
 - **Format:** 3 rounds, F1-qualifying style. All players guess the same driver simultaneously.
 - **Hints:** unlike duel, clues are **global auto-reveals** — every ~5s a new fact about the target surfaces to everyone (nationality, then debut era, then a team, etc.), independent of guessing.
@@ -263,7 +263,7 @@ Single responsive banner in the fixed-height slot under the game window.
 - AdSense script via `next/script` `strategy="afterInteractive"`, gated behind consent.
 - **EU audience → consent required:** Google Consent Mode v2 + a Google-certified CMP (built-in Google consent messages are the free default). Ad cookies must not load until consent; default all signals to denied.
 - `NEXT_PUBLIC_ADSENSE_CLIENT` from env, never hardcoded. Approval is external and needs the deployed site with real content. All ad logic isolated in `components/ads/` + a consent hook.
-- **Hide the ad slot during an active duel/knockout match** — a live race is the wrong moment for a banner; show it on daily/infinite and the /duel landing, and again on the duel **results** screen (which is back in the shell), not during lobby/countdown/active/intermission.
+- **Hide the ad slot during an active duel/knockout match** — a live race is the wrong moment for a banner; show it on daily/infinite and the /online landing, and again on the duel **results** screen (which is back in the shell), not during lobby/countdown/active/intermission.
 
 ## Stack
 
@@ -342,7 +342,7 @@ Knockout (planned — not yet created):
 
 ## Realtime channels
 
-- **`lobby`** (presence) — queued + online players; drives the online count on the `/duel` landing and the searching state.
+- **`lobby`** (presence) — queued + online players; drives the online count on the searching state.
 - **`duel:{matchId}`** (broadcast + presence) — the live match. Presence carries connection + `ready` flags (drives the ready-gates and disconnect detection). Broadcast events (all opponent data abstracted — never target or guessed names):
   ```
   round_start  { roundIndex, startedAt, endsAt }

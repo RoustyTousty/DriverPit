@@ -49,6 +49,17 @@ button:not(:disabled) {
   cursor: pointer;
 }
 
+/* Without this, mobile browsers hold every tap on a button for a beat to
+   see if a second tap follows (double-tap-to-zoom disambiguation). That
+   delay occasionally replays as two click events for what was a single
+   tap -- invisible on most buttons, but very visible on a toggle switch,
+   where the second click immediately flips it back and makes it feel
+   impossible to turn on. touch-action: manipulation drops the zoom
+   gesture on tappable elements so each tap fires exactly one click. */
+button {
+  touch-action: manipulation;
+}
+
 /* Reserve the scrollbar gutter permanently so opening a modal (which sets
    body overflow to hidden to lock scroll) never changes the viewport width
    -- without this, losing the scrollbar mid-interaction shifts everything

@@ -5,7 +5,7 @@ import { GameModals } from "@/components/layout/GameModals";
 import { TopBar } from "@/components/layout/TopBar";
 import { MarketingSections } from "@/components/marketing/MarketingSections";
 
-// The main game shell (daily/infinite/duel + marketing) -- kept as its own
+// The main game shell (daily/infinite/online + marketing) -- kept as its own
 // route group layout, distinct from app/(info)/layout.tsx's InfoTopBar, so
 // the two site sections can have different chrome under one root layout.
 // GameChrome (client, reads ActiveMatchContext) hides everything but the

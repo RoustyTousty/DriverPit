@@ -1,15 +1,34 @@
 "use client";
 
-import { useOnlineCount } from "@/lib/duel/useOnlineCount";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { useSettingsModal } from "@/components/layout/SettingsModalContext";
 
 export function DuelLanding({ onSelectDuel }: { onSelectDuel: () => void }) {
-  const onlineCount = useOnlineCount();
+  const { profile } = useAuth();
+  const { openSettings } = useSettingsModal();
 
   return (
     <div className="flex flex-col gap-3 px-4 py-6">
-      <p className="text-xs text-text-muted" aria-live="polite">
-        <span className="font-mono tabular-nums text-text">{onlineCount}</span> online now
-      </p>
+      <header>
+        <h1 className="text-xl font-bold text-text sm:text-2xl">DriverPit</h1>
+        <p className="text-sm text-text-muted">Online</p>
+      </header>
+
+      {profile?.isGuest && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-accent-weak bg-accent-weak/40 p-3">
+          <div>
+            <p className="text-sm font-semibold text-accent">Save your progress</p>
+            <p className="text-xs text-text-muted">Create an account so your stats and streak follow you across devices.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => openSettings("profile")}
+            className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98]"
+          >
+            Sign up
+          </button>
+        </div>
+      )}
 
       <button
         type="button"

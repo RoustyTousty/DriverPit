@@ -13,8 +13,8 @@ export type SettingsSection = "general" | "profile" | "statistics";
 
 const SECTIONS: { value: SettingsSection; label: string }[] = [
   { value: "general", label: "General" },
-  { value: "profile", label: "Profile" },
   { value: "statistics", label: "Statistics" },
+  { value: "profile", label: "Profile" },
 ];
 
 export function SettingsModal({
@@ -75,8 +75,8 @@ export function SettingsModal({
         </div>
 
         {section === "general" && <GeneralSection />}
-        {section === "profile" && <ProfileSection />}
         {section === "statistics" && <StatisticsSection />}
+        {section === "profile" && <ProfileSection />}
       </div>
     </Modal>
   );
