@@ -99,6 +99,26 @@ export const matchmakingQueue = pgTable("matchmaking_queue", {
   queuedAt: timestamp("queued_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// One row per user with an in-progress Infinite round -- replaces the
+// signed httpOnly cookie (lib/game/session.ts) that used to hold this,
+// which PostgREST can't see. Moving it server-side like this is what lets
+// guess evaluation go through a fast, client-callable RPC
+// (infinite_submit_guess) instead of a Next.js Server Action, the same
+// win duel_submit_guess already gets. Starting a new round always
+// overwrites this row (ON CONFLICT DO UPDATE in infinite_start_round), so
+// nothing here ever needs a TTL sweep the way matchmaking_queue might.
+export const infiniteRounds = pgTable("infinite_rounds", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => profiles.id, { onDelete: "cascade" }),
+  driverId: integer("driver_id")
+    .notNull()
+    .references(() => drivers.id),
+  poolWindow: text("pool_window").notNull(),
+  guessCount: integer("guess_count").notNull().default(0),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const duelMatches = pgTable(
   "duel_matches",
   {

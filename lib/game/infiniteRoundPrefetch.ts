@@ -1,4 +1,4 @@
-import { startInfiniteRound } from "@/app/(game)/infinite/actions";
+import { startInfiniteRound } from "@/lib/game/infiniteGuessRpc";
 import type { PoolWindow } from "@/lib/game/poolWindow";
 
 // Link prefetching (default on for next/link) only warms the Infinite

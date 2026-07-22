@@ -11,10 +11,11 @@ import type { DriverSummary } from "@/lib/db/queries";
 import { MAX_GUESSES } from "@/lib/game/constants";
 import { buildShareText } from "@/lib/game/emojiGrid";
 import { renderResultImage } from "@/lib/game/shareImage";
+import { submitDailyGuess } from "@/lib/game/submitDailyGuess";
 import { useSettings } from "@/lib/settings/useSettings";
 import { recordDailyResult } from "@/lib/stats/actions";
 
-import { revealDailyTarget, submitDailyGuess } from "./actions";
+import { revealDailyTarget } from "./actions";
 
 const STORAGE_PREFIX = "f1dw:daily:";
 

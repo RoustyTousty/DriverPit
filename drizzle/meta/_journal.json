@@ -190,6 +190,20 @@
       "when": 1784655122620,
       "tag": "0026_duel_forfeit_rpc",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1784665483429,
+      "tag": "0027_infinite_rounds_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1784665514872,
+      "tag": "0028_daily_infinite_fast_guess_rpc",
+      "breakpoints": true
     }
   ]
 }

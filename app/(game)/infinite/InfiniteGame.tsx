@@ -8,12 +8,11 @@ import { PoolSelect, type PoolSelectOption } from "@/components/game/PoolSelect"
 import { useToast } from "@/components/ui/Toast";
 import type { DriverSummary, DriverWithActivity } from "@/lib/db/queries";
 import { MAX_GUESSES } from "@/lib/game/constants";
+import { startInfiniteRound, submitGuess } from "@/lib/game/infiniteGuessRpc";
 import { consumeInfiniteRoundPrefetch } from "@/lib/game/infiniteRoundPrefetch";
 import { POOL_WINDOWS, poolCutoffYear, type PoolWindow } from "@/lib/game/poolWindow";
 import { readPoolWindowPreference, writePoolWindowPreference } from "@/lib/settings/poolWindow";
 import { useSettings } from "@/lib/settings/useSettings";
-
-import { startInfiniteRound, submitGuess } from "./actions";
 
 type RoundStatus = "loading" | "playing" | "won" | "lost";
 
