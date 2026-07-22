@@ -33,9 +33,11 @@ import { useActiveMatch } from "./ActiveMatchContext";
 import type { RankedGuess } from "./ClosestGuessesBoard";
 import { DuelIntermission } from "./DuelIntermission";
 import { DuelResults } from "./DuelResults";
+import { LightsCountdown } from "./LightsCountdown";
 import { MatchFoundReveal } from "./MatchFoundReveal";
 import type { RoundResult } from "./RoundResultCards";
 import { RoundPlay } from "./RoundPlay";
+import { useLightsCountdown } from "./useLightsCountdown";
 import { useServerCountdown } from "./useServerCountdown";
 
 interface LocalRound {
@@ -164,7 +166,13 @@ export function DuelMatch({
   const isPlayerA = activeMatch.youAre === "a";
   const remainingToStart = useServerCountdown(round?.startedAt ?? null, clockOffsetMs);
   const remainingToEnd = useServerCountdown(round?.endsAt ?? null, clockOffsetMs);
-  const isPreRound = round !== null && remainingToStart > 0;
+  // Drives the pre-round lights (own local clock, immune to beginRound's
+  // RPC latency) and holds a beat past the real start instant so the
+  // fade-in and "GO!" always finish on screen before RoundPlay takes over
+  // -- same gate DuelCountdown uses for round 1 of a fresh match, applied
+  // here too so a rematch's round 1 and every later round look identical.
+  const startCountdown = useLightsCountdown(remainingToStart, round?.startedAt ?? null, round === null);
+  const isPreRound = round !== null && !startCountdown.holdComplete;
 
   // The duel:{matchId} transport (lib/duel/useDuelChannel.ts) -- one
   // subscription for the whole match, not per round; only resets on a
@@ -840,16 +848,15 @@ export function DuelMatch({
             avatarUrl: activeMatch.opponentAvatarUrl,
             rating: activeMatch.opponentRating,
           }}
-          remainingMs={remainingToStart}
+          litCount={startCountdown.litCount}
+          isGo={startCountdown.isGo}
         />,
       );
     }
     return withExitControl(
-      <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+      <div className="flex flex-col items-center gap-6 px-4 py-10 text-center">
         <p className="text-sm text-text-muted">Round {round.roundIndex + 1} starting…</p>
-        <div className="font-mono text-4xl font-bold tabular-nums text-text">
-          {Math.ceil(remainingToStart / 1000)}
-        </div>
+        <LightsCountdown litCount={startCountdown.litCount} isGo={startCountdown.isGo} />
       </div>,
     );
   }

@@ -22,6 +22,15 @@ export const MATCH_FOUND_HOLD_MS = 2_500;
 // started_at = now() + COUNTDOWN_MS.
 export const COUNTDOWN_MS = 4_000;
 
+// Held past the moment the lights-out countdown reaches GO, before the
+// caller actually hands off to the live round view (components/duel's
+// useLightsCountdown). Long enough for the final light's own CSS fade
+// (LightsCountdown, 300ms) to visibly finish and "GO!" to register,
+// instead of the view switching away mid-fade. Not reduced-motion-gated
+// (like MATCH_FOUND_HOLD_MS/INTERMISSION_MS above) -- it's a deliberate
+// read beat, not an animation.
+export const COUNTDOWN_GO_HOLD_MS = 450;
+
 // Per-round guessing window, server-stamped: duel_begin_round sets
 // ends_at = started_at + ROUND_MS. Keep in sync with the SQL literal in
 // drizzle/0021_duel_lifecycle_rpcs.sql#duel_begin_round.

@@ -1,10 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/components/auth/AuthProvider";
 import { readSettings, writeSettings, type Settings } from "@/lib/settings/store";
 import { resetUserStats } from "@/lib/stats/actions";
+
+// Some mobile browsers replay a tap on a switch-like control as two click
+// events in quick succession (the second one landing after React has
+// already re-rendered with the flipped `checked`, so it toggles right back
+// -- reads as "impossible to turn on"). touch-action: manipulation
+// (globals.css) removes the double-tap-zoom delay that's the most common
+// cause, but this guard is a hard backstop: no legitimate single tap needs
+// a second flip within 350ms, so a repeat that fast is always a duplicate
+// event, never a deliberate second toggle.
+const DOUBLE_FIRE_GUARD_MS = 350;
 
 export function ToggleRow({
   label,
@@ -19,6 +29,15 @@ export function ToggleRow({
   onChange: (next: boolean) => void;
   preview?: React.ReactNode;
 }) {
+  const lastToggledAtRef = useRef(0);
+
+  function handleToggle() {
+    const now = Date.now();
+    if (now - lastToggledAtRef.current < DOUBLE_FIRE_GUARD_MS) return;
+    lastToggledAtRef.current = now;
+    onChange(!checked);
+  }
+
   return (
     <div className="flex items-start justify-between gap-4">
       <div>
@@ -31,7 +50,7 @@ export function ToggleRow({
         role="switch"
         aria-checked={checked}
         aria-label={label}
-        onClick={() => onChange(!checked)}
+        onClick={handleToggle}
         className={`relative h-6 w-11 shrink-0 rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
           checked ? "border-accent bg-accent" : "border-border bg-surface-2"
         }`}
