@@ -194,15 +194,11 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
       <DuelMatchFound
         me={profile}
         myRating={stats?.duelRating ?? null}
-        myDuelWins={stats?.duelWins ?? 0}
-        myDuelLosses={stats?.duelLosses ?? 0}
         opponent={{
           username: match.opponentUsername,
           displayName: match.opponentDisplayName,
           avatarUrl: match.opponentAvatarUrl,
           rating: match.opponentRating,
-          duelWins: match.opponentDuelWins,
-          duelLosses: match.opponentDuelLosses,
         }}
         waitingOnOpponent={holdComplete && !channel.opponentReady && !readyTimedOut}
         onHoldComplete={handleHoldComplete}

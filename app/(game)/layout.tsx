@@ -19,7 +19,7 @@ export default function GameLayout({ children }: { children: React.ReactNode }) 
     <GameModals>
       <TopBar />
       <GameChrome marketing={<MarketingSections />} footer={<Footer />}>
-        <main className="flex flex-1 flex-col items-center gap-6 px-4 pt-2 pb-6">
+        <main className="flex flex-1 flex-col items-center gap-6 px-4 pb-6">
           <div className="w-full max-w-160 rounded-lg border border-border bg-surface">{children}</div>
           <AdSlotGate />
         </main>

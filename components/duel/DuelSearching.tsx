@@ -13,7 +13,6 @@ import {
   type MatchedBroadcastPayload,
   type MatchResult,
 } from "@/lib/duel/matchmaking";
-import { useOnlineCount } from "@/lib/duel/useOnlineCount";
 import { LOBBY_MIN_SEARCH_MS, MATCHMAKE_POLL_INTERVAL_MS } from "@/lib/game/duelTiming";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
@@ -49,7 +48,6 @@ export function DuelSearching({
 }) {
   const { user, profile, stats } = useAuth();
   const toast = useToast();
-  const onlineCount = useOnlineCount();
   // Mirrors state the poll/broadcast callbacks below (captured once per
   // effect run) need to read synchronously without re-subscribing the
   // channel on every update.
@@ -166,12 +164,13 @@ export function DuelSearching({
 
   return (
     <div className="flex flex-col items-center gap-6 px-4 py-10 text-center">
-      <p className="text-xs font-semibold tracking-wide text-accent uppercase">Finding an opponent</p>
-
-      <div
-        className="h-4 w-4 animate-spin rounded-full border-2 border-border border-t-accent motion-reduce:animate-none"
-        aria-hidden="true"
-      />
+      <div className="flex items-center gap-2">
+        <p className="text-xs font-semibold tracking-wide text-accent uppercase">Finding an opponent</p>
+        <div
+          className="h-4 w-4 animate-spin rounded-full border-2 border-border border-t-accent motion-reduce:animate-none"
+          aria-hidden="true"
+        />
+      </div>
 
       <div className="flex w-full items-center justify-center gap-4">
         <div className="flex flex-1 flex-col items-center gap-2">
@@ -182,12 +181,7 @@ export function DuelSearching({
           <RatingBadge rating={stats?.duelRating ?? null} />
         </div>
 
-        <div className="flex flex-col items-center gap-1">
-          <span className="text-lg font-bold text-text-muted">VS</span>
-          <p className="font-mono text-xs tabular-nums text-text-muted" aria-live="polite">
-            {onlineCount} online
-          </p>
-        </div>
+        <span className="text-lg font-bold text-text-muted">VS</span>
 
         <div className="flex flex-1 flex-col items-center gap-2">
           <EmptyAvatarSlot />

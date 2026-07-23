@@ -83,6 +83,38 @@ export const dailyResults = pgTable(
   (table) => [primaryKey({ columns: [table.userId, table.date] })],
 );
 
+// Server-authoritative per-day board state -- what makes a day's board
+// follow the account across devices (CLAUDE.md "Daily persistence & sync").
+// `guesses` is the ordered list of guessed driver ids for a (user, UTC day):
+// the guesses ARE the state. Tile results are deliberately never stored --
+// they're recomputed by running compare() over `guesses` against the day's
+// target on hydration (lib/db/dailyProgress.ts), so there's one source of
+// truth for comparison rules and no way for a client to inject fabricated
+// tiles. `completed`/`won` gate the target reveal and the "one playthrough per
+// day" rule. Distinct from daily_results (a write-once stats idempotency
+// guard) -- this is live, mutable board state. Self-SELECT under RLS with no
+// client write policy at all (drizzle/0029): every append goes through the
+// trusted Drizzle server connection, which bypasses RLS.
+export const dailyProgress = pgTable(
+  "daily_progress",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    // The UTC day, always resolved server-side from the DB clock -- never
+    // supplied by the client (a client-set date is a one-line puzzle re-roll).
+    date: date("date").notNull(),
+    // Ordered guessed driver ids -- the actual answers, not tiles.
+    guesses: integer("guesses").array().notNull().default([]),
+    completed: boolean("completed").notNull().default(false),
+    // Null until the day is complete; then true (solved) or false (ran out).
+    won: boolean("won"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.date] })],
+);
+
 // Real-time 1v1 duel (replaces the legacy duel_rooms/duel_players room-code
 // game -- see CLAUDE.md "Duel (real-time race)"). One row per waiting
 // player; the pairing RPC (not yet built) deletes both rows the moment it

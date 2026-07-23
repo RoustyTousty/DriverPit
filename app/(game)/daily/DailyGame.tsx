@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -8,79 +8,98 @@ import { DriverAutocomplete, type DriverOption } from "@/components/game/DriverA
 import { GuessGrid, type Guess } from "@/components/game/GuessGrid";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
-import type { DriverSummary } from "@/lib/db/queries";
+import { dailyState, dailySubmitGuess } from "@/lib/db/dailyProgressActions";
 import { MAX_GUESSES } from "@/lib/game/constants";
+import type { DailyBoardGuess, DailyBoardState } from "@/lib/game/dailyBoard";
 import { buildShareText } from "@/lib/game/emojiGrid";
 import { renderResultImage } from "@/lib/game/shareImage";
-import { submitDailyGuess } from "@/lib/game/submitDailyGuess";
 import { useSettings } from "@/lib/settings/useSettings";
-import { recordDailyResult } from "@/lib/stats/actions";
 
-import { revealDailyTarget } from "./actions";
-
+// Server-authoritative daily board: state comes from daily_state() /
+// daily_submit_guess() (lib/db/dailyProgressActions.ts), which follow the
+// account across devices. localStorage is demoted to a write-through cache
+// (below) -- it survives a failed/offline hydration but never decides whether
+// a board is playable; only the server concludes "you've already played
+// today."
 const STORAGE_PREFIX = "f1dw:daily:";
 
-type RoundStatus = "loading" | "playing" | "won" | "lost";
-
-interface PersistedState {
-  guesses: Guess[];
-  status: Exclude<RoundStatus, "loading">;
-  target?: DriverSummary;
-}
+type Phase = "loading" | "error" | "ready";
 
 function todayUtcKey(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function readPersisted(key: string): PersistedState | null {
+// Cache key is per-account AND per-day so one identity never reads another's
+// board (and yesterday's is dropped, see cleanupStaleCache). The server date
+// is authoritative for what actually renders; this client date only buckets
+// the fallback cache.
+function cacheKey(userId: string): string {
+  return `${STORAGE_PREFIX}${userId}:${todayUtcKey()}`;
+}
+
+function readCache(userId: string): DailyBoardState | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = localStorage.getItem(STORAGE_PREFIX + key);
-    if (!raw) return null;
-    return JSON.parse(raw) as PersistedState;
+    const raw = localStorage.getItem(cacheKey(userId));
+    return raw ? (JSON.parse(raw) as DailyBoardState) : null;
   } catch {
     return null;
   }
 }
 
-function writePersisted(key: string, state: PersistedState) {
+function cleanupStaleCache(keep: string) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(state));
-}
-
-function cleanupStaleKeys(todayKey: string) {
-  if (typeof window === "undefined") return;
-  const staleKeys: string[] = [];
+  const stale: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (
-      key &&
-      key.startsWith(STORAGE_PREFIX) &&
-      key !== STORAGE_PREFIX + todayKey
-    ) {
-      staleKeys.push(key);
-    }
+    // Also sweeps the pre-server key format (f1dw:daily:<date>), which no
+    // longer matches and is safe to discard -- the server is the record now.
+    if (key && key.startsWith(STORAGE_PREFIX) && key !== keep) stale.push(key);
   }
-  for (const key of staleKeys) localStorage.removeItem(key);
+  for (const key of stale) localStorage.removeItem(key);
+}
+
+function writeCache(userId: string, state: DailyBoardState) {
+  if (typeof window === "undefined") return;
+  try {
+    const key = cacheKey(userId);
+    cleanupStaleCache(key);
+    localStorage.setItem(key, JSON.stringify(state));
+  } catch {
+    // Quota/disabled storage: the cache is best-effort resilience, never
+    // required for correctness, so a failure here is fine to swallow.
+  }
+}
+
+// Adapt a server board guess to the shared GuessRow's shape -- identical row,
+// tiles, and initials as live play and the duel board (CLAUDE.md "Duel visual
+// consistency").
+function toGuess(g: DailyBoardGuess): Guess {
+  return {
+    guessedDriver: {
+      id: g.driverId,
+      fullName: g.name,
+      driverCode: g.code,
+      nationality: g.nationality,
+      team: g.team,
+      age: g.age,
+      debutYear: g.debutYear,
+      careerWins: g.careerWins,
+    },
+    result: g.tiles,
+  };
 }
 
 function msUntilNextUtcMidnight(): number {
   const now = new Date();
-  const nextMidnight = Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate() + 1,
-  );
+  const nextMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
   return nextMidnight - now.getTime();
 }
 
 function formatCountdown(msLeft: number): string {
   const totalSeconds = Math.max(0, Math.floor(msLeft / 1000));
   const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
-  const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(
-    2,
-    "0",
-  );
+  const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, "0");
   const seconds = String(totalSeconds % 60).padStart(2, "0");
   return `${hours}:${minutes}:${seconds}`;
 }
@@ -95,45 +114,68 @@ export function DailyGame({
   hasPuzzleToday: boolean;
 }) {
   const router = useRouter();
-  const { refresh } = useAuth();
+  const { user, loading: authLoading, refresh } = useAuth();
+  const userId = user?.id ?? null;
   const { showFlags } = useSettings();
   const toast = useToast();
-  const todayKeyRef = useRef(todayUtcKey());
 
-  const [status, setStatus] = useState<RoundStatus>("loading");
-  const [guesses, setGuesses] = useState<Guess[]>([]);
-  const [target, setTarget] = useState<DriverSummary | null>(null);
+  const [phase, setPhase] = useState<Phase>("loading");
+  const [board, setBoard] = useState<DailyBoardState | null>(null);
+  const [pending, setPending] = useState(false);
   const [shareState, setShareState] = useState<"idle" | "sharing" | "shared" | "copied">("idle");
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [lastShareFormat, setLastShareFormat] = useState<"image" | "text" | null>(null);
-  const [isPending, startTransition] = useTransition();
   const [countdown, setCountdown] = useState("");
 
-  const loadState = useCallback(() => {
-    const key = todayUtcKey();
-    todayKeyRef.current = key;
-    cleanupStaleKeys(key);
-    const persisted = readPersisted(key);
-    if (persisted) {
-      setGuesses(persisted.guesses);
-      setStatus(persisted.status);
-      setTarget(persisted.target ?? null);
-    } else {
-      setGuesses([]);
-      setStatus("playing");
-      setTarget(null);
+  // Each hydrate bumps this; a slow response from a previous identity (or a
+  // pre-rollover day) is discarded when a newer hydrate has superseded it, so
+  // switching accounts can't leave a stale board on screen.
+  const hydrateSeq = useRef(0);
+
+  // The hydration gate. While auth is still resolving or the fetch is in
+  // flight, phase stays "loading" and the UI shows a disabled skeleton -- it
+  // must NEVER render an empty, playable board that later fills in, since that
+  // flash reads as "you can play again" and invites a duplicate attempt. Keyed
+  // on userId so signing in/out re-resolves the board for the new identity with
+  // no refresh (the same gate re-applies during that re-resolution).
+  const hydrate = useCallback(async () => {
+    if (!hasPuzzleToday) return;
+    const seq = ++hydrateSeq.current;
+    if (authLoading || !userId) {
+      setPhase("loading");
+      return;
     }
-    setShareState("idle");
-  }, []);
+    setPhase("loading");
+    try {
+      const next = await dailyState();
+      if (seq !== hydrateSeq.current) return;
+      setBoard(next);
+      setPhase("ready");
+      writeCache(userId, next);
+    } catch {
+      if (seq !== hydrateSeq.current) return;
+      // Server unreachable: fall back to the last cached server snapshot for
+      // resilience. With no cache we show an error/retry -- NOT an empty
+      // playable board, so localStorage is never the reason a board is
+      // playable on a fresh device.
+      const cached = readCache(userId);
+      if (cached) {
+        setBoard(cached);
+        setPhase("ready");
+      } else {
+        setPhase("error");
+      }
+    }
+  }, [authLoading, userId, hasPuzzleToday]);
 
   useEffect(() => {
-    loadState();
-  }, [loadState]);
+    void hydrate();
+  }, [hydrate]);
 
-  const isRoundOver = status === "won" || status === "lost";
+  const isRoundOver = board?.completed ?? false;
 
-  // Ticks only once the round is over; when it hits zero the UTC day has
-  // rolled over, so pull fresh server data and reload local state for it.
+  // Ticks only once the round is over; when it hits zero the UTC day has rolled
+  // over, so pull fresh server data and re-hydrate for the new day.
   useEffect(() => {
     if (!isRoundOver) return;
     function tick() {
@@ -141,75 +183,52 @@ export function DailyGame({
       setCountdown(formatCountdown(msLeft));
       if (msLeft <= 0) {
         router.refresh();
-        loadState();
+        void hydrate();
       }
     }
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [isRoundOver, router, loadState]);
+  }, [isRoundOver, router, hydrate]);
 
   function handleSelect(driver: DriverOption) {
-    startTransition(async () => {
-      const response = await submitDailyGuess(driver.id);
-      if (!response.ok) {
-        toast.error(response.error);
-        return;
+    if (!board || board.completed || pending || !userId) return;
+
+    const wasCompleted = board.completed;
+    setPending(true);
+    void (async () => {
+      try {
+        // Optimistic: the pending shimmer row shows immediately (via GuessGrid
+        // below); the server response is what actually wins.
+        const next = await dailySubmitGuess(driver.id);
+        if (!userId) return;
+        setBoard(next);
+        writeCache(userId, next);
+        // The server records the result on the completing guess; refresh the
+        // auth context so Statistics reflects it.
+        if (!wasCompleted && next.completed) await refresh();
+      } catch {
+        // A failed write must be surfaced, never silently accepted locally --
+        // a local-only guess is exactly how two devices diverge again.
+        toast.error("Couldn't submit your guess — it didn't count. Check your connection and try again.");
+      } finally {
+        setPending(false);
       }
-
-      const newGuesses: Guess[] = [
-        ...guesses,
-        { guessedDriver: response.guessedDriver, result: response.result },
-      ];
-      setGuesses(newGuesses);
-
-      if (response.won) {
-        setStatus("won");
-        setTarget(response.guessedDriver);
-        await recordDailyResult(true, newGuesses.length);
-        await refresh();
-        writePersisted(todayKeyRef.current, {
-          guesses: newGuesses,
-          status: "won",
-          target: response.guessedDriver,
-        });
-        return;
-      }
-
-      if (newGuesses.length >= MAX_GUESSES) {
-        const reveal = await revealDailyTarget();
-        const revealedTarget = reveal.ok ? reveal.target : undefined;
-        setStatus("lost");
-        setTarget(revealedTarget ?? null);
-        if (!reveal.ok) toast.error(reveal.error);
-        await recordDailyResult(false, newGuesses.length);
-        await refresh();
-        writePersisted(todayKeyRef.current, {
-          guesses: newGuesses,
-          status: "lost",
-          target: revealedTarget,
-        });
-        return;
-      }
-
-      writePersisted(todayKeyRef.current, {
-        guesses: newGuesses,
-        status: "playing",
-      });
-    });
+    })();
   }
 
   // "Share result" opens a popup asking image vs. emoji text (same Modal
-  // primitive as Settings/Leaderboard/the duel forfeit confirm) rather than
-  // a persisted setting -- the choice is per-share, not a standing
-  // preference, so there's nothing to remember between rounds.
+  // primitive as Settings/Leaderboard/the duel forfeit confirm) rather than a
+  // persisted setting -- the choice is per-share, not a standing preference.
   async function handleShare(format: "image" | "text") {
+    if (!board) return;
     setShareModalOpen(false);
     setLastShareFormat(format);
+    const results = board.guesses.map((g) => g.tiles);
     const text = buildShareText({
       puzzleNumber,
-      results: guesses.map((g) => g.result),
-      won: status === "won",
+      results,
+      won: board.won,
       maxGuesses: MAX_GUESSES,
     });
 
@@ -237,17 +256,10 @@ export function DailyGame({
       return;
     }
 
-    // Prefer the native share sheet with an actual result-card image
-    // attached (real social-media targets: Messages, WhatsApp, X, Discord,
-    // Instagram, whatever the OS offers) -- clipboard-only text is the
-    // fallback, not the primary path, for anything that supports it.
+    // Prefer the native share sheet with an actual result-card image attached
+    // (real social targets) -- clipboard-only text is the fallback.
     try {
-      const blob = await renderResultImage({
-        puzzleNumber,
-        results: guesses.map((g) => g.result),
-        won: status === "won",
-        maxGuesses: MAX_GUESSES,
-      });
+      const blob = await renderResultImage({ puzzleNumber, results, won: board.won, maxGuesses: MAX_GUESSES });
       const file = new File([blob], "driverpit-result.png", { type: "image/png" });
 
       if (navigator.share && navigator.canShare?.({ files: [file] })) {
@@ -257,9 +269,8 @@ export function DailyGame({
         return;
       }
 
-      // No file-share support (most desktop browsers): copy the text and
-      // hand over a downloadable image so there's still something to
-      // actually post, not just a wall of emoji.
+      // No file-share support (most desktop browsers): copy the text and hand
+      // over a downloadable image so there's still something to post.
       await navigator.clipboard.writeText(text);
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
@@ -269,8 +280,6 @@ export function DailyGame({
       setShareState("copied");
       setTimeout(() => setShareState("idle"), 2000);
     } catch (err) {
-      // AbortError = the user closed the native share sheet -- not a
-      // failure, just quietly reset.
       if (err instanceof Error && err.name === "AbortError") {
         setShareState("idle");
         return;
@@ -281,7 +290,8 @@ export function DailyGame({
     }
   }
 
-  const guessesLeft = MAX_GUESSES - guesses.length;
+  const guesses = board ? board.guesses.map(toGuess) : [];
+  const guessesLeft = board?.guessesRemaining ?? MAX_GUESSES;
 
   return (
     <div className="mx-auto flex w-full flex-col gap-4 px-4 py-6">
@@ -294,14 +304,32 @@ export function DailyGame({
         <div className="py-12 text-center text-text-muted">
           No puzzle is scheduled for today. Check back soon.
         </div>
-      ) : status === "loading" ? (
-        <div className="py-12 text-center text-sm text-text-muted">Loading today&apos;s puzzle…</div>
+      ) : phase === "loading" ? (
+        // Skeleton board with the input disabled -- the hydration gate. Same
+        // layout as the ready state so nothing shifts when it resolves.
+        <div className="flex flex-col gap-4" aria-busy="true">
+          <DriverAutocomplete drivers={eligibleDrivers} onSelect={() => {}} disabled />
+          <p className="text-center text-sm text-text-muted">Loading today&apos;s board…</p>
+          <div className="animate-pulse motion-reduce:animate-none">
+            <GuessGrid guesses={[]} maxGuesses={MAX_GUESSES} showFlags={showFlags} />
+          </div>
+        </div>
+      ) : phase === "error" ? (
+        <div className="flex flex-col items-center gap-3 py-12 text-center">
+          <p className="text-sm text-text-muted">Couldn&apos;t load today&apos;s puzzle.</p>
+          <button
+            onClick={() => void hydrate()}
+            className="rounded-lg border border-accent-weak bg-accent-weak/40 px-4 py-2 text-sm font-semibold text-accent transition hover:border-accent/50 hover:bg-accent-weak/60 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Retry
+          </button>
+        </div>
       ) : (
         <>
           <DriverAutocomplete
             drivers={eligibleDrivers}
             onSelect={handleSelect}
-            disabled={isPending || isRoundOver}
+            disabled={pending || isRoundOver}
           />
 
           {!isRoundOver && (
@@ -310,20 +338,18 @@ export function DailyGame({
             </p>
           )}
 
-          <GuessGrid guesses={guesses} maxGuesses={MAX_GUESSES} showFlags={showFlags} />
+          <GuessGrid guesses={guesses} maxGuesses={MAX_GUESSES} showFlags={showFlags} pending={pending} />
 
-          {status === "won" && target && (
+          {isRoundOver && board?.won && (
             <div className="rounded-lg border border-border bg-surface-2 p-4 text-center">
-              <p className="font-semibold text-accent">🏆 You got it — {target.fullName}!</p>
+              <p className="font-semibold text-accent">🏆 You got it — {board.target?.name}!</p>
             </div>
           )}
 
-          {status === "lost" && (
+          {isRoundOver && !board?.won && (
             <div className="rounded-lg border border-border bg-surface-2 p-4 text-center">
               <p className="font-semibold text-text">
-                {target
-                  ? `Out of guesses. It was ${target.fullName}.`
-                  : "Out of guesses."}
+                {board?.target ? `Out of guesses. It was ${board.target.name}.` : "Out of guesses."}
               </p>
             </div>
           )}

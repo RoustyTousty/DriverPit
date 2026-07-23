@@ -2,7 +2,7 @@
 
 A daily Wordle-style web game presented as a full website. Players guess a Formula 1 driver in 5 guesses. Each guess reveals how the guessed driver compares to the target across five attributes.
 
-Daily, infinite, and duel modes work, wrapped in the full site shell (top bar, modals, marketing sections, ads). **Current work: (1) accounts & profiles via auth, (2) settings restructure + a global leaderboard, (3) a UX/quality overhaul of the real-time duel — the engine matchmakes and plays, but the moment-to-moment experience (staging, sync, live feedback, exit handling) is being rebuilt to feel like a real head-to-head race.** A fourth mode, **Knockout**, is planned but not yet built — it's documented here so the duel engine is built with the right seams. Do not change the comparison engine or the daily/infinite game logic unless a task explicitly says to.
+Daily, infinite, and duel modes work, wrapped in the full site shell (top bar, modals, marketing sections, ads). **Current work: (1) accounts & profiles via auth, (2) settings restructure + a global leaderboard, (3) a UX/quality overhaul of the real-time duel — the engine matchmakes and plays, but the moment-to-moment experience (staging, sync, live feedback, exit handling) is being rebuilt to feel like a real head-to-head race, (4) server-side daily progress so a day's board follows the account across devices.** A fourth mode, **Knockout**, is planned but not yet built — it's documented here so the duel engine is built with the right seams. Do not change the comparison engine or the daily/infinite game logic unless a task explicitly says to.
 
 ## Game rules
 
@@ -23,7 +23,7 @@ The comparison engine (`lib/game/compare.ts`) is pure and unit-tested — don't 
 ## Modes
 
 - **Infinite** — random driver from a player-selectable pool, unlimited plays, no persistence beyond the current round.
-- **Daily** — one driver per day, same for everyone, resets at UTC midnight. Progress persists per-account (localStorage for signed-out legacy, migrated to the account on sign-in). Always the 10-year pool.
+- **Daily** — one driver per day, same for everyone, resets at UTC midnight. Progress is **stored server-side per account and follows the user across devices** — the guesses themselves are persisted, not just the outcome. One playthrough per account per day, enforced by the server. See "Daily persistence & sync". Always the 10-year pool.
 - **Duel** — real-time 1v1 race, matchmade against a random opponent. 3 rounds, tug-of-war scoring. See the Duel section.
 - **Knockout** *(planned, not built)* — 20-player F1-qualifying-format elimination game, lives under `/online`. See the Knockout section.
 
@@ -59,6 +59,35 @@ The login/upgrade UI is a **modal** (`components/auth/AccountModal.tsx`, reusing
 
 Daily results write to `user_stats` via `recordDailyResult` (`lib/stats/actions.ts`), guarded by the `daily_results` idempotency table so replaying the action can't inflate stats. Pre-existing localStorage stats (`lib/stats/store.ts`, from before this feature existed) are folded in once via `migrateLocalStats`, triggered by `AuthProvider` the moment a guest's `profiles.is_guest` flips to `false`.
 
+### Auth state is reactive, everywhere
+
+`AuthProvider` subscribes to `supabase.auth.onAuthStateChange` and exposes `{ userId, isGuest, status }` where `status` is `loading | ready`. **Every game window is a function of `userId`** — signing in or out while sitting on `/daily` must immediately re-resolve that mode's state for the new identity, with no refresh and no leftover board from the previous identity. Sign-out returns the user to a *new* anonymous identity (the app is never identity-less), so it is an identity *swap*, not a teardown. Nothing may key persistent game state off anything but the current `userId`.
+
+## Daily persistence & sync
+
+The daily board must be **the same board on every device**. This is a correctness requirement, not a convenience: if a second device renders a fresh board, the player replays the day and the mode is meaningless.
+
+### Model
+
+- **The guesses are the state.** `daily_progress` stores the ordered list of guessed driver ids for a `(user_id, utc_date)`. Tile results are **never** persisted — they're recomputed server-side by running `compare()` against that day's target on hydration. One source of truth for compare rules, a small payload, and no way for a client to inject fabricated tiles.
+- **The server owns the append.** A guess goes through `daily_submit_guess(driver_id)`, which resolves the UTC date and the guess index server-side and returns the full authoritative board. The client renders what comes back. Two devices guessing at once therefore converge instead of forking, and "one playthrough per day" is enforced where it can't be bypassed.
+- **The date comes from the database**, never the client — `(now() at time zone 'utc')::date`. A client-supplied date is a trivial way to re-roll the day by changing a device clock.
+- **The target is not sent to the client until the day is over** (solved, or guesses exhausted), matching the daily rules. Hydration returns tiles + guessed driver display data; it returns the target only on a completed row.
+- **Guests persist too.** Anonymous users are real `auth.users` rows, so their daily progress is written server-side like anyone's. It doesn't roam (the anonymous session is device-local), but it means upgrading to a full account carries the in-progress day over with everything else.
+- **localStorage becomes a cache, not the record.** It backs offline/failed-write resilience and legacy pre-auth data. It is never authoritative and never a reason to render a playable board.
+
+### Precedence and merge
+
+**The server always wins.** On sign-in, local progress for today is pushed up *only if the server has no row for that date*; if a server row exists it is loaded as-is and local is discarded. Local guesses are never appended onto a server row, and never onto a completed day — that path is exactly how a player would get a second attempt.
+
+### Hydration UX (no replay flash)
+
+While `status === 'loading'` or the daily fetch is in flight, `/daily` renders a skeleton board with the input disabled. It must never render an empty, playable board that later fills in — that flash reads as "you can play again" and invites a duplicate attempt. On sign-in or sign-out the same gate applies during re-resolution.
+
+### Completion
+
+When `daily_submit_guess` completes a day it marks the row complete and calls the existing `recordDailyResult` path, still guarded by `daily_results`, so streaks and distribution can't be double-counted by a replay, a second device, or a re-hydration.
+
 ## Site architecture
 
 Two site sections share one root layout but have different chrome, split via App Router route groups:
@@ -90,7 +119,7 @@ Two site sections share one root layout but have different chrome, split via App
 
 `(game)` and `(info)` are route groups — the parens are stripped from the URL, so paths stay flat (`/faq`, not `/info/faq`).
 
-`/online` is a **landing** that offers a match type: **Duel** (live now) and **Knockout** (rendered but disabled / "coming soon" until built). Guests see a "save your progress" upgrade prompt above the mode options, same copy as Settings. Selecting Duel enters the lobby/matchmaking flow, which is where the **live online count** (presence) shows up.
+`/online` is a **landing** that offers a match type: **Duel** (live now) and **Knockout** (rendered but disabled / "coming soon" until built). Guests see a "save your progress" upgrade prompt above the mode options, same copy as Settings. Selecting Duel enters the lobby/matchmaking flow.
 
 ## Design system
 
@@ -172,7 +201,7 @@ lobby ──▶ countdown ──▶ active ──▶ intermission ──▶ (nex
 any state ─▶ abandoned   (forfeit / disconnect)
 ```
 
-- **`lobby`** — pair created, both on the match staging screen. Avatars, handles, ratings, W/L records revealed (grid-start feel). Held ~`MATCH_FOUND_HOLD_MS`. Both clients send a `ready` presence flag.
+- **`lobby`** — pair created, both on the match staging screen. Avatars, handles, ratings revealed (grid-start feel). Held ~`MATCH_FOUND_HOLD_MS`. Both clients send a `ready` presence flag.
 - **`countdown`** — once both `ready` (or `READY_TIMEOUT_MS` elapses), an RPC stamps round 1's clock and the F1 **lights-out** countdown runs to the absolute `started_at`.
 - **`active`** — a round is live (`current_round`). Board + tug-of-war + opponent panel. Ends when both solved or the timer expires.
 - **`intermission`** — reveal the correct driver, animate both players' round points, settle the bar, mini-countdown into the next round. Server-stamped `intermission_ends_at` (so both see it the same length), plus a ready-gate before the next `active`.
@@ -196,8 +225,8 @@ These fix the "everything's too fast to see" complaints: the intermission is a r
 ### Flow
 
 1. **Mode select.** `/online` landing shows Duel / Knockout (plus a guest upgrade prompt above them, same as Settings).
-2. **Lobby / matchmaking.** Selecting Duel renders the lobby UI *first* (searching animation, online count) and enforces `LOBBY_MIN_SEARCH_MS` before resolving, so the player always sees the lobby load in. A Postgres RPC pairs atomically: `SELECT ... FOR UPDATE SKIP LOCKED` finds a waiting opponent (create match, mark both matched) or enqueues. No background worker. Match by rating when possible; widen the window the longer someone waits; fall back to anyone after a timeout.
-3. **Match found (staging).** Both avatars slide in from opposite sides (grid-start), with handles, ratings, and duel W/L. Held `MATCH_FOUND_HOLD_MS`. Both clients report `ready`.
+2. **Lobby / matchmaking.** Selecting Duel renders the lobby UI *first* (searching animation) and enforces `LOBBY_MIN_SEARCH_MS` before resolving, so the player always sees the lobby load in. A Postgres RPC pairs atomically: `SELECT ... FOR UPDATE SKIP LOCKED` finds a waiting opponent (create match, mark both matched) or enqueues. No background worker. Match by rating when possible; widen the window the longer someone waits; fall back to anyone after a timeout.
+3. **Match found (staging).** Both avatars slide in from opposite sides (grid-start), with handles and ratings. Held `MATCH_FOUND_HOLD_MS`. Both clients report `ready`.
 4. **Lights-out countdown.** On both-ready (or timeout), `duel_begin_round` stamps round 1's `started_at = now() + COUNTDOWN_MS`, `ends_at = started_at + ROUND_MS`. Five red lights fill, then out = GO. Clients count to the absolute `started_at`, corrected for clock offset.
 5. **Rounds (×3).** Each round targets one 10-year-pool driver.
    - **Guessing:** unlimited guesses within the timer, each returning the normal 5-attribute comparison (reuse `compare()`). Submission must feel **instant** — see "Instant guesses".
@@ -293,7 +322,26 @@ user_stats(user_id PK FK, games_played, wins, current_streak, max_streak,
            guess_distribution jsonb, last_result jsonb, duel_rating int default 1000,
            duel_wins, duel_losses)
 daily_results(user_id FK, date, won, guess_count, created_at, PRIMARY KEY (user_id, date))
+daily_progress(user_id FK, date,                    -- date is the UTC day, resolved server-side
+               guesses int[] not null default '{}', -- ordered guessed driver ids: the actual answers
+               completed bool not null default false, won bool null,
+               created_at, updated_at,
+               PRIMARY KEY (user_id, date))
 ```
+`daily_progress` is what makes a day's board follow the account across devices; `daily_results`
+keeps its separate job as the stats idempotency guard (don't merge them — one is live board state,
+the other is a write-once outcome record). `daily_progress` is self-`SELECT` under RLS with **no
+client write policy**; every append goes through the server. Tile results are never stored — they
+are recomputed from `guesses` via `compare()` on hydration.
+
+Daily RPCs / server actions:
+```
+daily_state()                  -> { guesses[{driverId, name, code, tiles}], completed, won,
+                                    guessesRemaining, target|null }   -- target only when completed
+daily_submit_guess(driver_id)  -> same shape; appends server-side, rejects if the day is complete
+                                  or guesses are exhausted; resolves UTC date + guess index itself
+```
+
 `profiles` + `user_stats` rows created by a Postgres trigger on `auth.users` insert. RLS: self
 `SELECT` on both, plus self `UPDATE` on `profiles` only -- `user_stats` has no client-facing
 write policy at all; every write (`lib/stats/actions.ts`) goes through Drizzle's server
@@ -342,7 +390,7 @@ Knockout (planned — not yet created):
 
 ## Realtime channels
 
-- **`lobby`** (presence) — queued + online players; drives the online count on the searching state.
+- **`lobby`** (presence + broadcast) — the channel every searching player joins; broadcasts a just-created match to the player who was waiting for it (`MATCHED_EVENT`, see `DuelSearching`).
 - **`duel:{matchId}`** (broadcast + presence) — the live match. Presence carries connection + `ready` flags (drives the ready-gates and disconnect detection). Broadcast events (all opponent data abstracted — never target or guessed names):
   ```
   round_start  { roundIndex, startedAt, endsAt }
@@ -362,6 +410,8 @@ Knockout (planned — not yet created):
 - Vercel can't hold WebSockets; all realtime goes through Supabase Realtime.
 - Matchmaking pairing is atomic (`FOR UPDATE SKIP LOCKED` RPC), never a background worker. Round timing is server-stamped; round advancement, forfeit, and match finish are all idempotent.
 - Every phase transition is **ready-gated or server-timestamped** so the two clients stay in sync; a reloaded client resumes via `duel_state`.
+- **Daily progress is server-authoritative:** guesses are appended by `daily_submit_guess`, the UTC date is resolved in the database, and localStorage is a cache that never decides whether a day is playable. The server is the only thing that may conclude "you've already played today."
+- **Game windows are auth-reactive:** persistent game state is keyed on `userId` and re-resolves on `onAuthStateChange` with no refresh; a hydration gate prevents a playable board from rendering before state is known.
 - Auth identity is continuous: anonymous upgrades link to the same row, never orphan guest data.
 
 ## Conventions

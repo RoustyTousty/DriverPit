@@ -150,12 +150,10 @@ export function DuelIntermission({
     <div className="flex flex-col items-center gap-5 px-4 py-8 text-center">
       <p className="text-xs font-semibold tracking-wide text-accent uppercase">Round {roundIndex + 1} result</p>
 
-      <div className="flex flex-col items-center gap-2">
-        <DriverCodeBadge code={targetDriver.driverCode} />
-        <p className="text-lg font-bold text-text">{targetDriver.fullName}</p>
-      </div>
+      <p className="text-lg font-bold text-text">{targetDriver.fullName}</p>
 
       <div className="flex w-full gap-1 [perspective:600px]">
+        <DriverCodeBadge code={targetDriver.driverCode} />
         <Tile feedback="exact">{nationalityValue}</Tile>
         <Tile feedback="exact">{targetDriver.team}</Tile>
         <Tile feedback="correct">{targetDriver.age}</Tile>

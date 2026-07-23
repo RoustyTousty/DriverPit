@@ -29,7 +29,7 @@ export function ModeTabs() {
   const pathname = usePathname();
 
   return (
-    <nav aria-label="Game mode" className="flex justify-center px-4 pt-3 pb-2">
+    <nav aria-label="Game mode" className="flex justify-center px-4">
       <div role="tablist" className="flex w-full max-w-sm gap-1 rounded-lg border border-border bg-surface-2 p-1">
         {TABS.map((tab) => {
           const active = pathname === tab.href || pathname?.startsWith(`${tab.href}/`);

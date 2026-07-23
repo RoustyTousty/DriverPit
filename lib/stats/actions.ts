@@ -3,10 +3,11 @@
 import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { dailyResults, userStats } from "@/lib/db/schema";
+import { userStats } from "@/lib/db/schema";
 import { MAX_GUESSES } from "@/lib/game/constants";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+import { recordDailyResultForUser } from "./recordDailyResult";
 import type { StatsState } from "./store";
 
 function todayUtcDateString(): string {
@@ -21,50 +22,17 @@ async function getCurrentUserId(): Promise<string | null> {
   return user?.id ?? null;
 }
 
-// Called once per completed daily round, from the same two spots in
-// DailyGame.tsx that used to call the old localStorage recordResult(). The
-// daily_results insert is the idempotency guard: if it doesn't happen
-// (already recorded today for this user), the user_stats update is
-// skipped entirely -- makes this safe to call more than once for the same
-// day (retries, a stray duplicate call) without inflating the count.
+// Called once per completed daily round. Resolves the user from cookies and
+// the date from the server clock, then hands off to recordDailyResultForUser
+// (the shared, idempotency-guarded core in ./recordDailyResult) -- the daily
+// board's server-authoritative submit path calls that same core directly with
+// the ids it already holds, so both routes flow through one daily_results
+// guard and can't double-count.
 export async function recordDailyResult(won: boolean, guessCount: number): Promise<{ ok: boolean }> {
   const userId = await getCurrentUserId();
   if (!userId) return { ok: false };
 
-  const date = todayUtcDateString();
-
-  return db.transaction(async (tx) => {
-    const inserted = await tx
-      .insert(dailyResults)
-      .values({ userId, date, won, guessCount })
-      .onConflictDoNothing()
-      .returning({ userId: dailyResults.userId });
-
-    if (inserted.length === 0) {
-      return { ok: true };
-    }
-
-    const [current] = await tx.select().from(userStats).where(eq(userStats.userId, userId));
-    if (!current) return { ok: false };
-
-    const index = Math.min(Math.max(guessCount, 1), MAX_GUESSES) - 1;
-    const nextDistribution = [...current.guessDistribution];
-    if (won) nextDistribution[index] = (nextDistribution[index] ?? 0) + 1;
-
-    await tx
-      .update(userStats)
-      .set({
-        gamesPlayed: current.gamesPlayed + 1,
-        wins: current.wins + (won ? 1 : 0),
-        currentStreak: won ? current.currentStreak + 1 : 0,
-        maxStreak: won ? Math.max(current.maxStreak, current.currentStreak + 1) : current.maxStreak,
-        guessDistribution: nextDistribution,
-        lastResult: { won, guessCount },
-      })
-      .where(eq(userStats.userId, userId));
-
-    return { ok: true };
-  });
+  return recordDailyResultForUser(userId, won, guessCount, todayUtcDateString());
 }
 
 // One-time merge of pre-existing localStorage stats into the caller's real

@@ -204,6 +204,13 @@
       "when": 1784665514872,
       "tag": "0028_daily_infinite_fast_guess_rpc",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1784796728284,
+      "tag": "0029_daily_progress",
+      "breakpoints": true
     }
   ]
 }

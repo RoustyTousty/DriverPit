@@ -3,8 +3,9 @@ import type { PoolWindow } from "@/lib/game/poolWindow";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 // Same shape as lib/db/queries.ts#DriverSummary -- see
-// lib/game/submitDailyGuess.ts's comment on why this is a local copy, not
-// an import.
+// lib/duel/submitGuess.ts's comment on why this is a local copy, not an
+// import (that module pulls in the raw Postgres connection, which must never
+// reach a client bundle).
 export interface InfiniteDriverSummary {
   id: number;
   fullName: string;

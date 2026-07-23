@@ -41,7 +41,23 @@ export function GameChrome({
   // slot stable no matter what active is.
   return (
     <>
-      {!active && <ModeTabs />}
+      {/* Universal gap under the top bar -- the one source of that
+          spacing, present for every mode. When mode tabs are visible, a
+          second, identical gap separates them from the game window below,
+          so the top-bar-to-tabs and tabs-to-window gaps match. That second
+          gap lives *inside* the `!active` block so it disappears together
+          with the tabs during a live duel -- leaving only the first gap,
+          which puts the game window exactly as far from the top bar as
+          the tabs were, not stacked on top of a second gap that no longer
+          has anything to separate. ModeTabs and the game board itself
+          (app/(game)/layout.tsx's <main>) carry no spacing of their own. */}
+      <div className="h-3" aria-hidden="true" />
+      {!active && (
+        <>
+          <ModeTabs />
+          <div className="h-3" aria-hidden="true" />
+        </>
+      )}
       {children}
       {!active && (
         <>

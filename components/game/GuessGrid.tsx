@@ -104,6 +104,23 @@ function EmptyRow() {
   );
 }
 
+// Shimmer placeholder for a guess that's been submitted but hasn't resolved
+// yet (CLAUDE.md's "Instant guesses": optimistic render, shimmer -> fill).
+// Same outer shape as a real GuessRow -- code badge plus five flex-1 tiles --
+// so nothing shifts when the authoritative row replaces it. The duel board
+// (components/duel/ClosestGuessesBoard.tsx) keeps its own copy for its ranked
+// layout; this one lives with the fixed daily/infinite grid.
+export function PendingGuessRow() {
+  return (
+    <div className="flex gap-1" aria-hidden="true">
+      <div className={`min-h-14 ${CODE_COLUMN_WIDTH} shrink-0 animate-pulse rounded-lg bg-surface-2 motion-reduce:animate-none`} />
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="min-h-14 flex-1 animate-pulse rounded-lg bg-surface-2 motion-reduce:animate-none" />
+      ))}
+    </div>
+  );
+}
+
 export function ColumnLabels() {
   return (
     <div className="flex gap-1 px-0.5 text-[10px] font-semibold tracking-wide text-text-muted uppercase sm:text-xs">
@@ -168,12 +185,17 @@ export function GuessGrid({
   guesses,
   maxGuesses,
   showFlags = false,
+  pending = false,
 }: {
   guesses: Guess[];
   maxGuesses: number;
   showFlags?: boolean;
+  // When true, a shimmer row sits below the real guesses (an in-flight
+  // optimistic submit), consuming one empty slot so the grid keeps its height.
+  pending?: boolean;
 }) {
-  const emptyCount = maxGuesses - guesses.length;
+  const pendingRows = pending ? 1 : 0;
+  const emptyCount = Math.max(0, maxGuesses - guesses.length - pendingRows);
 
   return (
     <div className="flex flex-col gap-2">
@@ -181,6 +203,7 @@ export function GuessGrid({
       {guesses.map((guess, index) => (
         <GuessRow key={index} guessedDriver={guess.guessedDriver} result={guess.result} showFlags={showFlags} />
       ))}
+      {pending && <PendingGuessRow />}
       {Array.from({ length: emptyCount }).map((_, index) => (
         <EmptyRow key={`empty-${index}`} />
       ))}

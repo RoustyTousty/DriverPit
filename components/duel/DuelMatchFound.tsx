@@ -13,38 +13,24 @@ export interface DuelOpponentSummary {
   displayName: string | null;
   avatarUrl: string;
   rating: number | null;
-  duelWins: number;
-  duelLosses: number;
-}
-
-function RecordBadge({ wins, losses }: { wins: number; losses: number }) {
-  return (
-    <p className="font-mono text-xs tabular-nums text-text-muted">
-      {wins}-{losses}
-    </p>
-  );
 }
 
 // CLAUDE.md's Duel "Flow" step 3 (match-found staging): both avatars slide
 // in from opposite sides -- two cars rolling onto a starting grid -- with
-// handle, rating, and duel W/L for each. Held for MATCH_FOUND_HOLD_MS
-// before onHoldComplete fires; the orchestrator calls sendReady() at that
-// point and starts the ready-gate (both ready, or READY_TIMEOUT_MS).
+// handle and rating for each. Held for MATCH_FOUND_HOLD_MS before
+// onHoldComplete fires; the orchestrator calls sendReady() at that point
+// and starts the ready-gate (both ready, or READY_TIMEOUT_MS).
 // `waitingOnOpponent` covers the -- usually brief -- gap after the hold
 // ends but before both sides have reported ready.
 export function DuelMatchFound({
   me,
   myRating,
-  myDuelWins,
-  myDuelLosses,
   opponent,
   waitingOnOpponent,
   onHoldComplete,
 }: {
   me: Profile;
   myRating: number | null;
-  myDuelWins: number;
-  myDuelLosses: number;
   opponent: DuelOpponentSummary;
   waitingOnOpponent: boolean;
   onHoldComplete: () => void;
@@ -78,7 +64,6 @@ export function DuelMatchFound({
           <AvatarGlyph avatarUrl={me.avatarUrl} size="md" />
           <p className="max-w-full truncate text-sm font-semibold text-text">{me.displayName || me.username}</p>
           <RatingBadge rating={myRating} />
-          <RecordBadge wins={myDuelWins} losses={myDuelLosses} />
         </div>
 
         <span className="text-lg font-bold text-text-muted">VS</span>
@@ -93,7 +78,6 @@ export function DuelMatchFound({
             {opponent.displayName || opponent.username}
           </p>
           <RatingBadge rating={opponent.rating} />
-          <RecordBadge wins={opponent.duelWins} losses={opponent.duelLosses} />
         </div>
       </div>
 
