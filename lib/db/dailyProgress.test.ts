@@ -4,7 +4,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { dailyStateFor, dailySubmitGuessFor } from "./dailyProgress";
+import { dailyStateFor, dailySubmitGuessFor, migrateLocalDailyFor } from "./dailyProgress";
 import { db } from "./index";
 import { getDailyDriverId } from "./queries";
 import { dailyProgress, dailyResults, drivers, userStats } from "./schema";
@@ -128,5 +128,51 @@ describe.skipIf(!RUN)("dailyProgress (integration)", () => {
     expect(stats.gamesPlayed).toBe(1);
     expect(stats.wins).toBe(1);
     expect(stats.currentStreak).toBe(1);
+  });
+
+  // The case that matters: server precedence is absolute. A completed server
+  // day must never be reopened or appended to by mid-game local data -- that's
+  // exactly how someone would get a second attempt.
+  it("drops mid-game local data when the server day is already complete", async () => {
+    const solved = await dailySubmitGuessFor(userId, targetId);
+    expect(solved.board.completed).toBe(true);
+    const serverGuesses = solved.board.guesses.map((g) => g.driverId);
+
+    const result = await migrateLocalDailyFor(userId, [wrongId, wrongId]);
+    expect(result.migrated).toBe(false);
+
+    // The row is untouched: still complete, still won, same guesses.
+    const [row] = await db
+      .select()
+      .from(dailyProgress)
+      .where(and(eq(dailyProgress.userId, userId), eq(dailyProgress.date, today)));
+    expect(row.completed).toBe(true);
+    expect(row.won).toBe(true);
+    expect(row.guesses).toEqual(serverGuesses);
+
+    // And the authoritative board still reports the day complete -- no second
+    // attempt was opened.
+    const state = await dailyStateFor(userId);
+    expect(state.completed).toBe(true);
+    expect(state.guesses.map((g) => g.driverId)).toEqual(serverGuesses);
+  });
+
+  it("adopts local guesses only when there is no server row, then is idempotent", async () => {
+    // No server row yet -> the local mid-game guesses become the board.
+    const migrated = await migrateLocalDailyFor(userId, [wrongId, wrongId]);
+    expect(migrated.migrated).toBe(true);
+
+    const state = await dailyStateFor(userId);
+    expect(state.guesses.map((g) => g.driverId)).toEqual([wrongId, wrongId]);
+    expect(state.completed).toBe(false);
+
+    // A repeat now finds a server row and discards local (can't re-push, and
+    // can't slip a winning guess onto the existing day).
+    const again = await migrateLocalDailyFor(userId, [targetId]);
+    expect(again.migrated).toBe(false);
+
+    const after = await dailyStateFor(userId);
+    expect(after.guesses.map((g) => g.driverId)).toEqual([wrongId, wrongId]);
+    expect(after.completed).toBe(false);
   });
 });

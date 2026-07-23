@@ -63,6 +63,42 @@ export function dailyCompletion(
   return { completed, won };
 }
 
+// Replays a list of locally-stored guess ids into the authoritative shape a
+// daily_progress row would hold: the accepted ids (truncated at a win, capped
+// at maxGuesses) plus the re-derived completed/won. Used when migrating
+// pre-server local progress -- the local "status" is never trusted; completion
+// is recomputed here so a stored row's `completed` flag is always accurate (a
+// locally-solved day must land as completed, or the guess path would let it be
+// played again). Unknown ids (a driver no longer in the table) are skipped
+// rather than aborting. Pure -- unit tested without a database.
+export function replayLocalGuesses(params: {
+  localGuessIds: readonly number[];
+  driverById: ReadonlyMap<number, DailyBoardDriver>;
+  target: DailyBoardDriver;
+  today: Date;
+  maxGuesses: number;
+}): { accepted: number[]; completed: boolean; won: boolean } {
+  const { localGuessIds, driverById, target, today, maxGuesses } = params;
+  const accepted: number[] = [];
+  let completed = false;
+  let won = false;
+
+  for (const id of localGuessIds) {
+    if (completed || accepted.length >= maxGuesses) break;
+    const driver = driverById.get(id);
+    if (!driver) continue;
+    accepted.push(id);
+    if (isWin(compare(driver, target, today))) {
+      completed = true;
+      won = true;
+    } else if (accepted.length >= maxGuesses) {
+      completed = true;
+    }
+  }
+
+  return { accepted, completed, won };
+}
+
 // Recomputes the whole board from the stored guess ids. Because tiles are
 // never stored, running compare() over the ids against today's target here is
 // the single source of truth for what the player sees, on the first device or

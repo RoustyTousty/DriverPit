@@ -11,6 +11,8 @@ import { useToast } from "@/components/ui/Toast";
 import { dailyState, dailySubmitGuess } from "@/lib/db/dailyProgressActions";
 import { MAX_GUESSES } from "@/lib/game/constants";
 import type { DailyBoardGuess, DailyBoardState } from "@/lib/game/dailyBoard";
+import { isLegacyDailyKey } from "@/lib/game/legacyDaily";
+import { pushLocalDailyToServer } from "@/lib/game/legacyDailyMigration";
 import { buildShareText } from "@/lib/game/emojiGrid";
 import { renderResultImage } from "@/lib/game/shareImage";
 import { useSettings } from "@/lib/settings/useSettings";
@@ -52,9 +54,14 @@ function cleanupStaleCache(keep: string) {
   const stale: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    // Also sweeps the pre-server key format (f1dw:daily:<date>), which no
-    // longer matches and is safe to discard -- the server is the record now.
-    if (key && key.startsWith(STORAGE_PREFIX) && key !== keep) stale.push(key);
+    // Sweep other identities'/days' cache entries, but LEAVE legacy pre-server
+    // keys (f1dw:daily:<date>) alone -- the auth-time migration
+    // (lib/game/legacyDaily.ts + migrateLocalDaily) owns their lifecycle and
+    // deleting one here before it's read would silently drop the player's
+    // pre-existing progress.
+    if (key && key.startsWith(STORAGE_PREFIX) && key !== keep && !isLegacyDailyKey(key)) {
+      stale.push(key);
+    }
   }
   for (const key of stale) localStorage.removeItem(key);
 }
@@ -104,18 +111,27 @@ function formatCountdown(msLeft: number): string {
   return `${hours}:${minutes}:${seconds}`;
 }
 
-export function DailyGame({
-  eligibleDrivers,
-  puzzleNumber,
-  hasPuzzleToday,
-}: {
+interface DailyGameProps {
   eligibleDrivers: DriverOption[];
   puzzleNumber: number;
   hasPuzzleToday: boolean;
-}) {
+}
+
+// Keyed wrapper: an identity change swaps the `key`, remounting DailyBoard so
+// NO state from the previous identity can survive -- stale guesses, a stale
+// "already played"/completed banner, the countdown all reset (React guarantees
+// fresh state on a new key), per CLAUDE.md "Auth state is reactive,
+// everywhere". The board's own hydration gate covers the brief null gap during
+// a sign-out -> fresh-guest swap (userId is momentarily null).
+export function DailyGame(props: DailyGameProps) {
+  const { userId } = useAuth();
+  return <DailyBoard key={userId ?? "pending"} {...props} />;
+}
+
+function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGameProps) {
   const router = useRouter();
-  const { user, loading: authLoading, refresh } = useAuth();
-  const userId = user?.id ?? null;
+  const { userId, status, isGuest, refresh } = useAuth();
+  const authLoading = status === "loading";
   const { showFlags } = useSettings();
   const toast = useToast();
 
@@ -132,12 +148,14 @@ export function DailyGame({
   // switching accounts can't leave a stale board on screen.
   const hydrateSeq = useRef(0);
 
-  // The hydration gate. While auth is still resolving or the fetch is in
-  // flight, phase stays "loading" and the UI shows a disabled skeleton -- it
-  // must NEVER render an empty, playable board that later fills in, since that
-  // flash reads as "you can play again" and invites a duplicate attempt. Keyed
-  // on userId so signing in/out re-resolves the board for the new identity with
-  // no refresh (the same gate re-applies during that re-resolution).
+  // The hydration gate. While auth is still resolving (status "loading") or the
+  // fetch is in flight, phase stays "loading" and the UI shows a disabled
+  // skeleton -- it must NEVER render an empty, playable board that later fills
+  // in, since that flash reads as "you can play again" and invites a duplicate
+  // attempt. Identity *swaps* remount this whole board (the keyed wrapper), so
+  // within a mount userId is fixed; this also re-runs when a guest *upgrades*
+  // in place (same userId, isGuest flips) so the board re-hydrates after
+  // sign-in, per the prompt.
   const hydrate = useCallback(async () => {
     if (!hasPuzzleToday) return;
     const seq = ++hydrateSeq.current;
@@ -147,6 +165,18 @@ export function DailyGame({
     }
     setPhase("loading");
     try {
+      // Carry any pre-existing local daily board onto the account BEFORE
+      // fetching, so the board we render reflects it (no empty-then-fills-in
+      // flash). Best-effort: a migration failure must not block hydration --
+      // the legacy key is retained for a later retry. Idempotent and races
+      // harmlessly with AuthProvider's own sign-in migration.
+      try {
+        await pushLocalDailyToServer();
+      } catch {
+        // swallow -- still hydrate from whatever the server has
+      }
+      if (seq !== hydrateSeq.current) return;
+
       const next = await dailyState();
       if (seq !== hydrateSeq.current) return;
       setBoard(next);
@@ -166,7 +196,9 @@ export function DailyGame({
         setPhase("error");
       }
     }
-  }, [authLoading, userId, hasPuzzleToday]);
+    // isGuest is a dependency so an in-place upgrade re-hydrates; within a mount
+    // userId never changes (a swap remounts via the keyed wrapper).
+  }, [authLoading, userId, isGuest, hasPuzzleToday]);
 
   useEffect(() => {
     void hydrate();

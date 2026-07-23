@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isWin } from "./compare";
-import { buildDailyBoard, dailyCompletion, type DailyBoardDriver } from "./dailyBoard";
+import { buildDailyBoard, dailyCompletion, replayLocalGuesses, type DailyBoardDriver } from "./dailyBoard";
 
 // Pure, offline coverage of the daily board's derivation: appending guesses
 // builds the right tiles, and the target is gated on completion. The DB/auth
@@ -141,5 +141,58 @@ describe("buildDailyBoard", () => {
     expect(() =>
       buildDailyBoard({ guessIds: [999], driverById, target, today: TODAY, maxGuesses: MAX }),
     ).toThrow(/not found/);
+  });
+});
+
+// Re-deriving completion when migrating local progress is what stops a
+// locally-solved day from being reopened -- if completion were trusted from the
+// local blob (or mis-derived), the guess path would hand out a second attempt.
+describe("replayLocalGuesses", () => {
+  it("adopts mid-game guesses without completing the day", () => {
+    const result = replayLocalGuesses({
+      localGuessIds: [other.id, other.id],
+      driverById,
+      target,
+      today: TODAY,
+      maxGuesses: MAX,
+    });
+    expect(result).toEqual({ accepted: [other.id, other.id], completed: false, won: false });
+  });
+
+  it("completes+wins and truncates any guesses after the winning one", () => {
+    const result = replayLocalGuesses({
+      localGuessIds: [other.id, target.id, other.id],
+      driverById,
+      target,
+      today: TODAY,
+      maxGuesses: MAX,
+    });
+    expect(result.completed).toBe(true);
+    expect(result.won).toBe(true);
+    // The guess after the win is dropped -- you can't guess once solved.
+    expect(result.accepted).toEqual([other.id, target.id]);
+  });
+
+  it("completes as a loss at the guess cap", () => {
+    const result = replayLocalGuesses({
+      localGuessIds: [other.id, other.id, other.id, other.id],
+      driverById,
+      target,
+      today: TODAY,
+      maxGuesses: 3,
+    });
+    expect(result).toEqual({ accepted: [other.id, other.id, other.id], completed: true, won: false });
+  });
+
+  it("skips unknown ids rather than aborting", () => {
+    const result = replayLocalGuesses({
+      localGuessIds: [999, other.id, 1234],
+      driverById,
+      target,
+      today: TODAY,
+      maxGuesses: MAX,
+    });
+    expect(result.accepted).toEqual([other.id]);
+    expect(result.completed).toBe(false);
   });
 });

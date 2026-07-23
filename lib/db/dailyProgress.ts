@@ -2,7 +2,12 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { compare, isWin } from "../game/compare";
 import { MAX_GUESSES } from "../game/constants";
-import { buildDailyBoard, type DailyBoardDriver, type DailyBoardState } from "../game/dailyBoard";
+import {
+  buildDailyBoard,
+  replayLocalGuesses,
+  type DailyBoardDriver,
+  type DailyBoardState,
+} from "../game/dailyBoard";
 import { DAILY_POOL_WINDOW } from "../game/poolWindow";
 import { recordDailyResultForUser } from "../stats/recordDailyResult";
 import { db } from "./index";
@@ -176,4 +181,65 @@ export async function dailySubmitGuessFor(
   }
 
   return { board: await buildBoardFromIds(guessIds, targetId), justCompleted };
+}
+
+// Carry pre-existing local daily progress (guessed driver ids from before
+// server-side daily progress existed) onto the account for the current UTC day
+// -- CLAUDE.md "Precedence and merge". Server precedence is absolute: the local
+// guesses are adopted ONLY if there is no daily_progress row for the day yet.
+// If a row already exists it wins untouched -- local is never appended onto a
+// server row, and never onto a completed day, so this can't hand anyone a
+// second attempt.
+//
+// Completed/won are re-derived here by scoring the local guesses against
+// today's target (never trusting the local "status"), so a stored row's
+// `completed` flag is always accurate -- otherwise dailySubmitGuessFor's
+// reject check could let a locally-solved day be guessed again. Stats are
+// deliberately NOT recorded: a completed legacy day is already accounted for by
+// the aggregate stats fold-in (lib/stats -> migrateLocalStats), so recording it
+// here too would double-count.
+export async function migrateLocalDailyFor(
+  userId: string,
+  localGuessIds: number[],
+): Promise<{ migrated: boolean }> {
+  if (localGuessIds.length === 0) return { migrated: false };
+
+  const date = await resolveUtcDate();
+  const targetId = await todaysTargetId(date);
+
+  const neededIds = Array.from(new Set([...localGuessIds, targetId]));
+  const rows = await db.select().from(drivers).where(inArray(drivers.id, neededIds));
+  const driverById = new Map<number, DailyBoardDriver>(rows.map((row) => [row.id, toBoardDriver(row)]));
+  const target = driverById.get(targetId);
+  if (!target) return { migrated: false };
+
+  // Re-derive the authoritative guesses + completed/won by scoring the local
+  // ids against today's target (never trusting the local "status").
+  const { accepted, completed, won } = replayLocalGuesses({
+    localGuessIds,
+    driverById,
+    target,
+    today: new Date(),
+    maxGuesses: MAX_GUESSES,
+  });
+  if (accepted.length === 0) return { migrated: false };
+
+  // The existing-row check plus ON CONFLICT DO NOTHING makes server precedence
+  // race-safe: a row that is already there (in any state), or created
+  // concurrently, always wins and local is discarded.
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ userId: dailyProgress.userId })
+      .from(dailyProgress)
+      .where(and(eq(dailyProgress.userId, userId), eq(dailyProgress.date, date)));
+    if (existing) return { migrated: false };
+
+    const inserted = await tx
+      .insert(dailyProgress)
+      .values({ userId, date, guesses: accepted, completed, won: completed ? won : null })
+      .onConflictDoNothing()
+      .returning({ userId: dailyProgress.userId });
+
+    return { migrated: inserted.length > 0 };
+  });
 }

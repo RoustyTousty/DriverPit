@@ -2,7 +2,7 @@
 
 import type { DailyBoardState } from "../game/dailyBoard";
 import { createSupabaseServerClient } from "../supabase/server";
-import { dailyStateFor, dailySubmitGuessFor } from "./dailyProgress";
+import { dailyStateFor, dailySubmitGuessFor, migrateLocalDailyFor } from "./dailyProgress";
 
 // The public daily persistence contract (CLAUDE.md schema: daily_state() /
 // daily_submit_guess(driver_id)). These are the client-callable Server Actions
@@ -32,4 +32,13 @@ export async function dailyState(): Promise<DailyBoardState> {
 export async function dailySubmitGuess(guessDriverId: number): Promise<DailyBoardState> {
   const { board } = await dailySubmitGuessFor(await requireUserId(), guessDriverId);
   return board;
+}
+
+// Pushes pre-existing local daily guesses (read client-side from the legacy
+// localStorage blob) onto the account for today, only if the server has no row
+// for the day. Server precedence is absolute and the call is idempotent -- see
+// migrateLocalDailyFor. Ids only; tiles/target/completion are recomputed
+// server-side, never trusted from the client.
+export async function migrateLocalDaily(localGuessIds: number[]): Promise<{ migrated: boolean }> {
+  return migrateLocalDailyFor(await requireUserId(), localGuessIds);
 }

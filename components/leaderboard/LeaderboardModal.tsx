@@ -77,7 +77,7 @@ export function LeaderboardModal({
   onClose: () => void;
   onUpgrade: () => void;
 }) {
-  const { profile } = useAuth();
+  const { profile, userId } = useAuth();
   const [board, setBoard] = useState<Board>("streak");
   const [duelBoard, setDuelBoard] = useState<DuelLeaderboardEntry[]>([]);
   const [streakBoard, setStreakBoard] = useState<StreakLeaderboardEntry[]>([]);
@@ -85,18 +85,31 @@ export function LeaderboardModal({
   const [myStreakRank, setMyStreakRank] = useState<{ rank: number; entry: StreakLeaderboardEntry } | undefined>();
   const [loading, setLoading] = useState(true);
 
+  // Default to the streak tab each time the modal opens.
+  useEffect(() => {
+    if (open) setBoard("streak");
+  }, [open]);
+
+  // Re-fetches on identity change too, not just on open: getLeaderboard()
+  // resolves the caller's own rank (myDuelRank / myStreakRank) and the "You"
+  // highlight, so a sign-in/out while the modal is open must re-resolve those
+  // for the new identity rather than keep the previous player's rows.
   useEffect(() => {
     if (!open) return;
-    setBoard("streak");
+    let cancelled = false;
     setLoading(true);
     void getLeaderboard().then((result) => {
+      if (cancelled) return;
       setDuelBoard(result.duelBoard);
       setStreakBoard(result.streakBoard);
       setMyDuelRank(result.myDuelRank);
       setMyStreakRank(result.myStreakRank);
       setLoading(false);
     });
-  }, [open]);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, userId]);
 
   return (
     <Modal open={open} onClose={onClose} title="Leaderboard">
