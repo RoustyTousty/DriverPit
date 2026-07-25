@@ -6,7 +6,7 @@ export default function InfiniteLoading() {
     <div className="mx-auto flex w-full flex-col gap-4 px-4 py-6">
       <header>
         <h1 className="text-xl font-bold text-text sm:text-2xl">DriverPit</h1>
-        <p className="text-sm text-text-muted">Infinite mode</p>
+        <p className="text-sm text-text-muted">Infinite</p>
       </header>
       <div className="py-12 text-center text-sm text-text-muted">Loading…</div>
     </div>

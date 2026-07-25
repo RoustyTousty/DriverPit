@@ -2,7 +2,7 @@
 
 A daily Wordle-style web game presented as a full website. Players guess a Formula 1 driver in 5 guesses. Each guess reveals how the guessed driver compares to the target across five attributes.
 
-Daily, infinite, and duel modes work, wrapped in the full site shell (top bar, modals, marketing sections, ads). **Current work: (1) accounts & profiles via auth, (2) settings restructure + a global leaderboard, (3) a UX/quality overhaul of the real-time duel — the engine matchmakes and plays, but the moment-to-moment experience (staging, sync, live feedback, exit handling) is being rebuilt to feel like a real head-to-head race, (4) server-side daily progress so a day's board follows the account across devices.** A fourth mode, **Knockout**, is planned but not yet built — it's documented here so the duel engine is built with the right seams. Do not change the comparison engine or the daily/infinite game logic unless a task explicitly says to.
+Daily, infinite, and duel modes work, wrapped in the full site shell (top bar, modals, marketing sections, ads). **Current work: (1) accounts & profiles via auth, (2) settings restructure + a global leaderboard, (3) a UX/quality overhaul of the real-time duel — the engine matchmakes and plays, but the moment-to-moment experience (staging, sync, live feedback, exit handling) is being rebuilt to feel like a real head-to-head race, (4) server-side daily progress so a day's board follows the account across devices, now being made fast — daily/infinite guess evaluation and daily hydration move off Next.js Server Actions onto the same warm one-hop RPC path duel already uses.** A fourth mode, **Knockout**, is planned but not yet built — it's documented here so the duel engine is built with the right seams. Do not change the comparison engine or the daily/infinite game logic unless a task explicitly says to.
 
 ## Game rules
 
@@ -22,7 +22,7 @@ The comparison engine (`lib/game/compare.ts`) is pure and unit-tested — don't 
 
 ## Modes
 
-- **Infinite** — random driver from a player-selectable pool, unlimited plays, no persistence beyond the current round.
+- **Infinite** — random driver from a player-selectable pool, unlimited plays, no persistence beyond the current round. Round state lives server-side (`infinite_rounds`, keyed on the Supabase identity) so guesses evaluate over the same warm one-hop RPC path as daily/duel — see "Fast guess evaluation".
 - **Daily** — one driver per day, same for everyone, resets at UTC midnight. Progress is **stored server-side per account and follows the user across devices** — the guesses themselves are persisted, not just the outcome. One playthrough per account per day, enforced by the server. See "Daily persistence & sync". Always the 10-year pool.
 - **Duel** — real-time 1v1 race, matchmade against a random opponent. 3 rounds, tug-of-war scoring. See the Duel section.
 - **Knockout** *(planned, not built)* — 20-player F1-qualifying-format elimination game, lives under `/online`. See the Knockout section.
@@ -61,7 +61,20 @@ Daily results write to `user_stats` via `recordDailyResult` (`lib/stats/actions.
 
 ### Auth state is reactive, everywhere
 
-`AuthProvider` subscribes to `supabase.auth.onAuthStateChange` and exposes `{ userId, isGuest, status }` where `status` is `loading | ready`. **Every game window is a function of `userId`** — signing in or out while sitting on `/daily` must immediately re-resolve that mode's state for the new identity, with no refresh and no leftover board from the previous identity. Sign-out returns the user to a *new* anonymous identity (the app is never identity-less), so it is an identity *swap*, not a teardown. Nothing may key persistent game state off anything but the current `userId`.
+`AuthProvider` subscribes to `supabase.auth.onAuthStateChange` and exposes `{ userId, isGuest, identityStatus, status }`, each `loading | ready`. **Every game window is a function of `userId`** — no leftover board from a previous identity, ever. Nothing may key persistent game state off anything but the current `userId`.
+
+Sign-in and sign-out are **deliberately asymmetric**:
+
+- **Sign-in re-resolves in place, with no refresh.** The common case (guest → full account) is a *link*: `userId` is preserved, so reloading would interrupt an in-progress daily for nothing. A sign-in can still land on a *different* id — `OAuthErrorHandler`'s `identity_already_exists` path signs you into your other account instead of linking — and that is handled reactively too: game windows are keyed on `userId` so they remount clean.
+- **Sign-out is a full application reset.** `signOutAndReset()` (the *only* sign-out entry point — no component calls `supabase.auth.signOut()` directly) releases server-side commitments, signs out, then **hard-navigates to `/` via `window.location.assign`** — never a router push, which would preserve the in-memory state the reload exists to discard. Sign-out is rare and user-initiated, so the reload costs nothing perceptible and eliminates an entire class of stale-identity bug (user ids captured in closures, live Realtime subscriptions, in-flight requests, module caches) that would otherwise need defending against feature by feature.
+
+The ordering inside `signOutAndReset()` is load-bearing and must not be rearranged:
+
+1. **Release every server commitment while still authenticated** — `duel_forfeit(match_id)` if a match is live, `duel_leave_queue()` if queued, and await any in-flight guess RPC (`daily_submit_guess` appends server-side; abandoning one mid-write leaves the rendered board disagreeing with what was stored). After step 2 this identity can no longer authenticate anything.
+2. `supabase.auth.signOut()`.
+3. `window.location.assign('/')`. The fresh load bootstraps a new anonymous identity through the ordinary first-visit path — there is **no** in-place `signInAnonymously()` on the sign-out path.
+
+**It fails closed.** If step 1 can't complete (offline, request error) it throws and does *not* sign out or reload; the caller surfaces the error. Reloading anyway would strand a live match or a matchable queue row — the exact rating-farming vector "Matchmaking queue integrity" closes — while destroying the only client still holding the session needed to clean it up. And when a match is live or the player is queued, **confirm first** ("Signing out will forfeit your match"); a plain sign-out with nothing in flight needs no confirmation.
 
 ## Daily persistence & sync
 
@@ -69,8 +82,10 @@ The daily board must be **the same board on every device**. This is a correctnes
 
 ### Model
 
-- **The guesses are the state.** `daily_progress` stores the ordered list of guessed driver ids for a `(user_id, utc_date)`. Tile results are **never** persisted — they're recomputed server-side by running `compare()` against that day's target on hydration. One source of truth for compare rules, a small payload, and no way for a client to inject fabricated tiles.
-- **The server owns the append.** A guess goes through `daily_submit_guess(driver_id)`, which resolves the UTC date and the guess index server-side and returns the full authoritative board. The client renders what comes back. Two devices guessing at once therefore converge instead of forking, and "one playthrough per day" is enforced where it can't be bypassed.
+- **The guesses are the state.** `daily_progress` stores the ordered list of guessed driver ids for a `(user_id, utc_date)`. Tile results are **never** persisted — they're recomputed server-side by the SQL `compare_drivers` function (the parity-tested SQL mirror of `lib/game/compare.ts`, already built for duel) on hydration. One source of truth for compare rules, a small payload, and no way for a client to inject fabricated tiles.
+- **One warm hop, no Next.js in the path.** Both `daily_state()` (hydrate) and `daily_submit_guess(driver_id)` (append + evaluate) are Postgres RPCs the browser calls directly via `supabase.rpc()` (PostgREST is always warm), not Next.js Server Actions. This is the whole fix for the slow board load and slow guesses — a Server Action is a serverless invocation per call, cold-starting on Vercel and route-compiling on `next dev`. Same path duel's guesses already use; see "Fast guess evaluation".
+- **The server owns the append.** `daily_submit_guess` resolves the UTC date and the guess index server-side and returns the full authoritative board. The client renders what comes back. Two devices guessing at once therefore converge instead of forking, and "one playthrough per day" is enforced where it can't be bypassed.
+- **The day's target is pinned, not recomputed per call.** `daily_targets(date, driver_id)` records the day's driver, lazily pinned by the first caller (`INSERT ... ON CONFLICT DO NOTHING`); everyone else reads it. This removes the per-guess pool scan + pick that made guesses slow, and fixes a latent bug where a mid-day pool change silently changed the target. Every path that needs the target (hydrate, guess, reveal) reads this one row — one source of truth.
 - **The date comes from the database**, never the client — `(now() at time zone 'utc')::date`. A client-supplied date is a trivial way to re-roll the day by changing a device clock.
 - **The target is not sent to the client until the day is over** (solved, or guesses exhausted), matching the daily rules. Hydration returns tiles + guessed driver display data; it returns the target only on a completed row.
 - **Guests persist too.** Anonymous users are real `auth.users` rows, so their daily progress is written server-side like anyone's. It doesn't roam (the anonymous session is device-local), but it means upgrading to a full account carries the in-progress day over with everything else.
@@ -80,13 +95,29 @@ The daily board must be **the same board on every device**. This is a correctnes
 
 **The server always wins.** On sign-in, local progress for today is pushed up *only if the server has no row for that date*; if a server row exists it is loaded as-is and local is discarded. Local guesses are never appended onto a server row, and never onto a completed day — that path is exactly how a player would get a second attempt.
 
-### Hydration UX (no replay flash)
+### Hydration UX (fast, no replay flash)
 
-While `status === 'loading'` or the daily fetch is in flight, `/daily` renders a skeleton board with the input disabled. It must never render an empty, playable board that later fills in — that flash reads as "you can play again" and invites a duplicate attempt. On sign-in or sign-out the same gate applies during re-resolution.
+The board hydrates from a single warm `daily_state()` RPC fired the moment `userId` is known. Two rules, one for correctness and one for speed:
+
+- **No replay flash.** While the daily fetch is in flight, `/daily` renders a skeleton board with the input disabled — never an empty *playable* board that later fills in, which reads as "you can play again" and invites a duplicate attempt. The same gate applies during sign-in/sign-out re-resolution.
+- **The board must not wait on profile/stats.** Board readiness gates on exactly two things: the auth identity being resolved (`userId` known) and `daily_state()` returning. It must **not** gate on `loadProfileAndStats` — those feed Settings/Statistics/Leaderboard and load in parallel, never on the board's critical path. Firing them in series behind auth is what turned the load into ~3s. On a return visit the anon session is already in local storage, so identity resolves without a network hop; the only blocking call left is the one warm `daily_state()`.
+
+Where the Supabase session is cookie-backed (via `@supabase/ssr`), `daily_state()` may be run in the `/daily` Server Component and the board streamed already-hydrated, removing even that hop for returning users. If sessions are local-storage-only, the client-side parallel fetch above is the win. An audit decides which applies before building.
 
 ### Completion
 
 When `daily_submit_guess` completes a day it marks the row complete and calls the existing `recordDailyResult` path, still guarded by `daily_results`, so streaks and distribution can't be double-counted by a replay, a second device, or a re-hydration.
+
+## Fast guess evaluation (all modes)
+
+Every mode's guess must feel instant (~150-260ms measured for duel on a prod build). One path, applied everywhere:
+
+- **One warm hop, no Next.js in it.** The browser calls a Postgres RPC directly via `supabase.rpc()` — `duel_submit_guess`, `daily_submit_guess`, `infinite_submit_guess`. PostgREST is always warm; a Next.js Server Action is a serverless invocation that cold-starts on Vercel and route-compiles on `next dev`. Moving daily/infinite off Server Actions onto RPCs is the fix for both the slow guesses and (via `daily_state`) the slow board load.
+- **Compare runs in SQL, locked to the TS rules.** `public.compare_drivers` mirrors `lib/game/compare.ts` and is pinned to it by a fixture parity test (`lib/game/compare.sqlParity.test.ts`) — already built and proven for duel; daily/infinite reuse it. Never fork the compare rules; if a rule changes, change both sides and the parity test catches drift.
+- **The secret target lives server-side**, reachable by the RPC but never returned mid-round: duel in `duel_rounds`, daily pinned in `daily_targets`, infinite in `infinite_rounds`. This is why the target can't sit in a Next-side cookie/closure — PostgREST calls don't pass through Next.
+- **Optimistic render.** A shimmer `PendingGuessRow` (shared in `components/game/`) appears the instant a driver is picked and is replaced when the RPC returns, so even the ~150ms reads as zero.
+- **Local autocomplete.** The pool ships to the client once; no per-keystroke fetch. (Daily/infinite already do this.)
+- **Measure on `next build && next start`, never `next dev`.**
 
 ## Site architecture
 
@@ -177,7 +208,7 @@ One reusable `Modal` primitive (focus trap, Escape, backdrop close, scroll lock)
 
 Restructure the settings modal into **three sections** (tabs or a left rail):
 
-- **General** — hard mode toggle, reduced-motion override, default infinite pool, a note on how UTC reset works, "reset local stats". No filler toggles.
+- **General** — hard mode toggle, colorblind mode, show flags, default infinite pool, a note on how UTC reset works, "reset local stats". No filler toggles. There is deliberately **no in-app reduced-motion override** — motion follows the OS `prefers-reduced-motion` setting alone (`motion-reduce:` for CSS, `usePrefersReducedMotion()` for JS-driven animation). A second switch for something the OS already exposes globally is exactly the filler this section is meant to avoid.
 - **Profile** — avatar, username / display name (editable for full accounts; read-only `userXXXXXX` for guests), and the auth controls: sign in / sign up with email or Google, sign out, and for guests a prominent "Save your progress — create an account" upgrade path. Show which state the user is in.
 - **Statistics** — the personal stats that used to live in the standalone cup popup now live *here*: games played, win %, current + max streak, guess-distribution bar chart, and duel record (rating, wins, losses).
 
@@ -248,11 +279,9 @@ The guess board is the **shared daily/infinite board** (same row, tiles, driver 
 
 ### Instant guesses (perceived latency ~0)
 
-Guessing must feel immediate. Requirements:
-- **One hop, warm path.** Evaluate a guess via a single fast call — prefer a Postgres RPC `duel_submit_guess(match, round, guess_driver_id)` returning `{ tiles, solved, points, bestHeat }` in one round trip (no Vercel serverless cold start). If the compare rules are kept solely in `lib/game/compare.ts` (single source of truth), use a **warm Edge route handler** instead of an RPC; either way, one hop, no cold start. If porting the compare rules into SQL, add a parity test against `compare.ts` fixtures so they can't diverge.
-- **Optimistic render.** The guessed row appears instantly with a shimmer and fills when the result returns.
-- **Preload the pool.** Fetch the 10-year driver list once on match start so autocomplete is local and instant — no per-keystroke fetch.
-- **Note on dev:** part of the current slowness is the Next.js dev server compiling routes on first hit; always sanity-check latency against a production build, not `next dev`.
+Duel guessing uses the shared one-warm-hop path — see "Fast guess evaluation (all modes)". Duel-specific notes:
+- `duel_submit_guess(match, round, guess_driver_id)` returns `{ tiles, solved, points, bestHeat }` in one round trip.
+- Preload the 10-year pool on match start so autocomplete is local and instant.
 
 ### Server authority (fairness)
 
@@ -266,6 +295,18 @@ Guessing must feel immediate. Requirements:
 - **Explicit exit:** an Exit control (confirm modal) calls `duel_forfeit(match_id)` — marks the match `abandoned`/finished with the opponent as winner, updates ratings — then broadcasts `forfeit`. The leaver returns to the shell with a "You forfeited" result.
 - **Tab close / disconnect:** best-effort `forfeit` broadcast on `beforeunload`, plus **presence** on `duel:{matchId}`: when a client sees the opponent's presence leave and they don't rejoin within `DISCONNECT_GRACE_MS`, it calls `duel_forfeit` on the absent player's behalf (idempotent, guarded) and shows "Opponent left — you win."
 - A finished/abandoned match can't be re-entered; `duel_state` reflects the terminal result for a late-loading client.
+- **Signing out mid-match forfeits it.** `AuthProvider.signOutAndReset()` calls `duel_forfeit` before tearing down the session, so the opponent gets an immediate clean win instead of waiting out `DISCONNECT_GRACE_MS`. The player is asked to confirm first, and if the forfeit can't be delivered the sign-out is aborted rather than silently abandoning them.
+
+### Matchmaking queue integrity
+
+A stale queue row is a **rating-farming vector**, not a cosmetic leak: if a player queues, signs out (which mints a fresh anonymous identity), and queues again, a naive `user_id <> caller` check passes — the ids genuinely differ — and they are paired with themselves, writing real `duel_rating` to both sides. Four independent layers, so no single failure can produce a self-match:
+
+1. **Explicit dequeue.** `duel_leave_queue()` — idempotent, safe twice, safe when not queued, authorizes via `auth.uid()`. Called on *every* exit from searching: unmount, cancel, navigating away, `beforeunload`/`pagehide` (keepalive POST, since a normal fetch dies with the document), and — critically — **inside `signOutAndReset()` before the session is torn down**, while the outgoing identity can still authenticate it. The queue has no client write policy at all; this RPC is the only way out.
+2. **Identity change aborts the search.** A new `userId` is never a reason to re-queue. `DuelSearching` pins the identity it started under, and on a change dequeues and returns to the `/online` landing. **Deliberate exception to the auth-reactivity rule:** readers re-resolve for a new identity, but live server commitments (queue entries, active matches) are *released and abandoned*, never re-established.
+3. **Liveness.** `last_seen_at`, refreshed every `QUEUE_HEARTBEAT_MS` by `duel_queue_heartbeat()`. Rows older than `QUEUE_STALE_MS` are ignored by the pairing scan and deleted by `duel_sweep_stale_queue()` (run at the top of every search — no cron needed). A row leaked by a crash or a failed dequeue goes inert on its own. An explicit heartbeat rather than lobby-channel presence: presence tracks a WebSocket, but what must be proven alive is a *row*, and the two disagree in both directions.
+4. **Self-match guard.** `device_id` — stable per browser profile, persisted in localStorage so it **survives an identity swap**, which is the one thing signing out cannot change. The scan refuses any row sharing the caller's `device_id`, and separately any sharing their `user_id`. Searching also deletes this device's rows under other identities, so a leaked row converges instead of lingering. *Accepted side effect: two people on one browser profile can't duel each other.*
+
+Both guards live **inside** the single locked `SELECT … FOR UPDATE SKIP LOCKED` that claims the opponent — never a read-then-check afterwards, which would trade the bug for a race. Backing all four, a `CHECK (player_a <> player_b)` on `duel_matches` makes a self-match row unrepresentable regardless of what any future code path does.
 
 ## Knockout (planned — do not build yet)
 
@@ -282,7 +323,7 @@ Build the round lifecycle (server-stamped timers, synchronized countdown, per-ro
 
 ## News section — RSS, not X
 
-Recent F1 news from RSS feeds — motorsport.com, Autosport, Crash.net, Sky Sports, and RaceFans (formula1.com's official feed and planetf1.com were evaluated but rejected: the former's items have no publish date, so `parseRssItems` correctly drops all of them, and the latter's feed URL currently redirects to a broken page). Fetched server-side, revalidate hourly, merged and sorted by recency. Rendered client-side only as an interactive carousel (`NewsCarousel`): one big featured story (image + title + source + relative time) with prev/next arrows, larger-hit-area dots, and auto-advance (paused on hover/focus, disabled under either the in-app or OS reduced-motion signal — see WCAG 2.2.2) to step through the top ~5 across all sources. The *fetch* stays server-side; only which slide is showing is client state. Do **not** integrate the X/Twitter API — no free read tier, bills per request.
+Recent F1 news from RSS feeds — motorsport.com, Autosport, Crash.net, Sky Sports, and RaceFans (formula1.com's official feed and planetf1.com were evaluated but rejected: the former's items have no publish date, so `parseRssItems` correctly drops all of them, and the latter's feed URL currently redirects to a broken page). Fetched server-side, revalidate hourly, merged and sorted by recency. Rendered client-side only as an interactive carousel (`NewsCarousel`): one big featured story (image + title + source + relative time) with prev/next arrows, larger-hit-area dots, and auto-advance (paused on hover/focus, disabled under the OS reduced-motion signal — see WCAG 2.2.2) to step through the top ~5 across all sources. The *fetch* stays server-side; only which slide is showing is client state. Do **not** integrate the X/Twitter API — no free read tier, bills per request.
 
 ## Ads — AdSense + consent
 
@@ -327,19 +368,32 @@ daily_progress(user_id FK, date,                    -- date is the UTC day, reso
                completed bool not null default false, won bool null,
                created_at, updated_at,
                PRIMARY KEY (user_id, date))
+daily_targets(date date PK, driver_id int FK)        -- the day's driver, lazily pinned by the first caller
+infinite_rounds(user_id uuid PK FK, driver_id int FK, pool_window text,
+                guess_count int, started_at)         -- server-side infinite round state (replaces the signed cookie)
 ```
 `daily_progress` is what makes a day's board follow the account across devices; `daily_results`
 keeps its separate job as the stats idempotency guard (don't merge them — one is live board state,
-the other is a write-once outcome record). `daily_progress` is self-`SELECT` under RLS with **no
-client write policy**; every append goes through the server. Tile results are never stored — they
-are recomputed from `guesses` via `compare()` on hydration.
+the other is a write-once outcome record). `daily_targets` pins the day's driver so it's an indexed
+read, not a per-call pool scan, and can't drift mid-day. `infinite_rounds` moves infinite's round
+state off the signed httpOnly cookie (invisible to PostgREST) into the DB so its guesses can use the
+same warm RPC path. All three are self-`SELECT` (or no) client policy under RLS with **no client
+write policy**; every write goes through a `SECURITY DEFINER` RPC. Tile results are never stored —
+they're recomputed from `guesses` via SQL `compare_drivers` on hydration.
 
-Daily RPCs / server actions:
+Daily / infinite RPCs — **warm, client-callable via `supabase.rpc()` (PostgREST), `SECURITY DEFINER`
++ `auth.uid()`, `GRANT EXECUTE TO authenticated`** (every visitor has at least an anon session).
+Model them on the existing `duel_submit_guess` (SECURITY DEFINER + `auth.uid()`), not on the
+trusted-connection lifecycle RPCs like `duel_begin_round`. None return the target while a round/day
+is live.
 ```
 daily_state()                  -> { guesses[{driverId, name, code, tiles}], completed, won,
                                     guessesRemaining, target|null }   -- target only when completed
-daily_submit_guess(driver_id)  -> same shape; appends server-side, rejects if the day is complete
-                                  or guesses are exhausted; resolves UTC date + guess index itself
+daily_submit_guess(driver_id)  -> same shape; appends to daily_progress, resolves UTC date + guess
+                                  index itself, rejects a complete/exhausted day; SQL compare_drivers
+infinite_start_round(pool_window)   -> upserts infinite_rounds with a fresh random pool driver
+infinite_submit_guess(driver_id)    -> { tiles, status: won|lost|continue, target? }; enforces the
+                                       6-guess cap; target only when status ≠ continue
 ```
 
 `profiles` + `user_stats` rows created by a Postgres trigger on `auth.users` insert. RLS: self
@@ -352,7 +406,12 @@ guard for `recordDailyResult`, self-`SELECT` only. Leaderboard reads (once built
 
 Duel:
 ```
-matchmaking_queue(user_id PK, pool_window, rating, status, queued_at)
+matchmaking_queue(user_id PK, pool_window, rating, status, queued_at,
+                  last_seen_at,      -- liveness heartbeat; stale rows are unmatchable + swept
+                  device_id)         -- stable per browser, survives an identity swap; the
+                                     -- self-match guard. No client write policy at all --
+                                     -- every write goes through match_or_queue /
+                                     -- duel_leave_queue / duel_queue_heartbeat.
 duel_matches(id PK, player_a FK, player_b FK,
              status,            -- lobby | countdown | active | intermission | finished | abandoned
              current_round int,
@@ -372,7 +431,12 @@ duel_round_results(match_id FK, round_index, user_id FK, solved_at null,
 
 RPCs (Postgres functions, all idempotent where they mutate round/match state):
 ```
-duel_matchmake(pool_window, rating)         -> pairs atomically or enqueues
+match_or_queue(pool_window, device_id)      -> pairs atomically or enqueues; refuses any
+                                               candidate sharing the caller's user_id or
+                                               device_id, or stale past QUEUE_STALE_MS
+duel_leave_queue()                          -> idempotent dequeue of the caller's own row
+duel_queue_heartbeat()                      -> refreshes last_seen_at; no-op if not queued
+duel_sweep_stale_queue()                    -> deletes rows past the liveness window
 duel_begin_round(match_id, round_index)     -> stamps started_at/ends_at once both ready
 duel_submit_guess(match_id, round_index, guess_driver_id)
                                             -> { tiles, solved, points, bestHeat }, one hop
@@ -406,7 +470,8 @@ Knockout (planned — not yet created):
 
 - `lib/game/compare.ts` and `lib/game/duelScoring.ts` (speed + proximity + live-score helpers) are pure and unit-tested. Don't touch compare's rules unless a task says to.
 - Never send the target driver to a client during a round; comparison and scoring are server-side (via `duel_submit_guess`). The target is revealed only at round end. Opponent reads are abstracted heat/counts only.
-- Guess evaluation is **one warm hop** (RPC or Edge handler) with optimistic client render — no serverless cold start on the guessing path.
+- Guess evaluation in **every mode** is **one warm hop** — a `supabase.rpc()` Postgres call (`duel_submit_guess`, `daily_submit_guess`, `infinite_submit_guess`) with optimistic client render. No Next.js Server Action on any guess or daily-hydration critical path; compare runs in the parity-tested SQL `compare_drivers`.
+- **The board's first paint never waits on profile/stats.** Daily hydration (`daily_state`) fires as soon as the auth identity resolves and runs in parallel with `loadProfileAndStats`; board readiness gates only on identity + `daily_state`. Chaining data loads behind auth is what made the board take seconds.
 - Vercel can't hold WebSockets; all realtime goes through Supabase Realtime.
 - Matchmaking pairing is atomic (`FOR UPDATE SKIP LOCKED` RPC), never a background worker. Round timing is server-stamped; round advancement, forfeit, and match finish are all idempotent.
 - Every phase transition is **ready-gated or server-timestamped** so the two clients stay in sync; a reloaded client resumes via `duel_state`.

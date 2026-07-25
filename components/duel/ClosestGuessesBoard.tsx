@@ -1,4 +1,4 @@
-import { CODE_COLUMN_WIDTH, ColumnLabels, GuessRow, type Guess } from "@/components/game/GuessGrid";
+import { ColumnLabels, GuessRow, PendingGuessRow, type Guess } from "@/components/game/GuessGrid";
 import { CLOSEST_BOARD_SIZE } from "@/lib/duel/liveMatch";
 import { guessHeat } from "@/lib/game/duelScoring";
 
@@ -8,24 +8,6 @@ import { guessHeat } from "@/lib/game/duelScoring";
 // replay every time a better one slots in above it.
 export interface RankedGuess extends Guess {
   id: number;
-}
-
-// Shimmer placeholder for a guess that's been submitted but hasn't resolved
-// yet (CLAUDE.md's "Instant guesses": optimistic render, shimmer -> fill).
-// Exact same outer shape as a real GuessRow -- the code-badge width plus
-// five flex-1 tiles -- so nothing shifts size when the real row (a fresh
-// GuessRow mount, which plays Tile's own reveal animation) replaces this.
-function PendingGuessRow() {
-  return (
-    <div className="flex gap-1" aria-hidden="true">
-      <div
-        className={`min-h-14 ${CODE_COLUMN_WIDTH} shrink-0 animate-pulse rounded-lg bg-surface-2 motion-reduce:animate-none`}
-      />
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="min-h-14 flex-1 animate-pulse rounded-lg bg-surface-2 motion-reduce:animate-none" />
-      ))}
-    </div>
-  );
 }
 
 // Ranked by closeness (TikTok-leaderboard style), not submission order --

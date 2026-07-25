@@ -4,15 +4,12 @@ import { db } from "../db";
 import { dailyResults, userStats } from "../db/schema";
 import { MAX_GUESSES } from "../game/constants";
 
-// The core of recordDailyResult (lib/stats/actions.ts), lifted out of the
-// "use server" module and parameterized on an explicit user id + UTC date so
-// it can be driven from two callers that both already know them:
-//   1. recordDailyResult() -- the cookie-resolved Server Action, unchanged.
-//   2. the daily-progress submit path (lib/db/dailyProgress.ts), which resolves
-//      the user id from auth and the date from the DB clock itself.
-// Kept in a plain (non-"use server") module on purpose: a "use server" export
-// taking a user id would be a client-callable action that lets anyone write
-// any user's stats.
+// The core of recordDailyResult (lib/stats/actions.ts), parameterized on an
+// explicit user id + UTC date. Kept in a plain (non-"use server") module on
+// purpose: a "use server" export taking a user id would be a client-callable
+// action that lets anyone write any user's stats -- so the only way in is the
+// cookie-resolved recordDailyResult() action, which supplies the caller's own
+// id. /daily invokes that action once, on the guess that ends the day.
 //
 // The daily_results insert is the idempotency guard: if it doesn't happen
 // (already recorded for this user/date), the user_stats update is skipped

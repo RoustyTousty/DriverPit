@@ -1,7 +1,7 @@
 import "dotenv/config";
 
 import { createClient } from "@supabase/supabase-js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { duelBeginRound, duelCloseRound, duelForfeit, duelState } from "./duelRpc";
@@ -73,7 +73,13 @@ describe.skipIf(!RUN)("duel_begin_round / duel_close_round / duel_state (integra
     // wait on "both players done" -- neither fixture player ever guessed.
     await db
       .update(duelRounds)
-      .set({ endsAt: new Date(Date.now() - 1_000) })
+      // Expired according to the DATABASE clock, which is what duel_close_round
+      // compares against. Using new Date(Date.now() - 1000) made this test a
+      // function of the developer's machine clock: a local clock even ~1s ahead
+      // of the DB puts this timestamp in the DB's future, close_round correctly
+      // refuses, and four tests fail for a reason that has nothing to do with
+      // the code under test.
+      .set({ endsAt: sql`now() - interval '1 second'` })
       .where(and(eq(duelRounds.matchId, matchId), eq(duelRounds.roundIndex, 0)));
 
     const first = await duelCloseRound(matchId, 0);
@@ -99,14 +105,26 @@ describe.skipIf(!RUN)("duel_begin_round / duel_close_round / duel_state (integra
     await duelBeginRound(matchId, 1);
     await db
       .update(duelRounds)
-      .set({ endsAt: new Date(Date.now() - 1_000) })
+      // Expired according to the DATABASE clock, which is what duel_close_round
+      // compares against. Using new Date(Date.now() - 1000) made this test a
+      // function of the developer's machine clock: a local clock even ~1s ahead
+      // of the DB puts this timestamp in the DB's future, close_round correctly
+      // refuses, and four tests fail for a reason that has nothing to do with
+      // the code under test.
+      .set({ endsAt: sql`now() - interval '1 second'` })
       .where(and(eq(duelRounds.matchId, matchId), eq(duelRounds.roundIndex, 1)));
     await duelCloseRound(matchId, 1);
 
     await duelBeginRound(matchId, 2);
     await db
       .update(duelRounds)
-      .set({ endsAt: new Date(Date.now() - 1_000) })
+      // Expired according to the DATABASE clock, which is what duel_close_round
+      // compares against. Using new Date(Date.now() - 1000) made this test a
+      // function of the developer's machine clock: a local clock even ~1s ahead
+      // of the DB puts this timestamp in the DB's future, close_round correctly
+      // refuses, and four tests fail for a reason that has nothing to do with
+      // the code under test.
+      .set({ endsAt: sql`now() - interval '1 second'` })
       .where(and(eq(duelRounds.matchId, matchId), eq(duelRounds.roundIndex, 2)));
 
     const closed = await duelCloseRound(matchId, 2);

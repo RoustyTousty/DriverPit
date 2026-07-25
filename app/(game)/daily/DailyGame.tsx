@@ -6,20 +6,24 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { DriverAutocomplete, type DriverOption } from "@/components/game/DriverAutocomplete";
 import { GuessGrid, type Guess } from "@/components/game/GuessGrid";
+import { LoadingOverlay } from "@/components/game/LoadingOverlay";
+import { ResultCard } from "@/components/game/ResultCard";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
-import { dailyState, dailySubmitGuess } from "@/lib/db/dailyProgressActions";
 import { MAX_GUESSES } from "@/lib/game/constants";
 import type { DailyBoardGuess, DailyBoardState } from "@/lib/game/dailyBoard";
-import { isLegacyDailyKey } from "@/lib/game/legacyDaily";
-import { pushLocalDailyToServer } from "@/lib/game/legacyDailyMigration";
+import { fetchDailyState } from "@/lib/game/dailyStateRpc";
+import { submitDailyGuessRpc } from "@/lib/game/submitDailyGuessRpc";
 import { buildShareText } from "@/lib/game/emojiGrid";
 import { renderResultImage } from "@/lib/game/shareImage";
+import { recordDailyResult } from "@/lib/stats/actions";
 import { useSettings } from "@/lib/settings/useSettings";
 
-// Server-authoritative daily board: state comes from daily_state() /
-// daily_submit_guess() (lib/db/dailyProgressActions.ts), which follow the
-// account across devices. localStorage is demoted to a write-through cache
+// Server-authoritative daily board: state comes from the daily_state() /
+// daily_submit_guess() Postgres RPCs, called straight from the browser
+// (lib/game/dailyStateRpc.ts, lib/game/submitDailyGuessRpc.ts) -- one warm hop,
+// no Server Action in the path. They follow the account across devices.
+// localStorage is demoted to a write-through cache
 // (below) -- it survives a failed/offline hydration but never decides whether
 // a board is playable; only the server concludes "you've already played
 // today."
@@ -54,12 +58,12 @@ function cleanupStaleCache(keep: string) {
   const stale: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    // Sweep other identities'/days' cache entries, but LEAVE legacy pre-server
-    // keys (f1dw:daily:<date>) alone -- the auth-time migration
-    // (lib/game/legacyDaily.ts + migrateLocalDaily) owns their lifecycle and
-    // deleting one here before it's read would silently drop the player's
-    // pre-existing progress.
-    if (key && key.startsWith(STORAGE_PREFIX) && key !== keep && !isLegacyDailyKey(key)) {
+    // Sweeps every other f1dw:daily:* entry -- other identities', other days',
+    // and any leftover pre-accounts `f1dw:daily:<date>` blob. Those used to be
+    // exempted so the local->server migration could consume them first; that
+    // migration is gone (the server is the only record of a day now), so
+    // they're dead bytes in the player's storage and get cleared on next write.
+    if (key && key.startsWith(STORAGE_PREFIX) && key !== keep) {
       stale.push(key);
     }
   }
@@ -121,8 +125,12 @@ interface DailyGameProps {
 // NO state from the previous identity can survive -- stale guesses, a stale
 // "already played"/completed banner, the countdown all reset (React guarantees
 // fresh state on a new key), per CLAUDE.md "Auth state is reactive,
-// everywhere". The board's own hydration gate covers the brief null gap during
-// a sign-out -> fresh-guest swap (userId is momentarily null).
+// everywhere".
+//
+// Still needed even though sign-out now hard-reloads: signing IN can also land
+// on a different user id -- OAuthErrorHandler's identity_already_exists path
+// signs you into your other account rather than linking -- and that case is
+// handled in place, with no reload.
 export function DailyGame(props: DailyGameProps) {
   const { userId } = useAuth();
   return <DailyBoard key={userId ?? "pending"} {...props} />;
@@ -130,8 +138,13 @@ export function DailyGame(props: DailyGameProps) {
 
 function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGameProps) {
   const router = useRouter();
-  const { userId, status, isGuest, refresh } = useAuth();
-  const authLoading = status === "loading";
+  // identityStatus, NOT status: the board needs to know *which account* it is
+  // fetching for and nothing else. Gating on `status` (which additionally waits
+  // for profiles + user_stats) put two PostgREST round trips in front of
+  // daily_state() and is what made the board take seconds -- CLAUDE.md: "board
+  // readiness gates only on identity + daily_state()".
+  const { userId, identityStatus, isGuest, refresh } = useAuth();
+  const identityLoading = identityStatus === "loading";
   const { showFlags } = useSettings();
   const toast = useToast();
 
@@ -148,36 +161,17 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
   // switching accounts can't leave a stale board on screen.
   const hydrateSeq = useRef(0);
 
-  // The hydration gate. While auth is still resolving (status "loading") or the
-  // fetch is in flight, phase stays "loading" and the UI shows a disabled
-  // skeleton -- it must NEVER render an empty, playable board that later fills
-  // in, since that flash reads as "you can play again" and invites a duplicate
-  // attempt. Identity *swaps* remount this whole board (the keyed wrapper), so
-  // within a mount userId is fixed; this also re-runs when a guest *upgrades*
-  // in place (same userId, isGuest flips) so the board re-hydrates after
-  // sign-in, per the prompt.
+  // Fetches the authoritative board. Callable at any time (the effect below
+  // drives the initial load; Retry and the midnight rollover re-call it) -- it
+  // does NOT decide *whether* a hydrate is due, only how to do one.
   const hydrate = useCallback(async () => {
-    if (!hasPuzzleToday) return;
+    if (!hasPuzzleToday || !userId) return;
     const seq = ++hydrateSeq.current;
-    if (authLoading || !userId) {
-      setPhase("loading");
-      return;
-    }
     setPhase("loading");
     try {
-      // Carry any pre-existing local daily board onto the account BEFORE
-      // fetching, so the board we render reflects it (no empty-then-fills-in
-      // flash). Best-effort: a migration failure must not block hydration --
-      // the legacy key is retained for a later retry. Idempotent and races
-      // harmlessly with AuthProvider's own sign-in migration.
-      try {
-        await pushLocalDailyToServer();
-      } catch {
-        // swallow -- still hydrate from whatever the server has
-      }
-      if (seq !== hydrateSeq.current) return;
-
-      const next = await dailyState();
+      // Straight to the one warm RPC -- nothing is awaited in front of it, so
+      // the board's only blocking call is this hop.
+      const next = await fetchDailyState();
       if (seq !== hydrateSeq.current) return;
       setBoard(next);
       setPhase("ready");
@@ -196,13 +190,31 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
         setPhase("error");
       }
     }
-    // isGuest is a dependency so an in-place upgrade re-hydrates; within a mount
-    // userId never changes (a swap remounts via the keyed wrapper).
-  }, [authLoading, userId, isGuest, hasPuzzleToday]);
+  }, [userId, hasPuzzleToday]);
 
+  // Exactly ONE daily_state() per identity resolution. `isGuest` can no longer
+  // be a plain hydrate dependency: now that the board no longer waits on
+  // profile/stats, it resolves BEFORE the profile lands, so isGuest can settle
+  // from the auth user's `is_anonymous` onto `profiles.is_guest` shortly after
+  // the fetch already started -- as a dep that would fire a second, redundant
+  // fetch. Only a genuine in-place upgrade (guest -> full account, true->false,
+  // same userId) re-hydrates; that path can't remount, since the keyed wrapper
+  // only remounts on a userId change.
+  const hydratedForRef = useRef<string | null>(null);
+  const wasGuestRef = useRef<boolean | null>(null);
   useEffect(() => {
+    // The gate: hold the skeleton until we know whose board to fetch. Never an
+    // empty *playable* board -- that flash reads as "you can play again".
+    if (identityLoading || !userId) {
+      setPhase("loading");
+      return;
+    }
+    const upgraded = wasGuestRef.current === true && !isGuest;
+    wasGuestRef.current = isGuest;
+    if (hydratedForRef.current === userId && !upgraded) return;
+    hydratedForRef.current = userId;
     void hydrate();
-  }, [hydrate]);
+  }, [identityLoading, userId, isGuest, hydrate]);
 
   const isRoundOver = board?.completed ?? false;
 
@@ -226,19 +238,35 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
   function handleSelect(driver: DriverOption) {
     if (!board || board.completed || pending || !userId) return;
 
-    const wasCompleted = board.completed;
+    const current = board;
     setPending(true);
     void (async () => {
       try {
         // Optimistic: the pending shimmer row shows immediately (via GuessGrid
-        // below); the server response is what actually wins.
-        const next = await dailySubmitGuess(driver.id);
+        // below); the server response is what actually wins. The RPC returns the
+        // single evaluated guess row (duel-shaped); we append it to the board we
+        // hydrated from daily_state, exactly as the duel board appends its rows.
+        const result = await submitDailyGuessRpc(driver.id);
         if (!userId) return;
+
+        const next: DailyBoardState = {
+          guesses: [...current.guesses, result.guess],
+          completed: result.completed,
+          won: result.won,
+          guessesRemaining: result.guessesRemaining,
+          target: result.target,
+        };
         setBoard(next);
         writeCache(userId, next);
-        // The server records the result on the completing guess; refresh the
-        // auth context so Statistics reflects it.
-        if (!wasCompleted && next.completed) await refresh();
+
+        // On the completing guess, flow the result through the existing
+        // recordDailyResult path (its daily_results idempotency guard is
+        // unchanged), then refresh the auth context so Statistics reflects it.
+        // Latency here is irrelevant -- the day is already over.
+        if (result.completed) {
+          await recordDailyResult(result.won, next.guesses.length);
+          await refresh();
+        }
       } catch {
         // A failed write must be surfaced, never silently accepted locally --
         // a local-only guess is exactly how two devices diverge again.
@@ -266,23 +294,24 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
 
     setShareState("sharing");
 
+    // Copy only -- deliberately NOT navigator.share. This option is labelled
+    // "Copy text" and its whole promise is "it's on your clipboard now"; routing
+    // it through the OS share sheet made that a lie on mobile (a sheet opens,
+    // you pick a target, nothing is copied) and gave the same button two
+    // different outcomes depending on the device. The share sheet is what the
+    // Image option is for.
     if (format === "text") {
       try {
-        if (navigator.share) {
-          await navigator.share({ text });
-          setShareState("shared");
-        } else {
-          await navigator.clipboard.writeText(text);
-          setShareState("copied");
-        }
+        await navigator.clipboard.writeText(text);
+        setShareState("copied");
+        // The button label also flips to "Copied", but the modal has just
+        // closed over it -- a toast is the feedback that's actually visible at
+        // the moment the copy happens.
+        toast.success("Copied to clipboard");
         setTimeout(() => setShareState("idle"), 2000);
       } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") {
-          setShareState("idle");
-          return;
-        }
-        console.error("Share failed", err);
-        toast.error("Couldn't share right now. Try again.");
+        console.error("Copy failed", err);
+        toast.error("Couldn't copy to your clipboard. Try again.");
         setShareState("idle");
       }
       return;
@@ -310,6 +339,10 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
       link.click();
       URL.revokeObjectURL(link.href);
       setShareState("copied");
+      // Two silent side effects at once (a download and a clipboard write), so
+      // this branch says what happened -- same reason the copy option toasts.
+      // The navigator.share branch above doesn't: the OS sheet IS the feedback.
+      toast.success("Image saved and text copied to clipboard");
       setTimeout(() => setShareState("idle"), 2000);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
@@ -324,9 +357,15 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
 
   const guesses = board ? board.guesses.map(toGuess) : [];
   const guessesLeft = board?.guessesRemaining ?? MAX_GUESSES;
+  const isLoading = phase === "loading";
 
   return (
-    <div className="mx-auto flex w-full flex-col gap-4 px-4 py-6">
+    // `relative` anchors the hydration overlay over the ENTIRE game window --
+    // header included -- so loading is one state covering one card, not a
+    // sharp title above a blurred board. inset-0 lands exactly on the card's
+    // edges: this div is the `{children}` of the rounded-lg surface card in
+    // app/(game)/layout.tsx.
+    <div className="relative mx-auto flex w-full flex-col gap-4 px-4 py-6" aria-busy={isLoading}>
       <header>
         <h1 className="text-xl font-bold text-text sm:text-2xl">DriverPit</h1>
         <p className="text-sm text-text-muted">Daily #{puzzleNumber}</p>
@@ -335,16 +374,6 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
       {!hasPuzzleToday ? (
         <div className="py-12 text-center text-text-muted">
           No puzzle is scheduled for today. Check back soon.
-        </div>
-      ) : phase === "loading" ? (
-        // Skeleton board with the input disabled -- the hydration gate. Same
-        // layout as the ready state so nothing shifts when it resolves.
-        <div className="flex flex-col gap-4" aria-busy="true">
-          <DriverAutocomplete drivers={eligibleDrivers} onSelect={() => {}} disabled />
-          <p className="text-center text-sm text-text-muted">Loading today&apos;s board…</p>
-          <div className="animate-pulse motion-reduce:animate-none">
-            <GuessGrid guesses={[]} maxGuesses={MAX_GUESSES} showFlags={showFlags} />
-          </div>
         </div>
       ) : phase === "error" ? (
         <div className="flex flex-col items-center gap-3 py-12 text-center">
@@ -357,33 +386,38 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
           </button>
         </div>
       ) : (
-        <>
+        // THE gate against a replay flash: until daily_state() lands we don't
+        // know how much of today is already played, so the board rendered here
+        // is empty -- the overlay's blur is what stops that reading as "you can
+        // play again", where a merely-disabled empty board wouldn't.
+        <div className="flex flex-col gap-4">
           <DriverAutocomplete
             drivers={eligibleDrivers}
             onSelect={handleSelect}
-            disabled={pending || isRoundOver}
+            disabled={isLoading || pending || isRoundOver}
           />
 
           {!isRoundOver && (
-            <p className="text-center text-sm text-text-muted">
+            // Held but blanked while loading: the count is genuinely unknown
+            // until the server answers (this is a resumable board, not a fresh
+            // one), and rendering the MAX_GUESSES fallback would be a claim
+            // about today. `invisible` keeps its height so the grid doesn't
+            // jump when the real number arrives.
+            <p className={`text-center text-sm text-text-muted ${isLoading ? "invisible" : ""}`}>
               {guessesLeft} guess{guessesLeft === 1 ? "" : "es"} left
             </p>
           )}
 
           <GuessGrid guesses={guesses} maxGuesses={MAX_GUESSES} showFlags={showFlags} pending={pending} />
 
-          {isRoundOver && board?.won && (
-            <div className="rounded-lg border border-border bg-surface-2 p-4 text-center">
-              <p className="font-semibold text-accent">🏆 You got it — {board.target?.name}!</p>
-            </div>
-          )}
-
-          {isRoundOver && !board?.won && (
-            <div className="rounded-lg border border-border bg-surface-2 p-4 text-center">
-              <p className="font-semibold text-text">
-                {board?.target ? `Out of guesses. It was ${board.target.name}.` : "Out of guesses."}
-              </p>
-            </div>
+          {isRoundOver && (
+            <ResultCard
+              won={board?.won ?? false}
+              driverName={board?.target?.name ?? null}
+              driverCode={board?.target?.code ?? null}
+              guessesUsed={guesses.length}
+              maxGuesses={MAX_GUESSES}
+            />
           )}
 
           {isRoundOver && (
@@ -391,7 +425,12 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
               <button
                 onClick={() => setShareModalOpen(true)}
                 disabled={shareState === "sharing"}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-accent-weak bg-accent-weak/40 px-4 py-3 text-base font-semibold text-accent transition hover:border-accent/50 hover:bg-accent-weak/60 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-60"
+                // Solid accent, same as every other primary action on the site
+                // (duel Forfeit/Rematch, the guest Sign up prompt): sharing is
+                // THE thing to do on a finished board, so it gets the full
+                // accent rather than the accent-weak tint, which the site uses
+                // for secondary/recovery actions like Retry above.
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-3 text-base font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-60"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -417,8 +456,10 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
               <p className="text-center text-sm text-text-muted">Next driver in {countdown}</p>
             </div>
           )}
-        </>
+        </div>
       )}
+
+      {isLoading && <LoadingOverlay label="Loading today's board" />}
 
       <Modal open={shareModalOpen} onClose={() => setShareModalOpen(false)} title="Share result">
         <div className="flex flex-col gap-3">
@@ -429,7 +470,7 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
           >
             <span className="text-base font-bold text-text">Image</span>
             <span className="text-sm text-text-muted">
-              A result-card image of your board, ready to post or save.
+              A picture of your grid — post it or save it to your device.
             </span>
           </button>
           <button
@@ -437,8 +478,10 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
             onClick={() => void handleShare("text")}
             className="flex flex-col items-start gap-1 rounded-lg border border-border bg-surface-2 p-4 text-left transition hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
-            <span className="text-base font-bold text-text">Emoji text</span>
-            <span className="text-sm text-text-muted">Just the emoji grid — paste it anywhere.</span>
+            <span className="text-base font-bold text-text">Copy text</span>
+            <span className="text-sm text-text-muted">
+              The emoji grid on your clipboard, ready to paste anywhere.
+            </span>
           </button>
         </div>
       </Modal>

@@ -1,4 +1,5 @@
 import type { GuessResult } from "@/lib/game/compare";
+import { trackGuess } from "@/lib/game/inFlightGuess";
 import type { PoolWindow } from "@/lib/game/poolWindow";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
@@ -74,6 +75,12 @@ interface InfiniteSubmitGuessRow {
 // carries the real target over the wire -- `target` below is only ever
 // populated on 'won'/'lost', matching the old action's contract exactly.
 export async function submitGuess(guessedDriverId: number): Promise<SubmitGuessResult> {
+  // Tracked so sign-out can let an in-flight guess settle before tearing down
+  // the session (lib/game/inFlightGuess.ts).
+  return trackGuess(submitGuessInner(guessedDriverId));
+}
+
+async function submitGuessInner(guessedDriverId: number): Promise<SubmitGuessResult> {
   const supabase = createSupabaseBrowserClient();
   const { data, error } = await supabase
     .rpc("infinite_submit_guess", { p_guess_driver_id: guessedDriverId })

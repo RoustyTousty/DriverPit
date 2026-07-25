@@ -144,13 +144,6 @@ export function GeneralSection() {
       />
 
       <ToggleRow
-        label="Reduce motion"
-        description="Turn off tile flips and button animations, regardless of your system setting."
-        checked={settings.reducedMotion}
-        onChange={(next) => update({ reducedMotion: next })}
-      />
-
-      <ToggleRow
         label="Colorblind mode"
         description="Swaps the correct-tile green for a blue that stays distinct from the orange accent, and boosts near-miss tint contrast."
         checked={settings.colorblindMode}

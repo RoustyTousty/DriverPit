@@ -12,13 +12,11 @@ import { useServerCountdown } from "./useServerCountdown";
 // CLAUDE.md's Duel "Flow" step 4: once the ready-gate passes (both ready or
 // READY_TIMEOUT_MS, decided by the orchestrator before this mounts), stamp
 // round 0's clock via duel_begin_round and run the F1 five-lights countdown
-// to that absolute started_at. Reduced motion is handled by the app's
-// existing infra, not bespoke logic here: the global
-// `[data-reduced-motion="true"] *` rule (app globals.css) collapses every
-// transition-duration to ~0 for the in-app setting, and `motion-reduce:`
-// utility classes read the OS-level media query natively -- both already
-// cover "snap instead of animate," this component just has to use real CSS
-// transitions rather than skip them.
+// to that absolute started_at. Reduced motion is handled by the app's existing
+// infra, not bespoke logic here: `motion-reduce:` utility classes read the OS
+// `prefers-reduced-motion` media query natively, which already covers "snap
+// instead of animate" -- this component just has to use real CSS transitions
+// rather than skip them.
 export function DuelCountdown({
   matchId,
   roundIndex,

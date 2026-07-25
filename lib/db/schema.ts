@@ -87,14 +87,15 @@ export const dailyResults = pgTable(
 // follow the account across devices (CLAUDE.md "Daily persistence & sync").
 // `guesses` is the ordered list of guessed driver ids for a (user, UTC day):
 // the guesses ARE the state. Tile results are deliberately never stored --
-// they're recomputed by running compare() over `guesses` against the day's
-// target on hydration (lib/db/dailyProgress.ts), so there's one source of
-// truth for comparison rules and no way for a client to inject fabricated
-// tiles. `completed`/`won` gate the target reveal and the "one playthrough per
-// day" rule. Distinct from daily_results (a write-once stats idempotency
-// guard) -- this is live, mutable board state. Self-SELECT under RLS with no
-// client write policy at all (drizzle/0029): every append goes through the
-// trusted Drizzle server connection, which bypasses RLS.
+// they're recomputed by running compare_drivers() over `guesses` against the
+// day's pinned target on hydration (the daily_state RPC, drizzle/0030), so
+// there's one source of truth for comparison rules and no way for a client to
+// inject fabricated tiles. `completed`/`won` gate the target reveal and the
+// "one playthrough per day" rule. Distinct from daily_results (a write-once
+// stats idempotency guard) -- this is live, mutable board state. Self-SELECT
+// under RLS with no client write policy at all (drizzle/0029): every append
+// goes through the SECURITY DEFINER daily_submit_guess RPC (drizzle/0030),
+// which runs as the table owner and bypasses RLS.
 export const dailyProgress = pgTable(
   "daily_progress",
   {
@@ -115,6 +116,26 @@ export const dailyProgress = pgTable(
   (table) => [primaryKey({ columns: [table.userId, table.date] })],
 );
 
+// The day's pinned target driver. Lazily written by the first caller of the
+// day (daily_state / daily_submit_guess RPCs, drizzle/0030) via
+// INSERT ... ON CONFLICT DO NOTHING, then read by everyone else -- so the
+// target is a single indexed read instead of a per-call pool scan + pick, and
+// can't silently drift if the pool definition changes intra-day (the exact bug
+// lib/game/dailySelection.ts's old precomputed table had). One source of truth
+// for the day's answer, read by both the hydrate and guess RPCs via the
+// daily_target_id() helper. RLS is enabled with NO policy at
+// all (drizzle/0030): the target is a secret during the day, so a direct
+// PostgREST SELECT must return nothing -- the only readers are the SECURITY
+// DEFINER RPCs, which run as the table owner and bypass RLS. Same "default
+// deny" treatment as duel_rounds / infinite_rounds.
+export const dailyTargets = pgTable("daily_targets", {
+  // The UTC day. PK, so exactly one target per day.
+  date: date("date").primaryKey(),
+  driverId: integer("driver_id")
+    .notNull()
+    .references(() => drivers.id),
+});
+
 // Real-time 1v1 duel (replaces the legacy duel_rooms/duel_players room-code
 // game -- see CLAUDE.md "Duel (real-time race)"). One row per waiting
 // player; the pairing RPC (not yet built) deletes both rows the moment it
@@ -129,6 +150,18 @@ export const matchmakingQueue = pgTable("matchmaking_queue", {
   rating: integer("rating").notNull(),
   status: text("status").notNull().default("waiting"),
   queuedAt: timestamp("queued_at", { withTimezone: true }).notNull().defaultNow(),
+  // Liveness heartbeat (drizzle/0032). The searching client refreshes this
+  // every QUEUE_HEARTBEAT_MS; match_or_queue ignores rows older than
+  // QUEUE_STALE_MS and duel_sweep_stale_queue deletes them, so a row leaked by
+  // a crash, a closed tab, or a failed dequeue goes inert on its own instead of
+  // staying matchable forever.
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  // Stable per-browser id that SURVIVES an identity swap (localStorage, not the
+  // session) -- the self-match guard. match_or_queue refuses to pair two rows
+  // sharing this, which is what stops "queue, sign out, queue again as the new
+  // anonymous identity, duel yourself for rating". NOT NULL on purpose: a null
+  // would silently opt a row out of that guard.
+  deviceId: text("device_id").notNull(),
 });
 
 // One row per user with an in-progress Infinite round -- replaces the

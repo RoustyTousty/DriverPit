@@ -54,6 +54,18 @@ export const DISCONNECT_GRACE_MS = 10_000;
 // atomically re-searches with a freshly widened rating band).
 export const MATCHMAKE_POLL_INTERVAL_MS = 4_000;
 
+// Queue liveness (drizzle/0032). The searching client calls
+// duel_queue_heartbeat every QUEUE_HEARTBEAT_MS; match_or_queue ignores, and
+// duel_sweep_stale_queue deletes, any row whose last_seen_at is older than
+// QUEUE_STALE_MS. The gap between them has to tolerate a missed beat or two on
+// a slow connection -- at 5s/15s a row survives two consecutive failures before
+// going inert, while a genuinely dead row disappears well inside the time it
+// takes a human to notice they're still "searching".
+// QUEUE_STALE_MS is mirrored as a literal `interval '15 seconds'` in
+// drizzle/0032 (plpgsql can't import this file) -- change both together.
+export const QUEUE_HEARTBEAT_MS = 5_000;
+export const QUEUE_STALE_MS = 15_000;
+
 // Safety-net poll cadence inside a live match (missed-broadcast recovery:
 // round close during play, next-round adoption during intermission). Each
 // tick is an idempotent no-op when nothing actually changed.

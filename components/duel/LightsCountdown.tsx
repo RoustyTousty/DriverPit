@@ -1,3 +1,5 @@
+import { Spinner } from "@/components/ui/Spinner";
+
 import { LIGHT_COUNT } from "./useLightsCountdown";
 
 // The one F1 lights-out countdown visual, shared by every duel pre-round
@@ -40,10 +42,7 @@ export function LightsCountdown({
         // number, since there's nothing to count down from at all yet (a
         // bare 5 here would misleadingly suggest the countdown had
         // actually started).
-        <div
-          className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-accent motion-reduce:animate-none"
-          aria-hidden="true"
-        />
+        <Spinner size="md" />
       ) : (
         <div
           className={`font-mono text-5xl font-bold tabular-nums transition-colors motion-reduce:transition-none ${

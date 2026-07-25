@@ -4,16 +4,24 @@ import { useEffect, useRef } from "react";
 
 import { useAuth } from "@/components/auth/AuthProvider";
 import { AvatarGlyph } from "@/components/ui/AvatarGlyph";
+import { Spinner } from "@/components/ui/Spinner";
 import { useToast } from "@/components/ui/Toast";
+import { setQueued } from "@/lib/duel/duelCommitments";
 import {
   LOBBY_CHANNEL,
   MATCHED_EVENT,
   leaveQueue,
+  leaveQueueOnUnload,
   matchOrQueue,
+  queueHeartbeat,
   type MatchedBroadcastPayload,
   type MatchResult,
 } from "@/lib/duel/matchmaking";
-import { LOBBY_MIN_SEARCH_MS, MATCHMAKE_POLL_INTERVAL_MS } from "@/lib/game/duelTiming";
+import {
+  LOBBY_MIN_SEARCH_MS,
+  MATCHMAKE_POLL_INTERVAL_MS,
+  QUEUE_HEARTBEAT_MS,
+} from "@/lib/game/duelTiming";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 import { RatingBadge } from "./MatchFoundReveal";
@@ -46,8 +54,13 @@ export function DuelSearching({
   onFound: (match: MatchResult) => void;
   onCancel: () => void;
 }) {
-  const { user, profile, stats } = useAuth();
+  const { user, session, profile, stats } = useAuth();
   const toast = useToast();
+  // The identity this search belongs to. An identity change mid-search is NOT
+  // a reason to re-queue under the new id -- see the abort effect below.
+  const searchIdentityRef = useRef<string | null>(null);
+  const cancelRef = useRef(onCancel);
+  cancelRef.current = onCancel;
   // Mirrors state the poll/broadcast callbacks below (captured once per
   // effect run) need to read synchronously without re-subscribing the
   // channel on every update.
@@ -64,8 +77,36 @@ export function DuelSearching({
     return () => clearTimeout(timeout);
   }, []);
 
+  // LAYER 2 -- an identity change during a search ABORTS the search. This is a
+  // deliberate exception to the app-wide auth-reactivity rule: readers
+  // re-resolve for the new identity, but live server commitments (a queue
+  // entry, an active match) are released and abandoned, never re-established
+  // under the new id. Re-queueing on the new identity is precisely what let a
+  // signed-out player get paired with the row their previous identity left
+  // behind -- i.e. duel themselves for real rating.
+  useEffect(() => {
+    const currentId = user?.id ?? null;
+    if (searchIdentityRef.current === null) {
+      searchIdentityRef.current = currentId;
+      return;
+    }
+    if (currentId === searchIdentityRef.current) return;
+
+    // Best-effort under the NEW session (the old one can no longer authenticate
+    // anything). The row the old identity left is handled by the pre-signOut
+    // dequeue, and failing that by the liveness + device_id layers server-side.
+    void leaveQueue().catch(() => {});
+    cancelRef.current();
+  }, [user]);
+
   useEffect(() => {
     if (!user) return;
+    // Never start -- or RESTART -- a search under a different identity than the
+    // one it began with. The abort effect above is what handles that case;
+    // without this guard the effect's own [user] dependency would simply
+    // re-queue under the new id, recreating the bug.
+    if (searchIdentityRef.current !== null && searchIdentityRef.current !== user.id) return;
+    searchIdentityRef.current = user.id;
     // Function *declarations* below (attempt, handleMatched) are hoisted,
     // so TS can't carry the `user` non-null narrowing into their bodies --
     // capture a plain narrowed value instead of repeating `user!.id`.
@@ -145,32 +186,61 @@ export function DuelSearching({
       }
     }
 
+    // Publish the queue commitment so signing out can dequeue first (and warn
+    // the player that it will) rather than leaving a matchable row behind.
+    setQueued(true);
+
     void attempt();
     const interval = setInterval(() => void attempt(), MATCHMAKE_POLL_INTERVAL_MS);
 
+    // LAYER 3 -- liveness. An explicit RPC heartbeat rather than deriving it
+    // from this component's Realtime presence on the lobby channel: presence
+    // tracks a WebSocket, while the thing that must be proven alive is a row in
+    // matchmaking_queue. Those two can disagree in both directions (subscribed
+    // but never successfully enqueued; enqueued while the socket is briefly
+    // reconnecting), and pairing reads the row, not the socket. Writing
+    // last_seen_at on the same row the pairing scan filters keeps liveness and
+    // matchability in one system with no cross-system skew to reason about.
+    const heartbeat = setInterval(() => {
+      if (matchRef.current) return; // paired: the row is already gone
+      void queueHeartbeat().catch(() => {
+        // A dropped beat is survivable -- QUEUE_STALE_MS allows for two.
+      });
+    }, QUEUE_HEARTBEAT_MS);
+
+    // Tab close / navigation away. Best-effort keepalive POST; if it doesn't
+    // land, the heartbeat above simply stops and the row goes stale.
+    const token = session?.access_token;
+    function handleUnload() {
+      if (matchRef.current || !token) return;
+      leaveQueueOnUnload(token);
+    }
+    window.addEventListener("beforeunload", handleUnload);
+    window.addEventListener("pagehide", handleUnload);
+
     return () => {
       cancelled = true;
+      setQueued(false);
       clearInterval(interval);
+      clearInterval(heartbeat);
+      window.removeEventListener("beforeunload", handleUnload);
+      window.removeEventListener("pagehide", handleUnload);
       supabase.removeChannel(channel);
-      if (!matchRef.current) void leaveQueue(userId);
+      // Unmount = every exit from searching that isn't a pairing: Cancel,
+      // navigating away from /online, the identity-change abort above.
+      if (!matchRef.current) void leaveQueue().catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   function handleCancel() {
-    if (user) void leaveQueue(user.id);
+    void leaveQueue().catch(() => {});
     onCancel();
   }
 
   return (
     <div className="flex flex-col items-center gap-6 px-4 py-10 text-center">
-      <div className="flex items-center gap-2">
-        <p className="text-xs font-semibold tracking-wide text-accent uppercase">Finding an opponent</p>
-        <div
-          className="h-4 w-4 animate-spin rounded-full border-2 border-border border-t-accent motion-reduce:animate-none"
-          aria-hidden="true"
-        />
-      </div>
+      <p className="text-xs font-semibold tracking-wide text-accent uppercase">Finding an opponent</p>
 
       <div className="flex w-full items-center justify-center gap-4">
         <div className="flex flex-1 flex-col items-center gap-2">
@@ -181,7 +251,14 @@ export function DuelSearching({
           <RatingBadge rating={stats?.duelRating ?? null} />
         </div>
 
-        <span className="text-lg font-bold text-text-muted">VS</span>
+        {/* Sits in the exact slot DuelMatchFound/MatchFoundReveal put "VS" in,
+            so the handoff to the staging screen reads as the spinner *becoming*
+            VS -- the matchup resolving -- rather than two unrelated screens
+            swapping. Same reason EmptyAvatarSlot above matches AvatarGlyph's
+            footprint. This is also the only loading indicator on this screen
+            now; a second one next to "Finding an opponent" was saying the same
+            thing twice. */}
+        <Spinner />
 
         <div className="flex flex-1 flex-col items-center gap-2">
           <EmptyAvatarSlot />
@@ -189,10 +266,15 @@ export function DuelSearching({
         </div>
       </div>
 
+      {/* Same quiet full-width text treatment as the duel's other two "leave
+          this screen" controls -- Exit match mid-duel and Back to modes on the
+          results panel. Backing out of a duel looks the same wherever you do
+          it, and none of the three competes with the accent buttons beside
+          them. */}
       <button
         type="button"
         onClick={handleCancel}
-        className="rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-muted transition hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="w-full rounded-lg px-4 py-2 text-sm font-semibold text-text-muted transition hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         Cancel
       </button>

@@ -4,17 +4,20 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { getDailyDriverId } from "./queries";
+import { MAX_GUESSES } from "../game/constants";
 import { db } from "./index";
 import { infiniteRounds } from "./schema";
 
 // Integration tests for drizzle/0028_daily_infinite_fast_guess_rpc.sql's
-// client-callable RPCs (daily_submit_guess, infinite_start_round,
-// infinite_submit_guess) -- these need a real authenticated session
-// (auth.uid()) so they're exercised through supabase.rpc(), the same way
-// the actual browser client calls them, not the trusted Drizzle
-// connection. Same opt-in convention as lib/db/duelRpc.test.ts:
+// client-callable Infinite RPCs (infinite_start_round, infinite_submit_guess)
+// -- these need a real authenticated session (auth.uid()) so they're exercised
+// through supabase.rpc(), the same way the actual browser client calls them,
+// not the trusted Drizzle connection. Same opt-in convention as
+// lib/db/duelRpc.test.ts:
 //   RUN_DB_INTEGRATION_TESTS=1 npx vitest run lib/db/dailyInfiniteRpc.test.ts
+//
+// Daily's RPCs moved to the stateful daily_state / daily_submit_guess
+// (drizzle/0030); their coverage lives in lib/db/dailyRpc.test.ts.
 const RUN = process.env.RUN_DB_INTEGRATION_TESTS === "1";
 
 async function makeGuestClient(): Promise<SupabaseClient> {
@@ -23,41 +26,6 @@ async function makeGuestClient(): Promise<SupabaseClient> {
   if (error) throw new Error(`fixture guest sign-in failed: ${error.message}`);
   return supabase;
 }
-
-describe.skipIf(!RUN)("daily_submit_guess (integration)", () => {
-  let supabase: SupabaseClient;
-  let targetId: number;
-
-  beforeAll(async () => {
-    supabase = await makeGuestClient();
-    const todayUtc = new Date().toISOString().slice(0, 10);
-    targetId = await getDailyDriverId("10-years", new Date().getUTCFullYear(), todayUtc);
-  });
-
-  it("rejects an unknown driver id", async () => {
-    const { error } = await supabase.rpc("daily_submit_guess", { p_guess_driver_id: -1 }).single();
-    expect(error).not.toBeNull();
-  });
-
-  it("scores a guess against today's actual target, consistently across calls", async () => {
-    const { data: first, error: e1 } = await supabase
-      .rpc("daily_submit_guess", { p_guess_driver_id: targetId })
-      .single();
-    expect(e1).toBeNull();
-    // Guessing the real target must always win.
-    expect((first as { won: boolean }).won).toBe(true);
-
-    const [otherDriver] = await db.query.drivers.findMany({ limit: 1 });
-    if (otherDriver && otherDriver.id !== targetId) {
-      const { data: second, error: e2 } = await supabase
-        .rpc("daily_submit_guess", { p_guess_driver_id: otherDriver.id })
-        .single();
-      expect(e2).toBeNull();
-      // Same target both times -- a second call must not re-pick.
-      expect((second as { won: boolean }).won).toBe(otherDriver.id === targetId);
-    }
-  });
-});
 
 describe.skipIf(!RUN)("infinite_start_round / infinite_submit_guess (integration)", () => {
   let supabase: SupabaseClient;
@@ -123,6 +91,47 @@ describe.skipIf(!RUN)("infinite_start_round / infinite_submit_guess (integration
 
     const [stillGoing] = await db.select().from(infiniteRounds).where(eq(infiniteRounds.userId, userId));
     expect(stillGoing.guessCount).toBe(1);
+  });
+
+  it("enforces the guess cap server-side and can't be pushed past it", async () => {
+    await supabase.rpc("infinite_start_round", { p_pool_window: "10-years" });
+    const [round] = await db.select().from(infiniteRounds).where(eq(infiniteRounds.userId, userId));
+
+    const [wrongDriver] = await db.query.drivers.findMany({
+      where: (d, { ne }) => ne(d.id, round.driverId),
+      limit: 1,
+    });
+
+    // Everything up to the last allowed guess keeps the round alive.
+    for (let i = 1; i < MAX_GUESSES; i++) {
+      const { data, error } = await supabase
+        .rpc("infinite_submit_guess", { p_guess_driver_id: wrongDriver.id })
+        .single();
+      expect(error).toBeNull();
+      expect((data as { status: string }).status).toBe("continue");
+    }
+
+    // The last one ends the round as a loss and reveals the target. Uses
+    // MAX_GUESSES rather than a literal so a change to the TS constant that
+    // isn't mirrored in the RPC's hardcoded cap fails here instead of silently
+    // giving Infinite a different guess count than Daily.
+    const { data: final, error: finalError } = await supabase
+      .rpc("infinite_submit_guess", { p_guess_driver_id: wrongDriver.id })
+      .single();
+    expect(finalError).toBeNull();
+    const lost = final as { status: string; target_driver_id: number | null };
+    expect(lost.status).toBe("lost");
+    expect(lost.target_driver_id).toBe(round.driverId);
+
+    // The cap is the SERVER's to enforce: the round row is gone, so a client
+    // that ignores the returned status can't smuggle in an extra guess.
+    const [afterLoss] = await db.select().from(infiniteRounds).where(eq(infiniteRounds.userId, userId));
+    expect(afterLoss).toBeUndefined();
+
+    const { error: extra } = await supabase
+      .rpc("infinite_submit_guess", { p_guess_driver_id: wrongDriver.id })
+      .single();
+    expect(extra).not.toBeNull();
   });
 
   it("starting a new round always overwrites the old one", async () => {

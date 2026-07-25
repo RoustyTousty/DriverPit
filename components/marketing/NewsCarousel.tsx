@@ -4,26 +4,10 @@ import { useEffect, useRef, useState } from "react";
 
 import type { NewsItem } from "@/lib/news/fetchNews";
 import { formatRelativeTime } from "@/lib/news/relativeTime";
-import { useSettings } from "@/lib/settings/useSettings";
+import { usePrefersReducedMotion } from "@/lib/settings/usePrefersReducedMotion";
 
 const AUTO_ADVANCE_MS = 6000;
 const SWIPE_THRESHOLD_PX = 40;
-
-function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false);
-
-  useEffect(() => {
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReduced(query.matches);
-    function handleChange() {
-      setReduced(query.matches);
-    }
-    query.addEventListener("change", handleChange);
-    return () => query.removeEventListener("change", handleChange);
-  }, []);
-
-  return reduced;
-}
 
 // A wide hover zone at each edge (not just a small floating button) with an
 // accent gradient glow bleeding in from the side -- hidden below `sm`
@@ -60,17 +44,16 @@ function EdgeNav({ direction, onClick }: { direction: "prev" | "next"; onClick: 
 }
 
 // Auto-advances on a timer, paused while the card has hover or focus and
-// disabled outright under either reduced-motion signal (the in-app setting
-// or the OS one) -- an auto-playing carousel is exactly what WCAG 2.2.2
-// flags, so it needs a real off switch, not just a slower default. Edge
-// hover zones and larger-hit-area dots handle desktop nav; touch devices
-// swipe the card itself instead (see handleTouchEnd).
+// disabled outright under the OS reduced-motion setting -- an auto-playing
+// carousel is exactly what WCAG 2.2.2 flags, so it needs a real off switch, not
+// just a slower default. Edge hover zones and larger-hit-area dots handle
+// desktop nav; touch devices swipe the card itself instead (see
+// handleTouchEnd).
 export function NewsCarousel({ items }: { items: NewsItem[] }) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
-  const { reducedMotion } = useSettings();
   const prefersReducedMotion = usePrefersReducedMotion();
-  const autoAdvanceDisabled = reducedMotion || prefersReducedMotion || items.length <= 1;
+  const autoAdvanceDisabled = prefersReducedMotion || items.length <= 1;
   const touchStart = useRef<{ x: number; y: number } | null>(null);
 
   // Depends on `index` (not just a bare interval) so any manual nav --

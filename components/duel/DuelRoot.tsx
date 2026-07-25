@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import type { DriverOption } from "@/components/game/DriverAutocomplete";
 import { getMyLiveMatch } from "@/lib/duel/actions";
+import { setLiveMatchId } from "@/lib/duel/duelCommitments";
 import { useDuelChannel } from "@/lib/duel/useDuelChannel";
 import { useServerClock } from "@/lib/duel/useServerClock";
 import { READY_TIMEOUT_MS } from "@/lib/game/duelTiming";
@@ -99,6 +100,17 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
   useEffect(() => {
     setActive(phase !== "landing");
   }, [phase, setActive]);
+
+  // Publish the live match so AuthProvider.signOut() can forfeit it rather than
+  // stranding the opponent for DISCONNECT_GRACE_MS. Registered for every phase
+  // that has a real match behind it, including the post-match results view --
+  // duel_forfeit is a no-op on an already-finished match, so erring broad here
+  // costs nothing and erring narrow would miss a real mid-match sign-out.
+  useEffect(() => {
+    const live = phase !== "landing" && phase !== "searching" ? (match?.matchId ?? null) : null;
+    setLiveMatchId(live);
+    return () => setLiveMatchId(null);
+  }, [phase, match]);
 
   function handleFound(found: MatchResult) {
     setMatch(found);

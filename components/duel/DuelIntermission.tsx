@@ -64,12 +64,11 @@ export function DuelIntermission({
   // (begin the next round, or move to match end).
   onDone: () => void;
 }) {
-  const { showFlags, reducedMotion: appReducedMotion } = useSettings();
-  // Either signal snaps the JS-driven count-up: the OS media query (which
-  // Tailwind's motion-reduce: covers for CSS, but not for rAF loops) OR the
-  // in-app toggle (which the global data-attribute rule covers for CSS,
-  // but likewise never touches JS animation).
-  const reducedMotion = usePrefersReducedMotion() || appReducedMotion;
+  const { showFlags } = useSettings();
+  // Snaps the JS-driven count-up under the OS media query. Read explicitly
+  // because Tailwind's motion-reduce: variant only covers CSS animation and
+  // transitions -- it never touches a rAF loop like useCountUp.
+  const reducedMotion = usePrefersReducedMotion();
 
   // Fresh ready-gate for *this* intermission -- without an explicit reset,
   // a `ready: true` left over from the previous round's gate (or the

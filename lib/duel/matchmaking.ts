@@ -1,6 +1,8 @@
 import { DAILY_POOL_WINDOW } from "@/lib/game/poolWindow";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
+import { getDeviceId } from "./deviceId";
+
 // The shared channel every /online visitor subscribes to -- Presence for the
 // online count, broadcast for pushing a just-created match to the player
 // who was waiting for it (see MatchmakingLobby). Not "duel:{matchId}" --
@@ -62,15 +64,55 @@ function toMatchResult(row: MatchOrQueueRow): MatchResult | null {
 export async function matchOrQueue(): Promise<MatchResult | null> {
   const supabase = createSupabaseBrowserClient();
   const { data, error } = await supabase
-    .rpc("match_or_queue", { p_pool_window: DAILY_POOL_WINDOW })
+    .rpc("match_or_queue", { p_pool_window: DAILY_POOL_WINDOW, p_device_id: getDeviceId() })
     .single();
   if (error) throw error;
   return toMatchResult(data as MatchOrQueueRow);
 }
 
-export async function leaveQueue(userId: string): Promise<void> {
+// Explicit dequeue -- call on EVERY exit from searching (unmount, cancel,
+// navigating away, and critically inside signOutAndReset() before the session
+// is torn down). Idempotent server-side (drizzle/0032): safe twice,
+// safe when never queued, safe racing a pairing that already removed the row.
+// Takes no user id -- the RPC derives it from auth.uid(), so a client can only
+// ever dequeue itself.
+export async function leaveQueue(): Promise<void> {
   const supabase = createSupabaseBrowserClient();
-  await supabase.from("matchmaking_queue").delete().eq("user_id", userId);
+  const { error } = await supabase.rpc("duel_leave_queue");
+  if (error) throw error;
+}
+
+// Liveness beat while searching. A no-op server-side when not queued, so a beat
+// that lands after a pairing can't resurrect anything.
+export async function queueHeartbeat(): Promise<void> {
+  const supabase = createSupabaseBrowserClient();
+  const { error } = await supabase.rpc("duel_queue_heartbeat");
+  if (error) throw error;
+}
+
+// Dequeue during page teardown (beforeunload/pagehide). supabase-js issues a
+// normal fetch, which the browser is free to cancel once the document goes
+// away -- so this posts to the same PostgREST RPC endpoint directly with
+// `keepalive`, which survives teardown. Best-effort by design: if it never
+// lands, the heartbeat above stops and the row goes stale within
+// QUEUE_STALE_MS anyway. That's the point of having both layers.
+export function leaveQueueOnUnload(accessToken: string): void {
+  const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/rpc/duel_leave_queue`;
+  try {
+    void fetch(url, {
+      method: "POST",
+      keepalive: true,
+      headers: {
+        "Content-Type": "application/json",
+        apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: "{}",
+    });
+  } catch {
+    // Teardown is not a place to surface errors -- the staleness window covers
+    // us if this fails.
+  }
 }
 
 // Broadcast payload sent by whichever client's matchOrQueue() call just

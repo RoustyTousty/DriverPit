@@ -736,11 +736,18 @@ export function DuelMatch({
     return (
       <>
         {view}
-        <div className="flex justify-center pb-3">
+        {/* px-4 matches the inner padding every wrapped view uses, so the
+            full-width button lines up with the content above it rather than
+            running to the card's edges. Full width (not centered auto-width)
+            keeps it identical in shape to Back to modes and the lobby's Cancel
+            -- one "leave" control, one look, three screens. Stays text-xs
+            though: this one interrupts a live match, so it should read as the
+            quietest of the three. */}
+        <div className="px-4 pb-3">
           <button
             type="button"
             onClick={() => setExitModalOpen(true)}
-            className="rounded-lg px-3 py-1.5 text-xs font-semibold text-text-muted transition hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="w-full rounded-lg px-4 py-1.5 text-xs font-semibold text-text-muted transition hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Exit match
           </button>

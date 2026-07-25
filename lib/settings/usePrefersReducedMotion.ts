@@ -2,13 +2,16 @@
 
 import { useEffect, useState } from "react";
 
-// The OS-level reduced-motion signal, independent of this app's own
-// in-app setting (useSettings().reducedMotion) -- CSS already reads both
-// (globals.css's `[data-reduced-motion="true"]` rule for the in-app
-// toggle, Tailwind's `motion-reduce:` variant for this one natively), but
-// a JS-driven animation (a numeric count-up, a requestAnimationFrame loop)
-// isn't a CSS transition/animation, so neither mechanism touches it --
-// call this directly wherever such an animation needs to snap instead.
+// The OS-level reduced-motion signal, and since the in-app "Reduce motion"
+// toggle was removed, the ONLY one -- there is no app-level override to OR
+// against here anymore.
+//
+// CSS reads the same media query natively through Tailwind's `motion-reduce:`
+// variant, so styles need nothing from this hook. What it exists for is
+// JS-driven animation -- a numeric count-up, a requestAnimationFrame loop, an
+// auto-advancing carousel timer -- which is neither a CSS transition nor a CSS
+// animation, so `motion-reduce:` never touches it. Call this directly wherever
+// such an animation needs to snap or switch off.
 export function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
 

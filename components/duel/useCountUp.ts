@@ -4,12 +4,10 @@ import { useEffect, useRef, useState } from "react";
 
 // Animates 0 -> target over durationMs (eased, front-loaded like the rest
 // of this feature's motion), for the intermission's "+140 / +35" round-
-// point reveal (CLAUDE.md's Duel "Intermission"). `skip` snaps straight to
-// the final value with no animation frames at all -- pass the OS/in-app
-// reduced-motion signal here; this is a JS-driven number, not a CSS
-// transition, so neither of the app's usual reduced-motion mechanisms
-// (globals.css's data-attribute rule, Tailwind's motion-reduce: variant)
-// touches it on their own.
+// point reveal (CLAUDE.md's Duel "Intermission"). `skip` snaps straight to the
+// final value with no animation frames at all -- pass usePrefersReducedMotion()
+// here; this is a JS-driven number, not a CSS transition, so Tailwind's
+// motion-reduce: variant never touches it on its own.
 export function useCountUp(target: number, durationMs: number, skip: boolean): number {
   const [value, setValue] = useState(skip ? target : 0);
   const rafRef = useRef<number | null>(null);

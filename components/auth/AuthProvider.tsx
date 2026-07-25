@@ -3,7 +3,10 @@
 import { isAuthRetryableFetchError, type Session, type User } from "@supabase/supabase-js";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
-import { pushLocalDailyToServer } from "@/lib/game/legacyDailyMigration";
+import { forfeitMatch } from "@/lib/duel/actions";
+import { getLiveMatchId, isQueued } from "@/lib/duel/duelCommitments";
+import { leaveQueue } from "@/lib/duel/matchmaking";
+import { awaitInFlightGuess } from "@/lib/game/inFlightGuess";
 import { migrateLocalStats } from "@/lib/stats/actions";
 import { readStats, resetStats } from "@/lib/stats/store";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -115,18 +118,38 @@ interface AuthContextValue {
   // off, per CLAUDE.md "Auth state is reactive, everywhere".
   userId: string | null;
   isGuest: boolean;
+  // TWO separate readiness signals -- keeping them apart is what stops a game
+  // board from waiting on data it doesn't render (CLAUDE.md: "The board's first
+  // paint never waits on profile/stats").
+  //
+  // `identityStatus` is "ready" the moment `userId` is known and stable, with
+  // NO regard for profile/stats. It's the signal a game window gates on: the
+  // only thing /daily needs before firing daily_state() is which account it's
+  // fetching for. Chaining the board behind `status` below is what turned the
+  // board load into seconds.
+  identityStatus: AuthStatus;
   // `loading` until the *current* identity's profile/stats are resolved --
-  // true again during an identity swap (sign-in/out), which is the signal a
-  // per-user view uses to show its gate instead of the previous identity's
-  // data. `loading` is kept as an alias of `status === "loading"` for existing
-  // consumers.
+  // true again when signing in resolves to a DIFFERENT user id (not the common
+  // guest upgrade, which links in place and keeps the id, but the
+  // identity_already_exists path in OAuthErrorHandler, which signs you into
+  // your other account). That's the signal a per-user view uses to show its
+  // gate instead of the previous identity's data. Sign-out no longer produces
+  // this state at all -- it reloads the page (signOutAndReset). This is the
+  // signal for views that actually render profile/stats (Settings, Statistics,
+  // Leaderboard) -- NOT for boards. `loading` is kept as an alias of
+  // `status === "loading"` for existing consumers.
   status: AuthStatus;
   loading: boolean;
   // Re-fetches profile/stats for the current user — call after an action
   // that's expected to have changed them (e.g. the signup trigger firing,
   // an upgrade completing).
   refresh: () => Promise<void>;
-  signOut: () => Promise<void>;
+  // The ONLY sign-out entry point -- no component may call
+  // supabase.auth.signOut() directly. Releases server-side commitments, signs
+  // out, then hard-reloads to "/". Throws WITHOUT signing out if the cleanup
+  // fails, so callers must surface the error rather than assume it succeeded.
+  // Resolves only in that failure case; on success the page is navigating away.
+  signOutAndReset: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -155,9 +178,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // can tell it's been superseded by a newer identity and bail, instead of
   // writing the previous identity's rows over the current one's.
   const currentIdRef = useRef<string | null>(null);
+  // The id a profile/stats load has already been STARTED for. init() and the
+  // onAuthStateChange subscription both observe the very same initial session
+  // (the listener fires once on subscribe with event "INITIAL_SESSION"), so
+  // without this the first page load fired two identical profiles+user_stats
+  // fetches -- four redundant PostgREST calls per visit. refresh() deliberately
+  // ignores this guard: it's an explicit "re-read now" after a known change.
+  const profileLoadStartedForRef = useRef<string | null>(null);
 
   const loadProfileAndStats = useCallback(
     async (userId: string) => {
+      profileLoadStartedForRef.current = userId;
       const [{ data: profileRow, error: profileError }, { data: statsRow, error: statsError }] =
         await Promise.all([
           supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
@@ -211,7 +242,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(currentSession);
         setUser(currentSession.user);
         currentIdRef.current = currentSession.user.id;
-        await loadProfileAndStats(currentSession.user.id);
+        // NOT awaited: profile/stats feed Settings/Statistics/Leaderboard, and
+        // nothing that blocks a game board. Awaiting it here is what put two
+        // PostgREST round trips in front of every board's first fetch --
+        // identity is resolved the moment the session is, so let the board go
+        // now and let this land in parallel.
+        void loadProfileAndStats(currentSession.user.id);
       } else if (sessionError && isAuthRetryableFetchError(sessionError)) {
         // Couldn't reach Supabase after retrying -- this is very likely a
         // real, recoverable session that the network just couldn't refresh
@@ -237,7 +273,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setSession(data.session);
           setUser(data.user);
           currentIdRef.current = data.user?.id ?? null;
-          if (data.user) await loadProfileAndStats(data.user.id);
+          // Same as above -- identity is what the board waits on, not this.
+          if (data.user) void loadProfileAndStats(data.user.id);
         }
       }
 
@@ -265,25 +302,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setStats(null);
           setResolvedId(null);
         }
-        void loadProfileAndStats(newUser.id);
+        // Skip when a load for this exact id is already in flight or done --
+        // otherwise the "INITIAL_SESSION" event this listener receives on
+        // subscribe duplicates init()'s load on every single page visit. A real
+        // identity change always passes (different id), and refresh() bypasses
+        // this path entirely.
+        if (profileLoadStartedForRef.current !== newUser.id) {
+          void loadProfileAndStats(newUser.id);
+        }
       } else {
         currentIdRef.current = null;
+        profileLoadStartedForRef.current = null;
         setProfile(null);
         setStats(null);
         setResolvedId(null);
-        // Only re-establish a guest identity on an explicit runtime sign-out.
-        // This listener also fires once on subscribe with whatever the session
-        // was at that moment (event "INITIAL_SESSION") -- on a first visit
-        // that's null too, same as what init() above is concurrently
-        // resolving. Reacting to that here as well used to race init()'s own
-        // signInAnonymously() call, firing two concurrent anonymous sign-ins
-        // for one visit. The app is never identity-less, so a real sign-out is
-        // an identity *swap*: signInAnonymously() immediately, and `status`
-        // stays "loading" (user is null) so no board shows in the gap.
+        // NO in-place signInAnonymously() here. Sign-out is a full application
+        // reset (see signOutAndReset below): the fresh page load bootstraps a
+        // new anonymous identity through init()'s ordinary first-visit path, so
+        // doing it here as well would just be a second, redundant sign-in.
+        //
+        // Reload on SIGNED_OUT rather than sitting identity-less. Our own
+        // sign-out navigates to "/" a moment later anyway (same destination, so
+        // a duplicate is harmless); this also covers a sign-out we did NOT
+        // initiate -- another tab, or a session revoked server-side -- which
+        // would otherwise leave this tab with `user` null and every board stuck
+        // behind its loading gate forever.
+        //
+        // Deliberately NOT fired for "INITIAL_SESSION", which this listener
+        // also receives on subscribe with a null session on a first visit --
+        // reloading there would be an infinite refresh loop on the very first
+        // page view, and init() is already resolving that case concurrently.
         if (event === "SIGNED_OUT") {
-          void withRetry(() => supabase.auth.signInAnonymously()).then(({ error }) => {
-            if (error) console.error("Anonymous re-sign-in after sign-out failed", error);
-          });
+          window.location.assign("/");
         }
       }
     });
@@ -299,28 +349,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // profiles.is_guest is the canonical flag (flips on upgrade); fall back to
   // the auth user's anonymity while the profile row is still loading.
   const isGuest = profile?.isGuest ?? user?.is_anonymous ?? true;
-  // "loading" during the first resolve, and again whenever the live identity
-  // has outrun its loaded profile/stats (a swap in progress, or the null gap
-  // between sign-out and the fresh guest).
+  // Identity only: "ready" as soon as the session resolve has finished and
+  // there IS a user, regardless of whether profile/stats have landed.
+  // `initialLoading` now means exactly "the initial session resolve is still
+  // running" -- it no longer waits on loadProfileAndStats (see init()). There
+  // is no sign-out gap to cover any more: sign-out reloads the page, and the
+  // fresh load resolves an anonymous identity through init()'s normal path.
+  const identityStatus: AuthStatus = initialLoading || !user ? "loading" : "ready";
+  // Identity AND its profile/stats. Strictly stronger than identityStatus:
+  // additionally "loading" whenever the live identity has outrun its loaded
+  // profile/stats (a swap in progress, or a first load still fetching them).
   const status: AuthStatus =
     initialLoading || !user || user.id !== resolvedId ? "loading" : "ready";
   const loading = status === "loading";
-
-  // On sign-in (identity resolved -- guests included, since they have server
-  // daily_progress too), carry any pre-existing local daily board onto the
-  // account. Once per identity per session; a transient failure clears the
-  // guard so a later attempt this session can retry. Server precedence + the
-  // legacy-key clear inside pushLocalDailyToServer make repeats safe.
-  const dailyPushedForRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (status !== "ready" || !userId) return;
-    if (dailyPushedForRef.current === userId) return;
-    dailyPushedForRef.current = userId;
-    void pushLocalDailyToServer().catch((err) => {
-      console.error("Local daily migration failed", err);
-      if (dailyPushedForRef.current === userId) dailyPushedForRef.current = null;
-    });
-  }, [status, userId]);
 
   // Folds pre-existing localStorage stats into the account exactly once,
   // the moment a guest becomes a full account (profile.isGuest flips via
@@ -334,14 +375,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const migratingRef = useRef(false);
   useEffect(() => {
     if (!profile || profile.isGuest) return;
-
-    // Also carry the pre-server daily board over on upgrade, next to the stats
-    // fold-in. Idempotent and independent of local stats -- normally a no-op
-    // here because the sign-in effect above already handled it under the same
-    // (unchanged-on-upgrade) userId, but it also serves as a retry if that
-    // attempt failed.
-    void pushLocalDailyToServer().catch((err) => console.error("Local daily migration failed", err));
-
+    // NOTE: the daily board needs no equivalent fold-in. Upgrading links the
+    // anonymous identity in place, so userId is unchanged and the account's
+    // daily_progress row simply carries over.
     if (migratingRef.current) return;
     const local = readStats();
     if (local.gamesPlayed <= 0) return;
@@ -358,13 +394,67 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [profile, refresh]);
 
-  async function signOut() {
-    await supabase.auth.signOut();
+  // Sign-out is a FULL APPLICATION RESET, not an in-place identity swap: it
+  // ends by hard-navigating to "/" so the next identity boots from a genuinely
+  // clean page. That discards, in one move, every category of stale-identity
+  // bug we would otherwise have to defend against feature by feature -- user
+  // ids captured in closures, live Realtime subscriptions, in-flight requests,
+  // module-level caches. Sign-out is rare and user-initiated, so the reload
+  // costs nothing perceptible.
+  //
+  // Deliberately asymmetric: SIGN-IN still re-resolves in place (see the
+  // reactive `status`/`identityStatus` machinery above). Guest -> full account
+  // is a *link* that preserves userId, so reloading there would interrupt an
+  // in-progress daily for no reason.
+  //
+  // The ordering below is the whole point and must not be rearranged:
+  //   1. Release every server-side commitment WHILE STILL AUTHENTICATED. After
+  //      step 2 this identity can no longer authenticate anything, so a match
+  //      left running or a queue row left behind becomes unreachable garbage --
+  //      and a stale queue row is the rating-farming vector drizzle/0032 exists
+  //      to close.
+  //   2. Sign out.
+  //   3. Hard navigation -- window.location.assign, NOT a Next.js router push,
+  //      which would preserve exactly the in-memory state we are discarding.
+  //
+  // FAILS CLOSED: if step 1 can't complete (offline, request error) this throws
+  // and does NOT sign out or reload. Reloading anyway would strand a live match
+  // or a matchable queue row while destroying the only client that still had
+  // the session needed to clean it up.
+  async function signOutAndReset() {
+    // 1a. Forfeit a live match so the opponent gets an immediate clean win
+    //     rather than waiting out DISCONNECT_GRACE_MS.
+    const liveMatchId = getLiveMatchId();
+    if (liveMatchId !== null) {
+      const result = await forfeitMatch(liveMatchId);
+      if (!result.ok) throw new Error(result.error);
+    }
+
+    // 1b. Drop the queue row. Only when we actually hold one: it's idempotent
+    //     server-side, but calling it unconditionally would let a network blip
+    //     block a sign-out that had nothing at stake.
+    if (isQueued()) {
+      await leaveQueue();
+    }
+
+    // 1c. Let an in-flight guess land. daily_submit_guess APPENDS server-side,
+    //     so abandoning one mid-write leaves the client's last rendered board
+    //     disagreeing with what was actually stored. Never rejects -- a guess
+    //     that failed is the board's problem to surface, not a reason someone
+    //     can't sign out.
+    await awaitInFlightGuess();
+
+    // 2.
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+
+    // 3.
+    window.location.assign("/");
   }
 
   return (
     <AuthContext.Provider
-      value={{ user, session, profile, stats, userId, isGuest, status, loading, refresh, signOut }}
+      value={{ user, session, profile, stats, userId, isGuest, identityStatus, status, loading, refresh, signOutAndReset }}
     >
       {children}
     </AuthContext.Provider>

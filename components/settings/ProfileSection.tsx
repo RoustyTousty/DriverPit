@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/auth/AuthProvider";
+import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
+import { getDuelCommitments } from "@/lib/duel/duelCommitments";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 import { AvatarPicker } from "./AvatarPicker";
@@ -20,13 +22,15 @@ function GoogleLogo() {
 }
 
 export function ProfileSection() {
-  const { user, profile, loading, refresh, signOut } = useAuth();
+  const { user, profile, loading, refresh, signOutAndReset } = useAuth();
   const toast = useToast();
   const [supabase] = useState(() => createSupabaseBrowserClient());
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [pending, setPending] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
+  // Which commitment sign-out is about to abandon, or null for "no prompt".
+  const [confirmSignOut, setConfirmSignOut] = useState<"match" | "queue" | null>(null);
 
   // Keeps the field in sync with the saved value -- a plain useState
   // initializer only runs once on mount, so without this the input could
@@ -89,10 +93,36 @@ export function ProfileSection() {
     await refresh();
   }
 
-  async function handleSignOut() {
+  // Confirm only when signing out would actually abandon something. A plain
+  // sign-out with nothing in flight goes straight through -- a needless "are
+  // you sure?" on the common path just trains people to dismiss it.
+  function handleSignOutClick() {
+    const { matchLive, queued } = getDuelCommitments();
+    if (matchLive || queued) {
+      setConfirmSignOut(matchLive ? "match" : "queue");
+      return;
+    }
+    void performSignOut();
+  }
+
+  async function performSignOut() {
+    setConfirmSignOut(null);
     setPending(true);
-    await signOut();
-    setPending(false);
+    try {
+      await signOutAndReset();
+      // Success means the browser is already navigating to "/" -- deliberately
+      // leave `pending` set so the button stays disabled through teardown
+      // instead of flickering back to enabled.
+    } catch (err) {
+      // Fails closed: still signed in, nothing was reloaded, and whatever we
+      // were trying to release is still ours to release. Say so plainly.
+      setPending(false);
+      toast.error(
+        err instanceof Error
+          ? `Couldn't sign out: ${err.message}. You're still signed in — check your connection and try again.`
+          : "Couldn't sign out. You're still signed in — check your connection and try again.",
+      );
+    }
   }
 
   if (loading || !profile || !user) {
@@ -186,7 +216,7 @@ export function ProfileSection() {
 
           <button
             type="button"
-            onClick={() => void handleSignOut()}
+            onClick={handleSignOutClick}
             disabled={pending}
             className="self-start rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-muted transition hover:bg-surface-2 hover:text-text disabled:opacity-50"
           >
@@ -194,6 +224,37 @@ export function ProfileSection() {
           </button>
         </>
       )}
+
+      <Modal
+        open={confirmSignOut !== null}
+        onClose={() => setConfirmSignOut(null)}
+        title={confirmSignOut === "match" ? "Forfeit your match?" : "Leave the queue?"}
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-text-muted">
+            {confirmSignOut === "match"
+              ? "Signing out will forfeit your match — your opponent wins immediately, and the result counts toward your duel record."
+              : "Signing out will take you out of matchmaking, so you won't be paired with an opponent."}
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmSignOut(null)}
+              className="rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-muted transition hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Stay signed in
+            </button>
+            <button
+              type="button"
+              onClick={() => void performSignOut()}
+              disabled={pending}
+              className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+            >
+              {confirmSignOut === "match" ? "Forfeit and sign out" : "Sign out"}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { DriverAutocomplete, type DriverOption } from "@/components/game/DriverAutocomplete";
 import { GuessGrid, type Guess } from "@/components/game/GuessGrid";
+import { LoadingOverlay } from "@/components/game/LoadingOverlay";
 import { PoolSelect, type PoolSelectOption } from "@/components/game/PoolSelect";
+import { ResultCard } from "@/components/game/ResultCard";
 import { useToast } from "@/components/ui/Toast";
 import type { DriverSummary, DriverWithActivity } from "@/lib/db/queries";
 import { MAX_GUESSES } from "@/lib/game/constants";
@@ -16,54 +18,6 @@ import { useSettings } from "@/lib/settings/useSettings";
 
 type RoundStatus = "loading" | "playing" | "won" | "lost";
 
-// The only parts of a fresh round that are genuinely unknown while loading
-// are the controls that need a real round to act on -- the guess input, the
-// pool switcher, and "New driver" all either can't do anything useful yet or
-// would just re-trigger the same in-flight load. Everything else about "0
-// guesses made" (the column labels, the correct number of empty dashed
-// rows, "N guesses left") is already fully known the instant a round
-// starts, so the real GuessGrid and guesses-left text are rendered as-is
-// below rather than faked -- a skeleton should stand in for what's actually
-// unknown, not reproduce content that's already certain. Each ghost below
-// matches its real control's own sizing (same padding/border classes, an
-// invisible same-size label driving the height/width) so there's zero
-// layout shift when it's swapped in.
-function DriverInputGhost() {
-  return (
-    <div
-      role="status"
-      aria-label="Loading a driver"
-      className="w-full animate-pulse rounded-lg border border-border bg-surface-2 px-4 py-3 motion-reduce:animate-none"
-    >
-      <span className="invisible text-base">Guess a driver…</span>
-    </div>
-  );
-}
-
-function PoolSelectGhost() {
-  return (
-    <div
-      role="status"
-      aria-label="Loading driver pool options"
-      className="w-full animate-pulse rounded-lg border border-border bg-surface-2 px-4 py-3 motion-reduce:animate-none"
-    >
-      <span className="invisible text-base">Regular</span>
-    </div>
-  );
-}
-
-function NewDriverButtonGhost() {
-  return (
-    <div
-      role="status"
-      aria-label="Loading"
-      className="shrink-0 animate-pulse rounded-lg border border-border bg-surface-2 px-3 py-2 motion-reduce:animate-none"
-    >
-      <span className="invisible text-sm font-semibold">New driver</span>
-    </div>
-  );
-}
-
 export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] }) {
   const { showFlags } = useSettings();
   const toast = useToast();
@@ -71,6 +25,12 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
   const [guesses, setGuesses] = useState<Guess[]>([]);
   const [target, setTarget] = useState<DriverSummary | null>(null);
   const [isPending, startTransition] = useTransition();
+  // Deliberately NOT reused from `isPending`: that transition also covers
+  // beginRound ("New driver" / switching pool), and the grid stays mounted
+  // through a round start -- so keying the shimmer off isPending would show a
+  // phantom pending row when no guess is in flight at all. This tracks only an
+  // in-flight guess.
+  const [guessPending, setGuessPending] = useState(false);
   // Guards beginRound itself against re-entrancy -- belt-and-suspenders
   // alongside the disabled-button check below, since that check only takes
   // effect once React actually commits the re-render, leaving a brief real
@@ -130,62 +90,89 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
   }
 
   function handleSelect(driver: DriverOption) {
+    if (guessPending) return;
+    // Optimistic: the shimmer row appears on this line, before the RPC is even
+    // sent, and is replaced by the authoritative row when it resolves -- which
+    // is what makes the remaining ~150ms read as zero (CLAUDE.md "Instant
+    // guesses").
+    setGuessPending(true);
     startTransition(async () => {
-      const response = await submitGuess(driver.id);
-      if (!response.ok) {
-        toast.error(response.error);
-        return;
-      }
+      try {
+        const response = await submitGuess(driver.id);
+        if (!response.ok) {
+          // The guess did NOT count, so no row is appended and the shimmer is
+          // cleared below -- never leave a placeholder implying it landed. The
+          // RPC's rejections are already written as player-facing copy ("Your
+          // round expired. Start a new driver to keep playing."), so they're
+          // surfaced as-is rather than flattened to a generic message.
+          toast.error(response.error);
+          return;
+        }
 
-      setGuesses((prev) => [
-        ...prev,
-        { guessedDriver: response.guessedDriver, result: response.result },
-      ]);
+        setGuesses((prev) => [
+          ...prev,
+          { guessedDriver: response.guessedDriver, result: response.result },
+        ]);
 
-      if (response.status === "won" || response.status === "lost") {
-        setStatus(response.status);
-        if (response.target) setTarget(response.target);
+        if (response.status === "won" || response.status === "lost") {
+          setStatus(response.status);
+          if (response.target) setTarget(response.target);
+        }
+      } catch {
+        // submitGuess maps Supabase errors into { ok: false }, so reaching here
+        // means something unexpected (offline, a thrown network error). Same
+        // rule as daily: a failed guess is surfaced, never silently swallowed.
+        toast.error("Couldn't submit your guess — it didn't count. Check your connection and try again.");
+      } finally {
+        setGuessPending(false);
       }
     });
   }
 
+  const isLoading = status === "loading";
   const isRoundOver = status === "won" || status === "lost";
   const guessesLeft = MAX_GUESSES - guesses.length;
 
   return (
-    <div className="mx-auto flex w-full flex-col gap-4 px-4 py-6">
+    // `relative` anchors the loading overlay over the ENTIRE game window --
+    // header and "New driver" included -- so a starting round is one state
+    // covering one card. inset-0 lands exactly on the card's edges: this div is
+    // the `{children}` of the rounded-lg surface card in app/(game)/layout.tsx.
+    // Everything underneath renders for real rather than as a skeleton: nothing
+    // about a fresh round's layout is unknown ("N guesses left" and the empty
+    // dashed rows are certain the moment it starts), so there's nothing to fake
+    // and nothing shifts when the round lands.
+    <div className="relative mx-auto flex w-full flex-col gap-4 px-4 py-6" aria-busy={isLoading}>
       <header className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-text sm:text-2xl">DriverPit</h1>
-          <p className="text-sm text-text-muted">Infinite mode</p>
+          <p className="text-sm text-text-muted">Infinite</p>
         </div>
-        {status === "loading" ? (
-          <NewDriverButtonGhost />
-        ) : (
-          <button
-            onClick={() => beginRound(poolWindow)}
-            className="shrink-0 rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-muted transition hover:bg-surface-2 hover:text-text motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            New driver
-          </button>
-        )}
+        {/* The overlay covers this, but covering isn't disabling: an overlay
+            stops pointers, not keyboard focus. Still `disabled` so it can't be
+            tabbed to and fired while a round is loading. Same for the two
+            controls below. */}
+        <button
+          onClick={() => beginRound(poolWindow)}
+          disabled={isLoading}
+          className="shrink-0 rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-muted transition hover:bg-surface-2 hover:text-text motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-text-muted"
+        >
+          New driver
+        </button>
       </header>
 
-      {status === "loading" ? (
-        <PoolSelectGhost />
-      ) : (
-        <PoolSelect value={poolWindow} options={poolOptions} onChange={(next) => handlePoolChange(next)} />
-      )}
+      <PoolSelect
+        value={poolWindow}
+        options={poolOptions}
+        onChange={(next) => handlePoolChange(next)}
+        disabled={isLoading}
+      />
 
-      {status === "loading" ? (
-        <DriverInputGhost />
-      ) : (
-        <DriverAutocomplete
-          drivers={poolDrivers}
-          onSelect={handleSelect}
-          disabled={isPending || isRoundOver}
-        />
-      )}
+      <DriverAutocomplete
+        drivers={poolDrivers}
+        onSelect={handleSelect}
+        disabled={isLoading || isPending || isRoundOver}
+      />
 
       {!isRoundOver && (
         <p className="text-center text-sm text-text-muted">
@@ -193,19 +180,19 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
         </p>
       )}
 
-      <GuessGrid guesses={guesses} maxGuesses={MAX_GUESSES} showFlags={showFlags} />
+      <GuessGrid guesses={guesses} maxGuesses={MAX_GUESSES} showFlags={showFlags} pending={guessPending} />
 
-      {status === "won" && target && (
-        <div className="rounded-lg border border-border bg-surface-2 p-4 text-center">
-          <p className="font-semibold text-accent">🏆 You got it — {target.fullName}!</p>
-        </div>
+      {isRoundOver && target && (
+        <ResultCard
+          won={status === "won"}
+          driverName={target.fullName}
+          driverCode={target.driverCode}
+          guessesUsed={guesses.length}
+          maxGuesses={MAX_GUESSES}
+        />
       )}
 
-      {status === "lost" && target && (
-        <div className="rounded-lg border border-border bg-surface-2 p-4 text-center">
-          <p className="font-semibold text-text">Out of guesses. It was {target.fullName}.</p>
-        </div>
-      )}
+      {isLoading && <LoadingOverlay label="Loading a driver" />}
     </div>
   );
 }

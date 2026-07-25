@@ -109,17 +109,6 @@ html {
   }
 }
 
-/* App-level "reduce motion" override (Settings), independent of the OS-level
-   prefers-reduced-motion media query that motion-safe:/motion-reduce: read. */
-[data-reduced-motion="true"] *,
-[data-reduced-motion="true"] *::before,
-[data-reduced-motion="true"] *::after {
-  animation-duration: 0.001ms !important;
-  animation-iteration-count: 1 !important;
-  transition-duration: 0.001ms !important;
-  scroll-behavior: auto !important;
-}
-
 /* Colorblind mode (Settings): swap "correct" green for a blue that stays
    distinguishable from the orange accent under red-green color vision
    deficiencies -- green/orange can read as near-identical there, blue/orange

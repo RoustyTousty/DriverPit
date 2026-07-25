@@ -8,10 +8,10 @@ type Feedback = ExactFeedback | OrderedFeedback | TeamFeedback;
 const COLUMN_LABELS = ["Nation", "Team", "Age", "Debut", "Wins"];
 // As narrow as the rotated 3-letter code actually needs — the previous w-6/
 // w-7 was oversized and ate into the five data tiles' width more than
-// necessary. Exported so the duel board's optimistic shimmer placeholder
-// (components/duel/ClosestGuessesBoard.tsx) can match this exact width
-// instead of hardcoding a second copy of it.
-export const CODE_COLUMN_WIDTH = "w-7";
+// necessary. Module-local: every element that has to match this width (the
+// real row's badge, the empty slot, the pending shimmer, the column labels)
+// lives in this file, so there's no second copy of the geometry to drift.
+const CODE_COLUMN_WIDTH = "w-7";
 
 // Orange intensity for a near-miss: a fixed subtle wash for "historical"
 // team hits, and one scaled by closeness (0-1) for numeric near-misses —
@@ -107,9 +107,14 @@ function EmptyRow() {
 // Shimmer placeholder for a guess that's been submitted but hasn't resolved
 // yet (CLAUDE.md's "Instant guesses": optimistic render, shimmer -> fill).
 // Same outer shape as a real GuessRow -- code badge plus five flex-1 tiles --
-// so nothing shifts when the authoritative row replaces it. The duel board
-// (components/duel/ClosestGuessesBoard.tsx) keeps its own copy for its ranked
-// layout; this one lives with the fixed daily/infinite grid.
+// so nothing shifts when the authoritative row (a fresh GuessRow mount, which
+// plays Tile's own reveal animation) replaces it.
+//
+// THE one shimmer, shared by all three modes: the fixed daily/infinite grid
+// below and the duel board's ranked layout
+// (components/duel/ClosestGuessesBoard.tsx). Don't reintroduce a per-mode copy
+// -- duel carried a byte-identical duplicate for a while, which is exactly how
+// the two boards' geometry drifts apart.
 export function PendingGuessRow() {
   return (
     <div className="flex gap-1" aria-hidden="true">
