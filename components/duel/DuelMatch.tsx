@@ -8,8 +8,8 @@ import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import type { DuelRevealedDriver } from "@/lib/db/duelRpc";
 import {
-  beginRound,
-  closeRound,
+  applyMatchRatings,
+  declineRematch,
   forfeitMatch,
   getDuelRoundState,
   getDuelState,
@@ -18,6 +18,7 @@ import {
 import { MAX_ROUNDS } from "@/lib/duel/liveMatch";
 import type { MatchResult } from "@/lib/duel/matchmaking";
 import type { RoundEndPayload, RoundStartPayload } from "@/lib/duel/realtimeEvents";
+import { beginRound, closeRound } from "@/lib/duel/roundLifecycle";
 import { submitDuelGuessRpc } from "@/lib/duel/submitGuess";
 import { useDuelChannel } from "@/lib/duel/useDuelChannel";
 import { proximityPoints } from "@/lib/game/duelScoring";
@@ -32,9 +33,9 @@ import {
 import { useActiveMatch } from "./ActiveMatchContext";
 import type { RankedGuess } from "./ClosestGuessesBoard";
 import { DuelIntermission } from "./DuelIntermission";
+import { DuelMatchFound } from "./DuelMatchFound";
 import { DuelResults } from "./DuelResults";
 import { LightsCountdown } from "./LightsCountdown";
-import { MatchFoundReveal } from "./MatchFoundReveal";
 import type { RoundResult } from "./RoundResultCards";
 import { RoundPlay } from "./RoundPlay";
 import { useLightsCountdown } from "./useLightsCountdown";
@@ -71,7 +72,17 @@ interface IntermissionState {
 }
 
 type Phase = "loading" | "playing" | "intermission" | "finished";
-type RematchState = "idle" | "requested";
+// Every state the rematch offer can be in, so the results screen can say which
+// one it's in rather than showing one button that means four different things.
+// "opponentRequested" is the case that had no signal at all before: the
+// opponent's requestRematch only wrote intent to the DB, so this client showed
+// a plain "Rematch" button with no hint anyone was waiting on it.
+export type RematchState =
+  | "idle"
+  | "requested" // I asked; waiting on them
+  | "opponentRequested" // they asked; I can accept or decline
+  | "declined" // either side said no -- terminal for this results screen
+  | "opponentGone"; // they left; nothing to wait for
 // How the match reached "finished" -- drives the results panel's subtitle
 // ("You forfeited" / "Opponent left — you win.") and whether Rematch makes
 // sense to offer.
@@ -83,6 +94,7 @@ export function DuelMatch({
   me,
   myRating,
   match,
+  initialRound,
   eligibleDrivers,
   clockOffsetMs,
   onFindNewOpponent,
@@ -91,6 +103,14 @@ export function DuelMatch({
   me: Profile;
   myRating: number | null;
   match: MatchResult;
+  // Round 0, already stamped by DuelRoot's countdown. Present only on the
+  // fresh-match handoff -- null for a resume or a rematch, which genuinely have
+  // to discover where they are. When present it seeds this component's first
+  // paint, so the board is on screen the instant the lights go out instead of
+  // after a getDuelState round trip re-fetching what was just handed over. That
+  // wait was the reason round 1 felt longer than rounds 2 and 3, which never
+  // remount -- and it was running down the round clock while it happened.
+  initialRound: { roundIndex: number; startedAt: string; endsAt: string } | null;
   eligibleDrivers: DriverOption[];
   // Measured once, in DuelRoot (useServerClock), before this component ever
   // mounts -- reused here rather than re-measuring a second, possibly
@@ -105,8 +125,8 @@ export function DuelMatch({
   const toast = useToast();
 
   const [activeMatch, setActiveMatch] = useState(match);
-  const [phase, setPhase] = useState<Phase>("loading");
-  const [round, setRound] = useState<LocalRound | null>(null);
+  const [phase, setPhase] = useState<Phase>(initialRound ? "playing" : "loading");
+  const [round, setRound] = useState<LocalRound | null>(initialRound);
   const [scoreA, setScoreA] = useState(0);
   const [scoreB, setScoreB] = useState(0);
   const [winnerId, setWinnerId] = useState<string | null>(null);
@@ -133,13 +153,24 @@ export function DuelMatch({
   // both players are actually back.
   const [awaitingLobbyGate, setAwaitingLobbyGate] = useState(false);
   const [lobbyGateTimedOut, setLobbyGateTimedOut] = useState(false);
+  // The staging screen's MATCH_FOUND_HOLD_MS beat has finished. Ready is sent
+  // when this flips, not the moment the channel connects -- same order DuelRoot
+  // uses for a fresh match, so a rematch gets the avatars-and-ratings reveal
+  // before the countdown rather than racing past it.
+  const [lobbyHoldComplete, setLobbyHoldComplete] = useState(false);
   const lobbyReadySentRef = useRef(false);
   const lobbyBeganRef = useRef(false);
 
-  const roundIndexRef = useRef(-1);
+  // Presence starts false and only becomes true once the channel syncs, so
+  // "not connected" on its own can't distinguish "they left" from "we haven't
+  // heard yet". Latching that we saw them at least once makes a later absence
+  // mean something.
+  const opponentEverConnectedRef = useRef(false);
+
+  const roundIndexRef = useRef(initialRound?.roundIndex ?? -1);
   // Current phase, readable from async forfeit/disconnect handlers without
   // re-subscribing them on every phase change.
-  const phaseRef = useRef<Phase>("loading");
+  const phaseRef = useRef<Phase>(initialRound ? "playing" : "loading");
   const expiredHandledRef = useRef<number | null>(null);
   const nextGuessIdRef = useRef(0);
   const scoreARef = useRef(0);
@@ -149,6 +180,13 @@ export function DuelMatch({
   // set at solve time in handleGuess, consumed (and reset) in
   // recordCompletedRound below, once per round.
   const myRoundPointsRef = useRef<number | null>(null);
+  // Ms from round start to my solve. Already computed for the `solved`
+  // broadcast; held here too so RoundPlay's solved card can show me my own
+  // time instead of making me wait for the intermission to learn it. Null
+  // until I solve, and on a resumed round -- duel_state reports *that* I
+  // solved, not when, and inventing a time from the current clock would show a
+  // number that isn't mine.
+  const mySolveMsRef = useRef<number | null>(null);
   // Confirmed score as of the *start* of the current round -- snapshotted
   // in adoptRound, deliberately never the live scoreA/scoreB state. The
   // moment I solve, duel_submit_guess writes my earned points straight into
@@ -164,6 +202,7 @@ export function DuelMatch({
   const roundStartScoreBRef = useRef(0);
 
   const isPlayerA = activeMatch.youAre === "a";
+  const opponentHandle = activeMatch.opponentDisplayName || activeMatch.opponentUsername;
   const remainingToStart = useServerCountdown(round?.startedAt ?? null, clockOffsetMs);
   const remainingToEnd = useServerCountdown(round?.endsAt ?? null, clockOffsetMs);
   // Drives the pre-round lights (own local clock, immune to beginRound's
@@ -171,6 +210,10 @@ export function DuelMatch({
   // fade-in and "GO!" always finish on screen before RoundPlay takes over
   // -- same gate DuelCountdown uses for round 1 of a fresh match, applied
   // here too so a rematch's round 1 and every later round look identical.
+  // Rounds 2 and 3 come through here (round 1 of a fresh match runs in
+  // DuelRoot's DuelCountdown). Identical pacing to that one -- same component,
+  // same interval, same countdown length -- so every round's grid start is the
+  // same beat rather than a rushed replay of it.
   const startCountdown = useLightsCountdown(remainingToStart, round?.startedAt ?? null, round === null);
   const isPreRound = round !== null && !startCountdown.holdComplete;
 
@@ -229,6 +272,20 @@ export function DuelMatch({
       // the opponent to accept the rematch this client already requested.
       if (phaseRef.current !== "finished") return;
       transitionToRematch(payload.newMatchId);
+    },
+    onRematchRequest: () => {
+      if (phaseRef.current !== "finished") return;
+      // Only from a clean slate. Never downgrade "requested" (we both asked at
+      // once -- one side's requestRematch is already creating the match and
+      // REMATCH_EVENT is seconds away, so prompting to accept would invite a
+      // second pointless click), and never resurrect a "declined" screen.
+      setRematchState((prev) => (prev === "idle" ? "opponentRequested" : prev));
+      toast.info(`${opponentHandle} wants a rematch`);
+    },
+    onRematchDecline: () => {
+      if (phaseRef.current !== "finished") return;
+      setRematchState("declined");
+      toast.info(`${opponentHandle} declined the rematch`);
     },
     onForfeit: (payload) => {
       if (payload.playerId !== activeMatch.opponentId) return;
@@ -339,6 +396,7 @@ export function DuelMatch({
     setAwaitingLobbyGate(false);
     recordCompletedRound(data.scoreA, data.scoreB);
     myRoundPointsRef.current = null;
+    mySolveMsRef.current = null;
     roundStartScoreARef.current = data.scoreA;
     roundStartScoreBRef.current = data.scoreB;
     roundIndexRef.current = data.roundIndex;
@@ -435,15 +493,24 @@ export function DuelMatch({
     } satisfies RoundEndPayload);
 
     if (res.matchFinished) {
+      // Ratings are the one part of closing a round that isn't a warm RPC --
+      // the Elo math is a unit-tested TS function, so it stays server-side
+      // (drizzle/0034). Only reached on the last round, where the match is
+      // already over and this call blocks nothing the player is waiting on.
+      // Idempotent, so both clients calling it is fine.
+      const ratings = await applyMatchRatings(activeMatch.matchId);
+      const ratingDeltaA = ratings.ok ? ratings.ratingDeltaA : null;
+      const ratingDeltaB = ratings.ok ? ratings.ratingDeltaB : null;
+
       setIntermission((prev) =>
-        prev ? { ...prev, winnerId: res.winnerId, ratingDeltaA: res.ratingDeltaA, ratingDeltaB: res.ratingDeltaB } : prev,
+        prev ? { ...prev, winnerId: res.winnerId, ratingDeltaA, ratingDeltaB } : prev,
       );
       channel.broadcastMatchEnd({
         winnerId: res.winnerId,
         scoreA: res.scoreA,
         scoreB: res.scoreB,
-        ratingDeltaA: res.ratingDeltaA,
-        ratingDeltaB: res.ratingDeltaB,
+        ratingDeltaA,
+        ratingDeltaB,
         // Per-round opponent breakdown isn't tracked locally yet -- nothing
         // reads this field until the results screen exists (a later
         // prompt); RoundResultCards renders from completedRounds (this
@@ -498,6 +565,7 @@ export function DuelMatch({
     setExitModalOpen(false);
     setAwaitingLobbyGate(false);
     setLobbyGateTimedOut(false);
+    setLobbyHoldComplete(false);
     lobbyReadySentRef.current = false;
     lobbyBeganRef.current = false;
     roundIndexRef.current = -1;
@@ -531,8 +599,15 @@ export function DuelMatch({
         return;
       }
       if (state.startedAt !== null && state.endsAt !== null) {
-        adoptRound({ roundIndex: state.currentRound, startedAt: state.startedAt, endsAt: state.endsAt, scoreA: state.scoreA, scoreB: state.scoreB });
-        setMySolved(state.mySolved);
+        // Skip when this fetch is only confirming the round we were handed and
+        // are already playing: adoptRound clears guesses, solve state and
+        // opponent progress, and by the time a Server Action returns the player
+        // may well have guessed. Genuine resumes start at roundIndexRef -1 and
+        // adopt normally.
+        if (roundIndexRef.current !== state.currentRound) {
+          adoptRound({ roundIndex: state.currentRound, startedAt: state.startedAt, endsAt: state.endsAt, scoreA: state.scoreA, scoreB: state.scoreB });
+          setMySolved(state.mySolved);
+        }
         setPhase("playing");
         return;
       }
@@ -559,18 +634,20 @@ export function DuelMatch({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMatch.matchId]);
 
-  // Rematch ready-gate, step 1: once this client's connection to the NEW
-  // match's channel is live, report ready and start the fallback timeout --
-  // same shape as the pre-match gate (DuelRoot) and each intermission's
-  // (DuelIntermission).
+  // Rematch ready-gate, step 1: once the staging screen's hold has played out
+  // AND this client's connection to the NEW match's channel is live, report
+  // ready and start the fallback timeout -- same shape, and now the same
+  // ordering, as the pre-match gate (DuelRoot) and each intermission's
+  // (DuelIntermission). Reporting ready on connection alone would resolve the
+  // gate while the reveal was still animating in.
   useEffect(() => {
-    if (!awaitingLobbyGate || !channel.connected || lobbyReadySentRef.current) return;
+    if (!awaitingLobbyGate || !lobbyHoldComplete || !channel.connected || lobbyReadySentRef.current) return;
     lobbyReadySentRef.current = true;
     channel.sendReady();
     const timeout = setTimeout(() => setLobbyGateTimedOut(true), READY_TIMEOUT_MS);
     return () => clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [awaitingLobbyGate, channel.connected]);
+  }, [awaitingLobbyGate, lobbyHoldComplete, channel.connected]);
 
   // Rematch ready-gate, step 2: both ready (or timeout) -> stamp round 0.
   // beginRound is idempotent, so both clients' gates firing is expected --
@@ -655,6 +732,34 @@ export function DuelMatch({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, channel.connected, channel.opponentConnected]);
 
+  // Results screen only: has the opponent left the match entirely? A rematch
+  // needs BOTH players sitting on their results panel, so once they're gone
+  // there's nothing to wait for and the screen should say so instead of
+  // offering (or worse, hanging on) a rematch that can never resolve.
+  //
+  // Gated on having seen them connected at least once -- presence starts false
+  // and syncs a beat later, so without the latch every results screen would
+  // briefly declare the opponent gone. Deliberately not reversible in the other
+  // direction either: if they come back, the state below lets them.
+  useEffect(() => {
+    if (channel.opponentConnected) opponentEverConnectedRef.current = true;
+  }, [channel.opponentConnected]);
+
+  useEffect(() => {
+    if (phase !== "finished") return;
+    if (!channel.connected) return; // can't tell whose network dropped
+    if (channel.opponentConnected) {
+      // They're back (or never left) -- drop the dead-end state, but never
+      // clobber a request either side already made, or un-decline a refusal.
+      setRematchState((prev) => (prev === "opponentGone" ? "idle" : prev));
+      return;
+    }
+    if (!opponentEverConnectedRef.current) return;
+    // Leaving overrides everything, including a pending request from either
+    // side: whatever was being waited on can no longer resolve.
+    setRematchState((prev) => (prev === "declined" ? prev : "opponentGone"));
+  }, [phase, channel.connected, channel.opponentConnected]);
+
   // Best-effort forfeit broadcast on the way out of a live match
   // (CLAUDE.md: "best-effort forfeit broadcast on beforeunload"). Advisory
   // -- the opponent verifies against the server before acting on it (see
@@ -704,9 +809,21 @@ export function DuelMatch({
       setScoreA(res.scoreA);
       setScoreB(res.scoreB);
       const solveMs = Date.now() + clockOffsetMs - new Date(round.startedAt).getTime();
+      mySolveMsRef.current = solveMs;
       channel.broadcastSolved({ points: res.points ?? 0, solveMs });
       void checkRoundTransition(round.roundIndex);
     }
+  }
+
+  // Terminal on purpose: neither side is offered the rematch again on this
+  // results screen. The broadcast tells the asker immediately; the Server
+  // Action clears the stored intent so a later change of mind can't create a
+  // match the other player was told wasn't happening.
+  async function handleDeclineRematch() {
+    setRematchState("declined");
+    channel.broadcastRematchDecline();
+    const res = await declineRematch(activeMatch.matchId);
+    if (!res.ok) toast.error(res.error);
   }
 
   async function handleRematch() {
@@ -724,9 +841,15 @@ export function DuelMatch({
       // sides meet on duel:{newMatchId} for the rematch ready-gate.
       channel.broadcastRematch({ newMatchId: res.newMatchId });
       transitionToRematch(res.newMatchId);
+      return;
     }
-    // else: requested -- the opponent's own requestRematch call will create
-    // the match and broadcast REMATCH_EVENT back (see onRematch).
+
+    // First to ask: intent is recorded but there's nobody to pair with yet.
+    // This broadcast is the ONLY thing that tells the opponent -- requestRematch
+    // just writes rematch_requested_by to the database, which their client has
+    // no reason to re-read. Without it their results screen shows a plain
+    // "Rematch" button and the invite is invisible.
+    channel.broadcastRematchRequest();
   }
 
   // Wraps every live-match view (pre-round, playing, intermission) with the
@@ -784,9 +907,29 @@ export function DuelMatch({
   }
 
   if (phase === "loading") {
+    // A rematch gets the real staging screen -- the same avatars-slide-in
+    // reveal a freshly matched pair sees (DuelRoot's "found" phase), not a line
+    // of text. Its hold is what releases the ready-gate above, so the reveal
+    // is a beat in the sequence rather than something running alongside it.
+    if (awaitingLobbyGate) {
+      return withExitControl(
+        <DuelMatchFound
+          me={me}
+          myRating={myRating}
+          opponent={{
+            username: activeMatch.opponentUsername,
+            displayName: activeMatch.opponentDisplayName,
+            avatarUrl: activeMatch.opponentAvatarUrl,
+            rating: activeMatch.opponentRating,
+          }}
+          waitingOnOpponent={lobbyHoldComplete && !channel.opponentReady && !lobbyGateTimedOut}
+          onHoldComplete={() => setLobbyHoldComplete(true)}
+        />,
+      );
+    }
     return (
       <p className="py-10 text-center text-sm text-text-muted" aria-live="polite">
-        {awaitingLobbyGate ? "Rematch found — waiting for both players…" : "Loading match…"}
+        Loading match…
       </p>
     );
   }
@@ -796,14 +939,15 @@ export function DuelMatch({
       <DuelResults
         matchId={activeMatch.matchId}
         me={me}
-        opponentHandle={activeMatch.opponentDisplayName || activeMatch.opponentUsername}
+        opponentHandle={opponentHandle}
         opponentAvatarUrl={activeMatch.opponentAvatarUrl}
         winnerId={winnerId}
         myScore={isPlayerA ? scoreA : scoreB}
         theirScore={isPlayerA ? scoreB : scoreA}
         endReason={endReason}
-        rematchPending={rematchState === "requested"}
+        rematchState={rematchState}
         onRematch={() => void handleRematch()}
+        onDeclineRematch={() => void handleDeclineRematch()}
         onFindNewOpponent={onFindNewOpponent}
         onBackToModes={onBackToModes}
       />
@@ -843,23 +987,13 @@ export function DuelMatch({
     return <p className="py-10 text-center text-sm text-text-muted">Loading match…</p>;
   }
 
+  // One pre-round screen for EVERY round, round 0 included. Round 0 used to get
+  // a combined view that drew the "Opponent found" header, both avatars AND the
+  // lights at once -- so a rematch showed the reveal and the countdown stacked
+  // on top of each other, while a fresh match showed them one after the other.
+  // The reveal is now its own beat above (the staging screen), leaving this as
+  // purely the countdown, identical for every round of every match.
   if (isPreRound) {
-    if (round.roundIndex === 0) {
-      return withExitControl(
-        <MatchFoundReveal
-          me={me}
-          myRating={myRating}
-          opponent={{
-            username: activeMatch.opponentUsername,
-            displayName: activeMatch.opponentDisplayName,
-            avatarUrl: activeMatch.opponentAvatarUrl,
-            rating: activeMatch.opponentRating,
-          }}
-          litCount={startCountdown.litCount}
-          isGo={startCountdown.isGo}
-        />,
-      );
-    }
     return withExitControl(
       <div className="flex flex-col items-center gap-6 px-4 py-10 text-center">
         <p className="text-sm text-text-muted">Round {round.roundIndex + 1} starting…</p>
@@ -876,6 +1010,7 @@ export function DuelMatch({
         guesses: myGuesses,
         solved: mySolved,
         roundPoints: myRoundPointsRef.current,
+        solveMs: mySolveMsRef.current,
       }}
       opponent={{
         handle: activeMatch.opponentDisplayName || activeMatch.opponentUsername,

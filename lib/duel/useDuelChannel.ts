@@ -11,7 +11,9 @@ import {
   GUESS_EVENT,
   MATCH_END_EVENT,
   READY_EVENT,
+  REMATCH_DECLINE_EVENT,
   REMATCH_EVENT,
+  REMATCH_REQUEST_EVENT,
   ROUND_END_EVENT,
   ROUND_START_EVENT,
   SOLVED_EVENT,
@@ -19,7 +21,9 @@ import {
   type GuessPayload,
   type MatchEndPayload,
   type ReadyPayload,
+  type RematchDeclinePayload,
   type RematchPayload,
+  type RematchRequestPayload,
   type RoundEndPayload,
   type RoundStartPayload,
   type SolvedPayload,
@@ -35,6 +39,11 @@ export interface DuelChannelHandlers {
   // The opponent's requestRematch created the new match (sent on this, the
   // OLD match's, channel) -- transition to it.
   onRematch?: (payload: RematchPayload) => void;
+  // The opponent asked for a rematch and is now waiting on ME. Intent only --
+  // no match exists yet; that's onRematch above.
+  onRematchRequest?: (payload: RematchRequestPayload) => void;
+  // The opponent turned down a rematch I asked for.
+  onRematchDecline?: (payload: RematchDeclinePayload) => void;
   // Presence join/leave for the *opponent* specifically -- surfaced so a
   // later prompt can drive the disconnect-grace-period timer
   // (DISCONNECT_GRACE_MS, lib/game/duelTiming.ts) off real leave events
@@ -71,6 +80,11 @@ export interface DuelChannelState {
   // treating it as real -- see DuelMatch's onForfeit).
   broadcastForfeit: () => void;
   broadcastRematch: (payload: RematchPayload) => void;
+  // "I want a rematch and I'm waiting on you" -- sent when requestRematch
+  // records intent without creating a match yet.
+  broadcastRematchRequest: () => void;
+  // "No thanks" -- answers a request the opponent already broadcast.
+  broadcastRematchDecline: () => void;
 }
 
 // The duel:{matchId} transport (CLAUDE.md's "Realtime channels"): broadcast
@@ -193,6 +207,16 @@ export function useDuelChannel(
       .on("broadcast", { event: REMATCH_EVENT }, ({ payload }) => {
         handlersRef.current.onRematch?.(payload as RematchPayload);
       })
+      .on("broadcast", { event: REMATCH_REQUEST_EVENT }, ({ payload }) => {
+        const data = payload as RematchRequestPayload;
+        if (data.playerId === safeMyUserId) return; // same-user second tab
+        handlersRef.current.onRematchRequest?.(data);
+      })
+      .on("broadcast", { event: REMATCH_DECLINE_EVENT }, ({ payload }) => {
+        const data = payload as RematchDeclinePayload;
+        if (data.playerId === safeMyUserId) return;
+        handlersRef.current.onRematchDecline?.(data);
+      })
       .on("broadcast", { event: READY_EVENT }, ({ payload }) => {
         const data = payload as ReadyPayload;
         if (data.playerId === safeMyUserId) return;
@@ -266,5 +290,9 @@ export function useDuelChannel(
     broadcastMatchEnd: (payload) => broadcast(MATCH_END_EVENT, payload),
     broadcastForfeit: () => broadcast(FORFEIT_EVENT, { playerId: myUserId ?? "" } satisfies ForfeitPayload),
     broadcastRematch: (payload) => broadcast(REMATCH_EVENT, payload),
+    broadcastRematchRequest: () =>
+      broadcast(REMATCH_REQUEST_EVENT, { playerId: myUserId ?? "" } satisfies RematchRequestPayload),
+    broadcastRematchDecline: () =>
+      broadcast(REMATCH_DECLINE_EVENT, { playerId: myUserId ?? "" } satisfies RematchDeclinePayload),
   };
 }

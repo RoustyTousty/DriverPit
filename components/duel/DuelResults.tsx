@@ -7,7 +7,7 @@ import { useSettingsModal } from "@/components/layout/SettingsModalContext";
 import { AvatarGlyph } from "@/components/ui/AvatarGlyph";
 import { getDuelResults, type DuelResultsData } from "@/lib/duel/actions";
 
-import type { MatchEndReason } from "./DuelMatch";
+import type { MatchEndReason, RematchState } from "./DuelMatch";
 
 // CLAUDE.md's Duel "Match end": rendered back in the site shell (DuelMatch
 // flips ActiveMatchContext off the moment its phase hits "finished", which
@@ -29,8 +29,9 @@ export function DuelResults({
   myScore,
   theirScore,
   endReason,
-  rematchPending,
+  rematchState,
   onRematch,
+  onDeclineRematch,
   onFindNewOpponent,
   onBackToModes,
 }: {
@@ -46,8 +47,10 @@ export function DuelResults({
   // is over because someone left, so "run it back" isn't on the table the
   // way it is after a played-out finish.
   endReason: MatchEndReason;
-  rematchPending: boolean;
+  // Which of the four rematch situations we're in -- see the CTA block below.
+  rematchState: RematchState;
   onRematch: () => void;
+  onDeclineRematch: () => void;
   onFindNewOpponent: () => void;
   onBackToModes: () => void;
 }) {
@@ -77,8 +80,32 @@ export function DuelResults({
   const myHandle = me.displayName || me.username;
   const ratingDelta = details?.myRatingDelta ?? null;
   const wasForfeit = endReason !== "completed" || details?.status === "abandoned";
+  // A rematch needs both players still on their results screen AND a match that
+  // actually played out -- after a forfeit the pairing is over because someone
+  // left, so "run it back" isn't on the table. When it isn't offered, "Find new
+  // opponent" becomes the primary CTA instead of a secondary one.
+  const canRematch =
+    !wasForfeit && rematchState !== "opponentGone" && rematchState !== "declined";
+  // Status of the rematch, shown ON the opponent's row rather than under the
+  // button. The old hint under the button ("Waiting for X to accept…") said
+  // nothing the button's own label didn't, and sat nowhere near the person it
+  // was about.
+  const opponentStatus =
+    rematchState === "opponentRequested"
+      ? { text: "wants a rematch", accent: true }
+      : rematchState === "requested"
+        ? { text: "rematch sent", accent: false }
+        : rematchState === "declined"
+          ? { text: "rematch declined", accent: false }
+          : rematchState === "opponentGone"
+            ? { text: "left the match", accent: false }
+            : null;
+  // Both sides name the same action rather than describing it from each
+  // player's own point of view -- "You forfeited" / "Opponent forfeited", not
+  // "Opponent left — you win", which restated the WIN headline directly above
+  // it and read as a different kind of ending than the one their opponent saw.
   const reasonLine =
-    endReason === "forfeitMe" ? "You forfeited" : endReason === "forfeitOpponent" ? "Opponent left — you win." : null;
+    endReason === "forfeitMe" ? "You forfeited" : endReason === "forfeitOpponent" ? "Opponent forfeited" : null;
 
   return (
     <div className="flex flex-col items-center gap-5 px-4 py-8 text-center">
@@ -114,7 +141,17 @@ export function DuelResults({
           </div>
           <span className="text-[10px] tracking-wide text-text-muted uppercase">vs</span>
           <div className="flex min-w-0 items-center justify-end gap-2">
-            <span className="truncate text-xs font-semibold text-text">{opponentHandle}</span>
+            <div className="flex min-w-0 flex-col items-end">
+              <span className="truncate text-xs font-semibold text-text">{opponentHandle}</span>
+              {opponentStatus && (
+                <span
+                  className={`truncate text-[10px] ${opponentStatus.accent ? "text-accent" : "text-text-muted"}`}
+                  aria-live="polite"
+                >
+                  {opponentStatus.text}
+                </span>
+              )}
+            </div>
             <AvatarGlyph avatarUrl={opponentAvatarUrl} size="sm" />
           </div>
         </div>
@@ -182,23 +219,45 @@ export function DuelResults({
       )}
 
       <div className="flex w-full flex-col gap-2 pt-1">
-        {!wasForfeit && (
+        {/* Accept/Decline pair -- the only state with a choice to make, so the
+            only one that gets two buttons. Decline is the quiet one: refusing
+            is the low-stakes option and shouldn't compete with accepting. */}
+        {canRematch && rematchState === "opponentRequested" && (
+          <div className="flex w-full gap-2">
+            <button
+              type="button"
+              onClick={onDeclineRematch}
+              className="flex-1 rounded-lg border border-border px-4 py-3 text-base font-semibold text-text-muted transition hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Decline
+            </button>
+            <button
+              type="button"
+              onClick={onRematch}
+              className="flex-[2] rounded-lg bg-accent px-4 py-3 text-base font-semibold text-bg transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-safe:active:scale-[0.98]"
+            >
+              Accept rematch
+            </button>
+          </div>
+        )}
+
+        {canRematch && rematchState !== "opponentRequested" && (
           <button
             type="button"
             onClick={onRematch}
-            disabled={rematchPending}
+            disabled={rematchState === "requested"}
             className="w-full rounded-lg bg-accent px-4 py-3 text-base font-semibold text-bg transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-safe:active:scale-[0.98] disabled:opacity-50"
           >
-            {rematchPending ? "Waiting for opponent…" : "Rematch"}
+            {rematchState === "requested" ? "Waiting for opponent…" : "Rematch"}
           </button>
         )}
         <button
           type="button"
           onClick={onFindNewOpponent}
           className={`w-full rounded-lg px-4 py-3 text-base font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-            wasForfeit
-              ? "bg-accent text-bg hover:brightness-110 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-safe:active:scale-[0.98]"
-              : "border border-border text-text hover:bg-surface-2"
+            canRematch
+              ? "border border-border text-text hover:bg-surface-2"
+              : "bg-accent text-bg hover:brightness-110 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-safe:active:scale-[0.98]"
           }`}
         >
           Find new opponent

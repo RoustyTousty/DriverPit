@@ -232,6 +232,41 @@
       "when": 1785003967415,
       "tag": "0032_duel_matchmaking_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1785003968415,
+      "tag": "0033_duel_countdown_per_round",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1785003969415,
+      "tag": "0034_duel_lifecycle_client_rpcs",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1785003970415,
+      "tag": "0035_duel_uniform_countdown",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1785003971415,
+      "tag": "0036_duel_countdown_no_slack",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1785003972415,
+      "tag": "0037_streak_gap_reset",
+      "breakpoints": true
     }
   ]
 }

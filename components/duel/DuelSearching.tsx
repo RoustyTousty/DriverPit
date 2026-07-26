@@ -24,7 +24,7 @@ import {
 } from "@/lib/game/duelTiming";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
-import { RatingBadge } from "./MatchFoundReveal";
+import { RatingBadge } from "./DuelMatchFound";
 
 // Dashed-outline stand-in for the opponent slot while none is matched yet --
 // same size/shape as AvatarGlyph so it drops into the identical "me VS
@@ -251,7 +251,7 @@ export function DuelSearching({
           <RatingBadge rating={stats?.duelRating ?? null} />
         </div>
 
-        {/* Sits in the exact slot DuelMatchFound/MatchFoundReveal put "VS" in,
+        {/* Sits in the exact slot DuelMatchFound puts "VS" in,
             so the handoff to the staging screen reads as the spinner *becoming*
             VS -- the matchup resolving -- rather than two unrelated screens
             swapping. Same reason EmptyAvatarSlot above matches AvatarGlyph's

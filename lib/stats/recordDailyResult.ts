@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { dailyResults, userStats } from "../db/schema";
 import { MAX_GUESSES } from "../game/constants";
+import { nextCurrentStreak } from "./streak";
 
 // The core of recordDailyResult (lib/stats/actions.ts), parameterized on an
 // explicit user id + UTC date. Kept in a plain (non-"use server") module on
@@ -39,15 +40,29 @@ export async function recordDailyResultForUser(
     const nextDistribution = [...current.guessDistribution];
     if (won) nextDistribution[index] = (nextDistribution[index] ?? 0) + 1;
 
+    // A win only EXTENDS the streak when it lands the day after the last
+    // recorded result; any gap restarts it at 1 (lib/stats/streak.ts). This
+    // used to be a flat `streak + 1`, which is why skipping days and then
+    // winning kept the old streak. lastDailyDate is written on losses too, so
+    // the column always means "the day of the last result" -- that's what lets
+    // readers decide whether a streak is still alive.
+    const streak = nextCurrentStreak({
+      previousStreak: current.currentStreak,
+      lastDailyDate: current.lastDailyDate,
+      date,
+      won,
+    });
+
     await tx
       .update(userStats)
       .set({
         gamesPlayed: current.gamesPlayed + 1,
         wins: current.wins + (won ? 1 : 0),
-        currentStreak: won ? current.currentStreak + 1 : 0,
-        maxStreak: won ? Math.max(current.maxStreak, current.currentStreak + 1) : current.maxStreak,
+        currentStreak: streak,
+        maxStreak: Math.max(current.maxStreak, streak),
         guessDistribution: nextDistribution,
         lastResult: { won, guessCount },
+        lastDailyDate: date,
       })
       .where(eq(userStats.userId, userId));
 

@@ -35,7 +35,16 @@ export function RoundPlay({
   onGuess,
   pendingGuess,
 }: {
-  me: { handle: string; avatarUrl: string; guesses: RankedGuess[]; solved: boolean; roundPoints: number | null };
+  me: {
+    handle: string;
+    avatarUrl: string;
+    guesses: RankedGuess[];
+    solved: boolean;
+    roundPoints: number | null;
+    // Null on a round resumed after the fact -- duel_state reports that I
+    // solved, not when, so the card drops the time rather than inventing one.
+    solveMs: number | null;
+  };
   opponent: { handle: string; avatarUrl: string; progress: OpponentProgress };
   roundIndex: number;
   remainingMs: number;
@@ -105,14 +114,47 @@ export function RoundPlay({
 
       <RoundResultCards results={completedRounds} />
 
-      <DriverAutocomplete
-        drivers={eligibleDrivers}
-        onSelect={onGuess}
-        disabled={pendingGuess || me.solved || timeUp}
-        placeholder={me.solved ? "Solved — waiting on your opponent…" : "Guess a driver…"}
-      />
+      {/* Once solved, the input is dead weight -- it can't be used, and its
+          "Solved — waiting on your opponent…" placeholder said the same thing
+          as the line beneath it. It's replaced outright by what the player
+          actually earned, which they'd otherwise not learn until the
+          intermission. Green (--correct, the solved colour in the tile
+          tokens), never accent: this is a passive result, and orange belongs
+          to the tug bar directly above it -- two loud oranges competing is
+          what made the old line read as shouting. */}
+      {me.solved ? (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-correct/40 bg-correct/10 px-4 py-3">
+            <span className="text-xs font-semibold tracking-wide text-correct uppercase">Solved</span>
+            <span className="flex items-baseline gap-3 font-mono tabular-nums">
+              {me.solveMs !== null && (
+                <span className="text-sm text-text-muted">{(me.solveMs / 1000).toFixed(1)}s</span>
+              )}
+              <span className="text-lg font-bold text-correct">+{me.roundPoints ?? 0}</span>
+            </span>
+          </div>
 
-      {me.solved && <p className="text-center text-sm text-accent">Nice — waiting for the round to finish.</p>}
+          {/* Turns dead waiting into the only thing that still matters: the
+              timer is already on screen, this just points it at your time. */}
+          <p className="text-center text-xs text-text-muted" aria-live="polite">
+            {opponent.progress.solved
+              ? `${opponent.handle} solved it too.`
+              : timeUp
+                ? `${opponent.handle} ran out of time.`
+                : me.solveMs !== null
+                  ? `${opponent.handle} has ${formatSeconds(remainingMs)}s to beat ${(me.solveMs / 1000).toFixed(1)}s.`
+                  : `${opponent.handle} has ${formatSeconds(remainingMs)}s left.`}
+          </p>
+        </div>
+      ) : (
+        <DriverAutocomplete
+          drivers={eligibleDrivers}
+          onSelect={onGuess}
+          disabled={pendingGuess || timeUp}
+          placeholder="Guess a driver…"
+        />
+      )}
+
       {!me.solved && timeUp && <p className="text-center text-sm text-text-muted">Time's up for this round.</p>}
 
       <ClosestGuessesBoard guesses={me.guesses} pending={pendingGuess} showFlags={showFlags} />

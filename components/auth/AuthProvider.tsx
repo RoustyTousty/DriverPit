@@ -8,6 +8,7 @@ import { getLiveMatchId, isQueued } from "@/lib/duel/duelCommitments";
 import { leaveQueue } from "@/lib/duel/matchmaking";
 import { awaitInFlightGuess } from "@/lib/game/inFlightGuess";
 import { migrateLocalStats } from "@/lib/stats/actions";
+import { currentStreakAsOf, todayUtcDateString } from "@/lib/stats/streak";
 import { readStats, resetStats } from "@/lib/stats/store";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
@@ -54,6 +55,7 @@ interface UserStatsRow {
   max_streak: number;
   guess_distribution: number[];
   last_result: { won: boolean; guessCount: number } | null;
+  last_daily_date: string | null;
   duel_rating: number;
   duel_wins: number;
   duel_losses: number;
@@ -72,10 +74,14 @@ export interface UserStats {
   userId: string;
   gamesPlayed: number;
   wins: number;
+  // Already decayed to 0 if the streak is dead -- see toUserStats. Consumers
+  // render this directly and must NOT re-derive it from lastDailyDate.
   currentStreak: number;
   maxStreak: number;
   guessDistribution: number[];
   lastResult: { won: boolean; guessCount: number } | null;
+  // The UTC day of the last recorded daily result, null if there is none.
+  lastDailyDate: string | null;
   duelRating: number;
   duelWins: number;
   duelLosses: number;
@@ -97,10 +103,22 @@ function toUserStats(row: UserStatsRow): UserStats {
     userId: row.user_id,
     gamesPlayed: row.games_played,
     wins: row.wins,
-    currentStreak: row.current_streak,
+    // Decayed HERE, not in the view that renders it, so no consumer can forget:
+    // a streak breaks by not playing, and nothing writes user_stats on a day
+    // you skip -- the stored number just stays frozen at its last value. It's
+    // only real if the last recorded result was today or yesterday
+    // (lib/stats/streak.ts). The leaderboard gets the same treatment in SQL
+    // (drizzle/0037), where it also has to drive ORDER BY.
+    //
+    // This uses the device clock, unlike every write (which resolves its date
+    // in the database). A skewed clock can therefore only mis-display the
+    // viewer's own streak for a few hours around UTC midnight; nothing
+    // authoritative -- what's stored, what's ranked -- moves with it.
+    currentStreak: currentStreakAsOf(row.current_streak, row.last_daily_date, todayUtcDateString()),
     maxStreak: row.max_streak,
     guessDistribution: row.guess_distribution,
     lastResult: row.last_result,
+    lastDailyDate: row.last_daily_date,
     duelRating: row.duel_rating,
     duelWins: row.duel_wins,
     duelLosses: row.duel_losses,

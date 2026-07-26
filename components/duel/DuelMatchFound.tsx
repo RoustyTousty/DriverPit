@@ -6,7 +6,13 @@ import type { Profile } from "@/components/auth/AuthProvider";
 import { AvatarGlyph } from "@/components/ui/AvatarGlyph";
 import { MATCH_FOUND_HOLD_MS } from "@/lib/game/duelTiming";
 
-import { RatingBadge } from "./MatchFoundReveal";
+// Lives here rather than in its own file: this is the screen that defines the
+// "handle over a rating" treatment, and DuelSearching reuses it precisely so
+// its waiting player reads as the same card the reveal will fill in.
+export function RatingBadge({ rating }: { rating: number | null }) {
+  if (rating === null) return null;
+  return <p className="font-mono text-xs tabular-nums text-text-muted">{rating} rating</p>;
+}
 
 export interface DuelOpponentSummary {
   username: string;

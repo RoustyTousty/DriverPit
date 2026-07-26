@@ -59,6 +59,14 @@ export const userStats = pgTable("user_stats", {
   // Powers the Statistics modal's "this bar is your latest win" highlight.
   // Null until a first result is recorded.
   lastResult: jsonb("last_result").$type<{ won: boolean; guessCount: number } | null>(),
+  // The UTC day of the most recently recorded daily result (drizzle/0037).
+  // What makes current_streak break on a MISSED day and not just a lost one:
+  // the write path only extends the streak when this is the day before, and
+  // every reader treats the stored streak as 0 unless this is today or
+  // yesterday. See lib/stats/streak.ts for both rules. Null = no server-side
+  // daily history (or a legacy localStorage merge, which carries no dates),
+  // which counts as no live streak.
+  lastDailyDate: date("last_daily_date"),
   duelRating: integer("duel_rating").notNull().default(1000),
   duelWins: integer("duel_wins").notNull().default(0),
   duelLosses: integer("duel_losses").notNull().default(0),
@@ -272,7 +280,10 @@ export const duelRoundResults = pgTable(
 );
 
 // profiles joined with user_stats, public columns only, full accounts
-// only (is_guest = false) -- backs the Leaderboard modal. Hand-written in
+// only (is_guest = false) -- backs the Leaderboard modal. `currentStreak` is
+// NOT the raw stored column: the view zeroes it when the last daily result is
+// older than yesterday (drizzle/0037), so the streak board can't rank an
+// abandoned account by a frozen streak. Hand-written in
 // drizzle/0009_leaderboard_view.sql (same reasoning as the 0006 auth
 // trigger/RLS: DDL drizzle-kit can't express on its own), so this is
 // `.existing()` -- a queryable reference, not something drizzle-kit should

@@ -91,8 +91,12 @@ export interface MatchEndPayload {
   winnerId: string | null;
   scoreA: number;
   scoreB: number;
-  ratingDeltaA: number;
-  ratingDeltaB: number;
+  // Nullable because the rating write is a separate call from closing the
+  // round (drizzle/0034): if it hasn't landed, the opponent shows no delta
+  // rather than a fabricated "+0". The results panel reads the authoritative
+  // values from duel_matches.rating_delta_a/b regardless of this payload.
+  ratingDeltaA: number | null;
+  ratingDeltaB: number | null;
   breakdown: DuelRoundBreakdownEntry[];
 }
 
@@ -100,6 +104,30 @@ export interface MatchEndPayload {
 // end (CLAUDE.md's "Exit, forfeit & disconnect") -- `playerId` is whoever
 // forfeited (or was declared forfeited on behalf of).
 export interface ForfeitPayload {
+  playerId: string;
+}
+
+export const REMATCH_REQUEST_EVENT = "rematch_request";
+
+// Sent the moment a player asks for a rematch and finds themselves FIRST
+// (requestRematch returned newMatchId: null -- intent recorded, nobody to pair
+// with yet). Without it the other player's results screen shows a plain
+// "Rematch" button with no hint that someone is already sitting there waiting
+// on them, which is the whole reason a rematch request goes unanswered.
+//
+// Distinct from REMATCH_EVENT below, which fires later and means something
+// else entirely: the match now EXISTS, go join it.
+export interface RematchRequestPayload {
+  playerId: string;
+}
+
+export const REMATCH_DECLINE_EVENT = "rematch_decline";
+
+// The answer to REMATCH_REQUEST_EVENT: "no". Without it a declined request just
+// goes quiet, and the asker sits on "waiting" forever with no way to tell a
+// refusal from a slow opponent. Terminal for this results screen -- neither
+// side is offered the rematch again afterwards.
+export interface RematchDeclinePayload {
   playerId: string;
 }
 

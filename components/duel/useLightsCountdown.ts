@@ -2,16 +2,29 @@
 
 import { useEffect, useState } from "react";
 
-import { COUNTDOWN_GO_HOLD_MS } from "@/lib/game/duelTiming";
+import {
+  COUNTDOWN_GO_HOLD_MS,
+  LIGHTS_ALL_LIT_HOLD_MS,
+  MAX_LIGHT_ON_INTERVAL_MS,
+  MIN_LIGHT_ON_INTERVAL_MS,
+} from "@/lib/game/duelTiming";
 
 export const LIGHT_COUNT = 5;
-// Fixed local pace, deliberately independent of the server-stamped
-// countdown -- see the doc comment below for why.
-const LIGHT_ON_INTERVAL_MS = 700;
-// Once the local animation reaches all 5 lit, held this long (locally)
-// before isGo can fire even if the real server clock already expired --
-// see problem 3 in the comment below for why this exists.
-const ALL_LIT_HOLD_MS = 400;
+
+// Sizes the sweep to the time actually left, so the fifth light lands exactly
+// LIGHTS_ALL_LIT_HOLD_MS before lights-out no matter how long the round's RPC
+// took to come back. A FIXED interval instead left the leftover budget as dead
+// air with all five lights on -- about a second of it -- and because that
+// leftover shrank as latency grew, the same constants produced a visibly
+// different pause on round 1 than on rounds 2 and 3. Deriving it pins the dwell
+// and pushes the variance into the sweep, where a few percent is invisible.
+function sweepIntervalMs(remainingToLightsOutMs: number): number {
+  const sweepWindowMs = remainingToLightsOutMs - LIGHTS_ALL_LIT_HOLD_MS;
+  // LIGHT_COUNT - 1: the first light is lit from frame one, so five lights are
+  // four intervals apart, not five.
+  const raw = sweepWindowMs / (LIGHT_COUNT - 1);
+  return Math.min(MAX_LIGHT_ON_INTERVAL_MS, Math.max(MIN_LIGHT_ON_INTERVAL_MS, raw));
+}
 
 export interface LightsCountdownState {
   litCount: number;
@@ -56,19 +69,32 @@ export interface LightsCountdownState {
 //    finishes *first*, isGo would fire the instant the local litCount
 //    ticks over to 5 -- the same tick the 5th light starts its fade -- so
 //    it never gets a chance to actually be seen lit before going dark
-//    again. ALL_LIT_HOLD_MS forces a real, local-clock-timed pause at
+//    again. LIGHTS_ALL_LIT_HOLD_MS forces a real, local-clock-timed pause at
 //    "all 5 lit" regardless of how the real clock lines up, so the last
 //    light is always visibly on for a beat no matter which side of the
 //    race this client landed on.
+//
+// `remainingMs` is time until the round's server-stamped started_at -- the
+// moment the BOARD appears, not the moment the lights go out. Lights-out is one
+// COUNTDOWN_GO_HOLD_MS earlier, so that's what the sequence below actually
+// counts to; the hold that follows then lands the handoff on started_at exactly.
+// Subtracted here rather than by each caller so a third one can't forget it and
+// quietly start charging players for the GO beat again (see duelTiming.ts).
 export function useLightsCountdown(remainingMs: number, key: string | null, loading = false): LightsCountdownState {
-  const realIsGo = !loading && remainingMs <= 0;
+  const remainingToLightsOutMs = remainingMs - COUNTDOWN_GO_HOLD_MS;
+  const realIsGo = !loading && remainingToLightsOutMs <= 0;
   const alreadyResolvedAtFirstSight = !loading && realIsGo;
+  const ceremonyStarting = !loading && !alreadyResolvedAtFirstSight;
 
   const [trackedKey, setTrackedKey] = useState(key);
   const [skipCeremony, setSkipCeremony] = useState(alreadyResolvedAtFirstSight);
   const [localStartedAt, setLocalStartedAt] = useState<number | null>(
-    !loading && !alreadyResolvedAtFirstSight ? Date.now() : null,
+    ceremonyStarting ? Date.now() : null,
   );
+  // Captured once, alongside localStartedAt: the sweep is paced against the
+  // budget as it stood when the animation began, not recomputed every tick
+  // (which would make the lights speed up as the deadline approached).
+  const [lightIntervalMs, setLightIntervalMs] = useState(() => sweepIntervalMs(remainingToLightsOutMs));
   const [holdComplete, setHoldComplete] = useState(alreadyResolvedAtFirstSight);
   const [allLitAt, setAllLitAt] = useState<number | null>(null);
 
@@ -79,13 +105,22 @@ export function useLightsCountdown(remainingMs: number, key: string | null, load
   if (key !== trackedKey) {
     setTrackedKey(key);
     setSkipCeremony(alreadyResolvedAtFirstSight);
-    setLocalStartedAt(!loading && !alreadyResolvedAtFirstSight ? Date.now() : null);
+    setLocalStartedAt(ceremonyStarting ? Date.now() : null);
+    setLightIntervalMs(sweepIntervalMs(remainingToLightsOutMs));
     setHoldComplete(alreadyResolvedAtFirstSight);
     setAllLitAt(null);
   }
 
-  const localElapsedMs = localStartedAt === null ? 0 : Date.now() - localStartedAt;
-  const localLitCount = Math.min(LIGHT_COUNT, Math.max(0, Math.floor(localElapsedMs / LIGHT_ON_INTERVAL_MS)));
+  // The first light is lit from the very first frame (hence the +1), not after
+  // one interval: the number below it names the light that just came on -- L1 =
+  // "5" ... L5 = "1" -- so a leading dark beat would have to show a "5" with
+  // nothing lit under it, which is exactly the off-by-one this pairing exists to
+  // remove. 0 is reachable only while `loading`, where LightsCountdown renders a
+  // spinner instead and no light should be on yet.
+  const localLitCount =
+    localStartedAt === null
+      ? 0
+      : Math.min(LIGHT_COUNT, 1 + Math.floor((Date.now() - localStartedAt) / lightIntervalMs));
 
   // Same render-phase-adjustment pattern, capturing the instant the local
   // animation first reaches all 5 lit (not an effect -- an effect would
@@ -96,7 +131,7 @@ export function useLightsCountdown(remainingMs: number, key: string | null, load
   }
 
   const litCount = skipCeremony ? LIGHT_COUNT : localLitCount;
-  const allLitHeldLongEnough = skipCeremony || (allLitAt !== null && Date.now() - allLitAt >= ALL_LIT_HOLD_MS);
+  const allLitHeldLongEnough = skipCeremony || (allLitAt !== null && Date.now() - allLitAt >= LIGHTS_ALL_LIT_HOLD_MS);
   const isGo = skipCeremony || (litCount >= LIGHT_COUNT && realIsGo && allLitHeldLongEnough);
 
   useEffect(() => {

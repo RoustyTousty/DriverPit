@@ -131,18 +131,43 @@ export function ProfileSection() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-3">
+      {/* Identity header as a real card rather than bare text on the modal
+          background -- it's the one block that's always present in both
+          states, so giving it the site's standard surface + hairline border
+          anchors the section instead of letting the avatar float. */}
+      <div className="flex items-center gap-3 rounded-lg border border-border bg-surface-2 p-3">
         <AvatarPicker userId={user.id} currentAvatarUrl={profile.avatarUrl} onSaved={refresh} />
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-text">{profile.displayName || profile.username}</p>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="truncate text-sm font-semibold text-text">{profile.displayName || profile.username}</p>
+            {/* CLAUDE.md's Profile requirement: "Show which state the user is
+                in." A badge states it outright instead of leaving it to be
+                inferred from whether the subtitle happens to be an email.
+                Accent only on the full-account state, where it means
+                something -- a guest badge in orange would be rewarding the
+                state we're asking them to leave. */}
+            <span
+              className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${
+                profile.isGuest
+                  ? "border-border text-text-muted"
+                  : "border-accent-weak bg-accent-weak/40 text-accent"
+              }`}
+            >
+              {profile.isGuest ? "Guest" : "Account"}
+            </span>
+          </div>
           <p className="truncate text-xs text-text-muted">
-            {profile.isGuest ? "Playing as guest" : (user.email ?? "Signed in")}
+            {profile.isGuest ? "Progress is saved on this device only" : (user.email ?? "Signed in")}
           </p>
         </div>
       </div>
 
       {profile.isGuest ? (
-        <>
+        // Tighter than the section's gap-5: the email field, the "or" and the
+        // Google button are three ways to do ONE thing, so they read as a
+        // single control group. At the section gap they looked like three
+        // unrelated settings that happened to sit near each other.
+        <div className="flex flex-col gap-3">
           <form onSubmit={handleEmailUpgrade} className="flex flex-col gap-2">
             <label htmlFor="profile-email" className="text-xs font-semibold tracking-wide text-text-muted uppercase">
               Email
@@ -161,16 +186,16 @@ export function ProfileSection() {
               <button
                 type="submit"
                 disabled={pending}
-                className="shrink-0 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98] disabled:opacity-50"
+                className="shrink-0 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
               >
                 Continue
               </button>
             </div>
           </form>
 
-          <div className="flex items-center gap-3 text-xs text-text-muted">
+          <div className="flex items-center gap-3">
             <div className="h-px flex-1 bg-border" />
-            or
+            <span className="text-[10px] font-semibold tracking-wide text-text-muted uppercase">or</span>
             <div className="h-px flex-1 bg-border" />
           </div>
 
@@ -178,15 +203,18 @@ export function ProfileSection() {
             type="button"
             onClick={handleGoogleUpgrade}
             disabled={pending}
-            className="flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-semibold text-text transition hover:bg-surface-2/70 motion-safe:active:scale-[0.98] disabled:opacity-50"
+            className="flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-semibold text-text transition hover:border-text-muted/40 hover:bg-surface motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
           >
             <GoogleLogo />
             Continue with Google
           </button>
-        </>
+        </div>
       ) : (
         <>
-          <form onSubmit={handleSaveDisplayName} className="flex flex-col gap-2 border-t border-border pt-4">
+          {/* No border-t here any more: the identity block above is now a
+              bordered card, so a rule directly beneath it read as a double
+              hairline. The section's own gap does the separating. */}
+          <form onSubmit={handleSaveDisplayName} className="flex flex-col gap-2">
             <label htmlFor="profile-display-name" className="text-xs font-semibold tracking-wide text-text-muted uppercase">
               Display name
             </label>
@@ -207,21 +235,23 @@ export function ProfileSection() {
               <button
                 type="submit"
                 disabled={pending || isUnchanged}
-                className="shrink-0 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98] disabled:opacity-50"
+                className="shrink-0 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
               >
                 {justSaved ? "Saved ✓" : "Save"}
               </button>
             </div>
           </form>
 
-          <button
-            type="button"
-            onClick={handleSignOutClick}
-            disabled={pending}
-            className="self-start rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-muted transition hover:bg-surface-2 hover:text-text disabled:opacity-50"
-          >
-            Sign out
-          </button>
+          <div className="border-t border-border pt-4">
+            <button
+              type="button"
+              onClick={handleSignOutClick}
+              disabled={pending}
+              className="rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-muted transition hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+            >
+              Sign out
+            </button>
+          </div>
         </>
       )}
 

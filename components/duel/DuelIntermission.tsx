@@ -178,15 +178,16 @@ export function DuelIntermission({
         liveOpponent={DUEL_BASELINE + (settled ? endScoreOpponent : startScoreOpponent)}
       />
 
+      {/* The intermission's own countdown runs exactly as before -- it still
+          gates the ready-gate and the next round -- but it is no longer drawn.
+          A big ticking 5-4-3-2-1 here read as a second deadline stacked on the
+          one the round itself just used, and turned a beat meant for reading
+          the reveal into something to sit out. The lights countdown that
+          follows is the only timer that needs to be seen. */}
       {!isLastRound && (
-        <>
-          <div className="font-mono text-3xl font-bold tabular-nums text-text" aria-live="polite">
-            {countdownDone ? "" : Math.ceil(remainingMs / 1000)}
-          </div>
-          <p className="text-xs text-text-muted">
-            {!countdownDone ? "Next round starting soon…" : waitingOnOpponent ? "Waiting for opponent…" : "Get ready…"}
-          </p>
-        </>
+        <p className="text-xs text-text-muted" aria-live="polite">
+          {!countdownDone ? "Next round starting soon…" : waitingOnOpponent ? "Waiting for opponent…" : "Get ready…"}
+        </p>
       )}
     </div>
   );

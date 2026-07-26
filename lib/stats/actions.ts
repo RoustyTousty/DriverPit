@@ -8,11 +8,8 @@ import { MAX_GUESSES } from "@/lib/game/constants";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 import { recordDailyResultForUser } from "./recordDailyResult";
+import { todayUtcDateString } from "./streak";
 import type { StatsState } from "./store";
-
-function todayUtcDateString(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 async function getCurrentUserId(): Promise<string | null> {
   const supabase = await createSupabaseServerClient();
@@ -42,6 +39,13 @@ export async function recordDailyResult(won: boolean, guessCount: number): Promi
 // feature shipped), so it can't be a continuation of an in-progress
 // server streak once the server has its own -- currentStreak only adopts
 // the local value when the server row has no history yet.
+//
+// The adopted streak is deliberately left UNANCHORED (last_daily_date stays
+// null): localStorage stats never stored dates, so there's nothing to anchor it
+// to, and inventing one would recreate the immortal streak drizzle/0037 fixes.
+// An unanchored streak counts as broken -- it shows as 0 and the next result
+// restarts at 1 (lib/stats/streak.ts). Trusting an undatable number forever is
+// the exact bug that migration closes.
 export async function migrateLocalStats(local: StatsState): Promise<{ ok: boolean }> {
   if (local.gamesPlayed <= 0) return { ok: true };
 
@@ -86,6 +90,7 @@ export async function resetUserStats(): Promise<{ ok: boolean }> {
       maxStreak: 0,
       guessDistribution: Array(MAX_GUESSES).fill(0),
       lastResult: null,
+      lastDailyDate: null,
     })
     .where(eq(userStats.userId, userId));
 

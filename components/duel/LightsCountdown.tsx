@@ -10,10 +10,9 @@ import { LIGHT_COUNT } from "./useLightsCountdown";
 // just the guess board). Purely presentational: `litCount`/`isGo` are
 // owned by the caller's useLightsCountdown, which is the one place that
 // decides pacing (see that hook for why it isn't driven by seconds
-// remaining). The number counts down (lights left to go), not up, so it
-// reads the way a real start countdown does -- 5, 4, 3, 2, 1, GO! -- while
-// staying tied to the same lights, never a separately-computed clock that
-// can drift out of sync with them.
+// remaining). The number counts down -- 5, 4, 3, 2, 1, GO! -- and is derived
+// from litCount rather than being a separately-computed clock, so it can never
+// drift out of sync with the lights it labels.
 export function LightsCountdown({
   litCount,
   isGo,
@@ -23,6 +22,13 @@ export function LightsCountdown({
   isGo: boolean;
   loading?: boolean;
 }) {
+  // The number names the light that just came on: L1 lit = 5, L5 lit = 1. NOT
+  // "lights remaining" (LIGHT_COUNT - litCount), which showed 4 the moment the
+  // first light came on and 0 once all five were lit -- a count that never
+  // agreed with what was on screen. Floored at 1 so the `loading` litCount of 0
+  // can't surface a 6; that path renders the spinner below anyway.
+  const countLabel = Math.max(1, LIGHT_COUNT + 1 - litCount);
+
   return (
     <>
       <div className="flex gap-3" role="presentation">
@@ -50,7 +56,7 @@ export function LightsCountdown({
           }`}
           aria-live="polite"
         >
-          {isGo ? "GO!" : LIGHT_COUNT - litCount}
+          {isGo ? "GO!" : countLabel}
         </div>
       )}
     </>

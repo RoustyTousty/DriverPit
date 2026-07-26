@@ -117,7 +117,7 @@ export function LeaderboardModal({
         {profile?.isGuest && (
           <div className="flex items-center justify-between gap-3 rounded-lg border border-accent-weak bg-accent-weak/40 p-3">
             <div>
-              <p className="text-sm font-semibold text-accent">You're playing as a guest</p>
+              <p className="text-sm font-semibold text-accent">Save your progress</p>
               <p className="text-xs text-text-muted">Create an account to appear on the leaderboard.</p>
             </div>
             <button

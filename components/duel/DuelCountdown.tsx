@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { useToast } from "@/components/ui/Toast";
-import { beginRound } from "@/lib/duel/actions";
+import { beginRound } from "@/lib/duel/roundLifecycle";
 
 import { LightsCountdown } from "./LightsCountdown";
 import { useLightsCountdown } from "./useLightsCountdown";
@@ -26,10 +26,13 @@ export function DuelCountdown({
   matchId: number;
   roundIndex: number;
   clockOffsetMs: number;
-  onGo: () => void;
+  // Hands the stamped round on rather than just signalling "go": the next
+  // screen would otherwise re-fetch timings this component was already given,
+  // and pay a Server Action round trip for it while the round clock runs.
+  onGo: (round: { roundIndex: number; startedAt: string; endsAt: string }) => void;
 }) {
   const toast = useToast();
-  const [round, setRound] = useState<{ startedAt: string } | null>(null);
+  const [round, setRound] = useState<{ startedAt: string; endsAt: string } | null>(null);
   const firedRef = useRef(false);
   const onGoRef = useRef(onGo);
   onGoRef.current = onGo;
@@ -43,7 +46,7 @@ export function DuelCountdown({
         toast.error(res.error);
         return;
       }
-      setRound({ startedAt: res.startedAt });
+      setRound({ startedAt: res.startedAt, endsAt: res.endsAt });
     })();
     return () => {
       cancelled = true;
@@ -54,11 +57,11 @@ export function DuelCountdown({
   const { litCount, isGo, holdComplete } = useLightsCountdown(remainingMs, round?.startedAt ?? null, round === null);
 
   useEffect(() => {
-    if (holdComplete && !firedRef.current) {
+    if (holdComplete && !firedRef.current && round) {
       firedRef.current = true;
-      onGoRef.current();
+      onGoRef.current({ roundIndex, startedAt: round.startedAt, endsAt: round.endsAt });
     }
-  }, [holdComplete]);
+  }, [holdComplete, round, roundIndex]);
 
   return (
     <div className="flex flex-col items-center gap-6 px-4 py-10 text-center">

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/components/auth/AuthProvider";
 import type { DriverOption } from "@/components/game/DriverAutocomplete";
+import { LoadingOverlay } from "@/components/game/LoadingOverlay";
 import { getMyLiveMatch } from "@/lib/duel/actions";
 import { setLiveMatchId } from "@/lib/duel/duelCommitments";
 import { useDuelChannel } from "@/lib/duel/useDuelChannel";
@@ -20,20 +21,28 @@ import { DuelSearching } from "./DuelSearching";
 
 type Phase = "landing" | "searching" | "found" | "countdown" | "in-match";
 
-// Same header + container as app/(game)/online/loading.tsx and
-// DuelLanding's own header -- the Suspense fallback, this component's own
-// "resuming"/"!profile" loading states, and the eventual landing screen are
-// three separate returns that all show up in the same slot in quick
-// succession on a cold /online load, so they need to be pixel-identical or
-// the page visibly jumps size and title between each one.
+// The /online loading state -- the resume check, and the brief wait for a
+// profile on a resumed match.
+//
+// Renders the REAL landing screen (the Duel / Knockout mode cards) under the
+// same blurred overlay the daily and infinite boards use, rather than a title
+// over empty space. Two reasons: /online then loads the way every other mode on
+// the site does -- the real thing, veiled -- and the card is already its final
+// size, so nothing resizes when the overlay lifts and the same screen becomes
+// interactive.
+//
+// `inert` is what actually makes it non-interactive. The overlay swallows
+// pointer events by covering them, but keyboard focus walks straight past an
+// overlay -- without this a tab press could reach "Duel" behind the blur and
+// start a search while the resume check is still deciding whether this player
+// is already in a match. Native React 19 boolean prop, no focus-trap needed.
 function LoadingShell() {
   return (
-    <div className="flex flex-col gap-3 px-4 py-6">
-      <header>
-        <h1 className="text-xl font-bold text-text sm:text-2xl">DriverPit</h1>
-        <p className="text-sm text-text-muted">Online</p>
-      </header>
-      <div className="py-12 text-center text-sm text-text-muted">Loading…</div>
+    <div className="relative" aria-busy="true">
+      <div inert>
+        <DuelLanding onSelectDuel={() => {}} />
+      </div>
+      <LoadingOverlay label="Loading online modes" />
     </div>
   );
 }
@@ -63,6 +72,10 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
   // True until the resume check below settles -- keeps the landing screen
   // from flashing for a player who's about to be dropped back into a match.
   const [resuming, setResuming] = useState(true);
+  // Round 0 as stamped by DuelCountdown, handed straight to DuelMatch so it can
+  // render the board on its first paint instead of re-fetching timings it was
+  // just given (see its `initialRound` prop).
+  const [initialRound, setInitialRound] = useState<{ roundIndex: number; startedAt: string; endsAt: string } | null>(null);
 
   const { clockOffsetMs } = useServerClock();
 
@@ -165,6 +178,7 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
 
   function handleFindNewOpponent() {
     setMatch(null);
+    setInitialRound(null);
     setPhase("searching");
   }
 
@@ -172,6 +186,7 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
   // select). The route never changed; only this phase state did.
   function handleBackToModes() {
     setMatch(null);
+    setInitialRound(null);
     setPhase("landing");
   }
 
@@ -224,7 +239,10 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
         matchId={match.matchId}
         roundIndex={0}
         clockOffsetMs={clockOffsetMs}
-        onGo={() => setPhase("in-match")}
+        onGo={(round) => {
+          setInitialRound(round);
+          setPhase("in-match");
+        }}
       />
     );
   }
@@ -234,6 +252,7 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
       me={profile}
       myRating={stats?.duelRating ?? null}
       match={match}
+      initialRound={initialRound}
       eligibleDrivers={eligibleDrivers}
       clockOffsetMs={clockOffsetMs}
       onFindNewOpponent={handleFindNewOpponent}

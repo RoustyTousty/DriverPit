@@ -9,14 +9,20 @@ import { usePrefersReducedMotion } from "@/lib/settings/usePrefersReducedMotion"
 const AUTO_ADVANCE_MS = 6000;
 const SWIPE_THRESHOLD_PX = 40;
 
-// A wide hover zone at each edge (not just a small floating button) with an
-// accent gradient glow bleeding in from the side -- hidden below `sm`
-// entirely, since there's no hover state on touch to reveal it and a small
-// floating button is hard to land a tap on; mobile gets a swipe gesture on
-// the card itself instead (see NewsCarousel). The button itself matches the
-// site's actual icon-button language (TopBar's settings/leaderboard
-// buttons, Modal's close button): rounded-lg, not a circle, and a plain
-// background-darkens hover instead of a border + scale.
+// A generous invisible hover target at each edge, holding one small icon
+// button -- hidden below `sm` entirely, since there's no hover state on touch
+// to reveal it and a small floating button is hard to land a tap on; mobile
+// gets a swipe gesture on the card itself instead (see NewsCarousel).
+//
+// The hover zone is a hit area ONLY: no fill, no gradient. It used to wash an
+// accent gradient across 80px of the card from each side, which broke the
+// orange discipline the design system is built on (accent = active tab,
+// primary button, logo mark, correct tile -- not a decorative glow) and read as
+// a different site's component. The button carries its own surface + hairline
+// border instead, so it stays legible over any photo without tinting the card.
+// Its styling is the site's icon-button language verbatim (TopBar's
+// settings/leaderboard buttons, Modal's close button): rounded-lg, muted
+// stroke icon, background-darkens hover, accent only on the focus ring.
 function EdgeNav({ direction, onClick }: { direction: "prev" | "next"; onClick: () => void }) {
   const isPrev = direction === "prev";
   return (
@@ -24,17 +30,15 @@ function EdgeNav({ direction, onClick }: { direction: "prev" | "next"; onClick: 
       type="button"
       onClick={onClick}
       aria-label={isPrev ? "Previous story" : "Next story"}
-      className={`absolute top-0 z-10 hidden h-full w-20 items-center opacity-0 transition-opacity duration-200 hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none sm:flex ${
-        isPrev
-          ? "left-0 justify-start bg-linear-to-r from-accent/25 to-transparent"
-          : "right-0 justify-end bg-linear-to-l from-accent/25 to-transparent"
+      className={`group/nav absolute top-0 z-10 hidden h-full w-16 items-center opacity-0 transition-opacity duration-200 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none motion-reduce:transition-none sm:flex ${
+        isPrev ? "left-0 justify-start pl-2" : "right-0 justify-end pr-2"
       }`}
     >
-      <span
-        className={`flex h-8 w-8 items-center justify-center rounded-lg bg-bg/80 text-text-muted backdrop-blur transition hover:bg-bg hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-          isPrev ? "ml-2" : "mr-2"
-        }`}
-      >
+      {/* The focus ring lives here, driven by the BUTTON's focus via the named
+          group -- focus lands on the 64px hit area, so a ring on that would
+          outline an invisible box (and a focus-visible: rule on this span
+          would never fire at all, since the span is never itself focused). */}
+      <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface/90 text-text-muted backdrop-blur transition group-hover/nav:bg-surface-2 group-hover/nav:text-text group-focus-visible/nav:ring-2 group-focus-visible/nav:ring-accent">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} className="h-4 w-4" aria-hidden="true">
           <path d={isPrev ? "M15 6l-6 6 6 6" : "M9 6l6 6-6 6"} />
         </svg>

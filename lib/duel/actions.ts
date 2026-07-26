@@ -1,9 +1,9 @@
 "use server";
 
-import { and, desc, eq, gt, notInArray, or } from "drizzle-orm";
+import { and, desc, eq, gt, ne, notInArray, or } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { duelBeginRound, duelCloseRound, duelForfeit, duelState, type DuelRevealedDriver } from "@/lib/db/duelRpc";
+import { duelForfeit, duelState } from "@/lib/db/duelRpc";
 import { duelMatches, duelRoundResults, duelRounds, userStats } from "@/lib/db/schema";
 import { updateDuelRatings } from "@/lib/game/duelRating";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -82,25 +82,34 @@ export async function getDuelRoundState(matchId: number): Promise<GetDuelRoundSt
   };
 }
 
-// --- beginRound ------------------------------------------------------------
+// --- applyMatchRatings ---------------------------------------------------
+//
+// beginRound and closeRound used to live here as Server Actions. They're now
+// direct browser->PostgREST calls (lib/duel/roundLifecycle.ts) against the
+// duel_begin_round_client / duel_close_round_client wrappers -- see
+// drizzle/0034 for why: a serverless invocation plus three sequential Supabase
+// round trips sat on the path between one round ending and the next starting,
+// and that latency was being deducted from the countdown itself.
+//
+// This is the one piece that could NOT move. The Elo math is a unit-tested
+// TypeScript function (lib/game/duelRating.ts); reimplementing it in plpgsql
+// would leave two definitions of the same rules to drift apart. So closing a
+// round is a warm RPC, and writing the ratings it produced stays here -- called
+// separately, and only when that close actually finished the match, which is
+// the one moment in a duel where latency costs nothing (the match is over and
+// the results panel has its own loading state).
 
-export type BeginRoundResult =
-  | { ok: true; roundIndex: number; startedAt: string; endsAt: string; matchStatus: string }
+export type ApplyMatchRatingsResult =
+  | { ok: true; ratingDeltaA: number; ratingDeltaB: number }
   | { ok: false; error: string };
 
-// Client-facing wrapper for public.duel_begin_round() (drizzle/0021) --
-// that RPC runs over the trusted Drizzle connection (lib/db/duelRpc.ts),
-// not supabase.rpc(), so it can't be called straight from the browser the
-// way duel_submit_guess can; this Server Action is the one warm-enough hop
-// for it (called once per ready-gate, not per guess, so cold start here
-// isn't the latency-critical path duel_submit_guess is).
-//
-// Ready-gated: call once both clients report ready on the duel:{matchId}
-// channel (useDuelChannel) or READY_TIMEOUT_MS elapses (CLAUDE.md's Duel
-// "Flow" step 4) -- idempotent, so both clients calling it is expected and
-// safe; whichever gets there first actually stamps started_at/ends_at, the
-// other gets the same values echoed back.
-export async function beginRound(matchId: number, roundIndex: number): Promise<BeginRoundResult> {
+// Idempotent, and it has to be: with the close itself now client-side, this is
+// a second call rather than the same server-side breath, so it can be reached
+// twice (both clients observing the finish, a retry, a reconnecting client) or
+// -- if a client dies between the two -- reached late by whoever gets there
+// next. The lock plus the rating_delta_a null check inside applyMatchResult
+// make every call after the first a read.
+export async function applyMatchRatings(matchId: number): Promise<ApplyMatchRatingsResult> {
   const userId = await getCurrentUserId();
   if (!userId) return { ok: false, error: "Not signed in." };
 
@@ -109,124 +118,21 @@ export async function beginRound(matchId: number, roundIndex: number): Promise<B
   if (match.playerA !== userId && match.playerB !== userId) {
     return { ok: false, error: "You are not part of this match." };
   }
+  if (match.status !== "finished" && match.status !== "abandoned") {
+    return { ok: false, error: "Match hasn't finished yet." };
+  }
 
   try {
-    const round = await duelBeginRound(matchId, roundIndex);
-    return { ok: true, ...round };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "Failed to start the round." };
-  }
-}
-
-// --- closeRound --------------------------------------------------------
-//
-// Guess evaluation itself doesn't live here -- it's the
-// public.duel_submit_guess() RPC (drizzle/0022_duel_submit_guess_rpc.sql),
-// called directly from the client (lib/duel/submitGuess.ts) as one warm hop
-// with no Vercel function in the path, per CLAUDE.md's "Instant guesses".
-// Closing the round out is also a Postgres function
-// (public.duel_close_round, drizzle/0021) over the trusted connection
-// (lib/db/duelRpc.ts), so it needs this Server Action wrapper the same way
-// beginRound does.
-
-// Reveal fields, common to both the "advance" and "match finished"
-// outcomes -- CLAUDE.md's Duel "Intermission" needs the same target
-// reveal + per-round points regardless of whether another round follows.
-interface CloseRoundReveal {
-  roundIndex: number;
-  pointsA: number;
-  pointsB: number;
-  targetDriver: DuelRevealedDriver;
-  intermissionEndsAt: string;
-}
-
-export type CloseRoundResult =
-  | { ok: true; advanced: false }
-  | ({ ok: true; advanced: true; matchFinished: false; nextRoundIndex: number; scoreA: number; scoreB: number } & CloseRoundReveal)
-  | ({
-      ok: true;
-      advanced: true;
-      matchFinished: true;
-      winnerId: string | null;
-      scoreA: number;
-      scoreB: number;
-      ratingDeltaA: number;
-      ratingDeltaB: number;
-    } & CloseRoundReveal)
-  | { ok: false; error: string };
-
-// Client-triggered, idempotent: call whenever a client observes both
-// players done (solved or timer expired) for the match's current round.
-// duel_close_round's own `FOR UPDATE` lock on the match row (not this
-// action) is what actually serializes concurrent callers -- whichever call
-// wins the lock performs the transition; every other call (this client's
-// own safety-net poll, the opponent's equivalent call, a retry) re-reads
-// the now-updated row and comes back `advanced: false`, so applyMatchResult
-// below only ever runs once per match, however many times this is called.
-// Doesn't stamp the next round itself -- on `advanced: true, matchFinished:
-// false`, the caller (DuelMatch) shows the intermission reveal for
-// intermissionEndsAt, then a fresh ready-gate, before its own beginRound
-// call -- see CLAUDE.md's Duel "Intermission".
-export async function closeRound(matchId: number, roundIndex: number): Promise<CloseRoundResult> {
-  const userId = await getCurrentUserId();
-  if (!userId) return { ok: false, error: "Not signed in." };
-
-  const [match] = await db.select().from(duelMatches).where(eq(duelMatches.id, matchId));
-  if (!match) return { ok: false, error: "Match not found." };
-  if (match.playerA !== userId && match.playerB !== userId) {
-    return { ok: false, error: "You are not part of this match." };
-  }
-
-  let result;
-  try {
-    result = await duelCloseRound(matchId, roundIndex);
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "Failed to close the round." };
-  }
-
-  if (!result.advanced) return { ok: true, advanced: false };
-
-  // Only the no-op branch omits these -- checked above, so every field
-  // below is non-null on both outcomes past this point.
-  const reveal: CloseRoundReveal = {
-    roundIndex,
-    pointsA: result.pointsA!,
-    pointsB: result.pointsB!,
-    targetDriver: result.targetDriver!,
-    intermissionEndsAt: result.intermissionEndsAt!,
-  };
-
-  if (result.matchStatus === "finished") {
     const { ratingDeltaA, ratingDeltaB } = await applyMatchResult(
       matchId,
       match.playerA,
       match.playerB,
-      result.winnerId,
+      match.winnerId,
     );
-    return {
-      ok: true,
-      advanced: true,
-      matchFinished: true,
-      winnerId: result.winnerId,
-      scoreA: result.scoreA,
-      scoreB: result.scoreB,
-      ratingDeltaA,
-      ratingDeltaB,
-      ...reveal,
-    };
+    return { ok: true, ratingDeltaA, ratingDeltaB };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Failed to record the result." };
   }
-
-  return {
-    ok: true,
-    advanced: true,
-    matchFinished: false,
-    // duel_close_round only omits this when matchStatus is 'finished'
-    // (checked above), so it's always a number on this branch.
-    nextRoundIndex: result.nextRoundIndex as number,
-    scoreA: result.scoreA,
-    scoreB: result.scoreB,
-    ...reveal,
-  };
 }
 
 // --- forfeitMatch -------------------------------------------------------
@@ -487,6 +393,38 @@ export async function getDuelResults(matchId: number): Promise<GetDuelResultsRes
   };
 }
 
+// --- declineRematch -------------------------------------------------------
+
+export type DeclineRematchResult = { ok: true } | { ok: false; error: string };
+
+// Clears the pending intent, so a decline is genuinely undone server-side and
+// not merely hidden client-side. Without it `rematch_requested_by` stays
+// pointing at the asker: if the decliner later changed their mind and pressed
+// Rematch, requestRematch would find the other player's id still sitting there
+// and create the match on the spot -- yanking someone who was told "declined"
+// into a duel they never re-accepted.
+//
+// The `ne` guard means this only ever clears intent that ISN'T the caller's
+// own, so a stale decline click can't cancel a fresh request the opponent made
+// afterwards.
+export async function declineRematch(matchId: number): Promise<DeclineRematchResult> {
+  const userId = await getCurrentUserId();
+  if (!userId) return { ok: false, error: "Not signed in." };
+
+  const [match] = await db.select().from(duelMatches).where(eq(duelMatches.id, matchId));
+  if (!match) return { ok: false, error: "Match not found." };
+  if (match.playerA !== userId && match.playerB !== userId) {
+    return { ok: false, error: "You are not part of this match." };
+  }
+
+  await db
+    .update(duelMatches)
+    .set({ rematchRequestedBy: null })
+    .where(and(eq(duelMatches.id, matchId), ne(duelMatches.rematchRequestedBy, userId)));
+
+  return { ok: true };
+}
+
 // --- requestRematch -------------------------------------------------------
 
 export type RequestRematchResult =
@@ -534,46 +472,69 @@ export async function requestRematch(oldMatchId: number): Promise<RequestRematch
   });
 }
 
-// Called at most once per match -- see closeRound's comment on why
-// duel_close_round's row lock guarantees that regardless of how many
-// clients/times call it. Writes both players' user_stats (rating + W/L)
-// and caches the deltas on duel_matches (CLAUDE.md's schema: "stored at
-// finish for the results screen") so a reload can read them back via
-// duel_state instead of needing the live match_end broadcast.
+// Writes both players' user_stats (rating + W/L) and caches the deltas on
+// duel_matches (CLAUDE.md's schema: "stored at finish for the results screen")
+// so a reload can read them back via duel_state instead of needing the live
+// match_end broadcast.
+//
+// EXACTLY ONCE PER MATCH, and duel_matches.rating_delta_a is what enforces it.
+// This used to lean on the caller for that: it ran inside the same Server
+// Action as duel_close_round, so that RPC's own row lock -- which hands
+// `advanced: true` to exactly one racing caller -- meant this could only be
+// reached once. Closing a round is now a separate client-side RPC, so that
+// coupling is gone and the guarantee has to live here. Both players' clients
+// observe the same finish and both call in; a forfeit can land on top of a
+// finish; a reconnecting client can arrive late.
+//
+// The null check alone would be a check-then-act race (two callers both read
+// null, both apply, ratings move twice). Taking the match row FOR UPDATE first
+// serializes them, so the second caller reads the row the first one wrote and
+// returns those deltas instead of applying its own.
 async function applyMatchResult(
   matchId: number,
   playerA: string,
   playerB: string,
   winnerId: string | null,
 ): Promise<{ ratingDeltaA: number; ratingDeltaB: number }> {
-  const [statsA] = await db.select().from(userStats).where(eq(userStats.userId, playerA));
-  const [statsB] = await db.select().from(userStats).where(eq(userStats.userId, playerB));
-  if (!statsA || !statsB) return { ratingDeltaA: 0, ratingDeltaB: 0 };
+  return db.transaction(async (tx) => {
+    const [match] = await tx.select().from(duelMatches).where(eq(duelMatches.id, matchId)).for("update");
+    if (!match) return { ratingDeltaA: 0, ratingDeltaB: 0 };
 
-  const outcome = winnerId === null ? "draw" : winnerId === playerA ? "a" : "b";
-  const { ratingA, ratingB } = updateDuelRatings(statsA.duelRating, statsB.duelRating, outcome);
-  const ratingDeltaA = ratingA - statsA.duelRating;
-  const ratingDeltaB = ratingB - statsB.duelRating;
+    // Already settled -- report what was actually written, don't re-apply.
+    // Checked on A alone because both are written in the one statement below.
+    if (match.ratingDeltaA !== null) {
+      return { ratingDeltaA: match.ratingDeltaA, ratingDeltaB: match.ratingDeltaB ?? 0 };
+    }
 
-  await db
-    .update(userStats)
-    .set({
-      duelRating: ratingA,
-      duelWins: statsA.duelWins + (outcome === "a" ? 1 : 0),
-      duelLosses: statsA.duelLosses + (outcome === "b" ? 1 : 0),
-    })
-    .where(eq(userStats.userId, playerA));
+    const [statsA] = await tx.select().from(userStats).where(eq(userStats.userId, playerA));
+    const [statsB] = await tx.select().from(userStats).where(eq(userStats.userId, playerB));
+    if (!statsA || !statsB) return { ratingDeltaA: 0, ratingDeltaB: 0 };
 
-  await db
-    .update(userStats)
-    .set({
-      duelRating: ratingB,
-      duelWins: statsB.duelWins + (outcome === "b" ? 1 : 0),
-      duelLosses: statsB.duelLosses + (outcome === "a" ? 1 : 0),
-    })
-    .where(eq(userStats.userId, playerB));
+    const outcome = winnerId === null ? "draw" : winnerId === playerA ? "a" : "b";
+    const { ratingA, ratingB } = updateDuelRatings(statsA.duelRating, statsB.duelRating, outcome);
+    const ratingDeltaA = ratingA - statsA.duelRating;
+    const ratingDeltaB = ratingB - statsB.duelRating;
 
-  await db.update(duelMatches).set({ ratingDeltaA, ratingDeltaB }).where(eq(duelMatches.id, matchId));
+    await tx
+      .update(userStats)
+      .set({
+        duelRating: ratingA,
+        duelWins: statsA.duelWins + (outcome === "a" ? 1 : 0),
+        duelLosses: statsA.duelLosses + (outcome === "b" ? 1 : 0),
+      })
+      .where(eq(userStats.userId, playerA));
 
-  return { ratingDeltaA, ratingDeltaB };
+    await tx
+      .update(userStats)
+      .set({
+        duelRating: ratingB,
+        duelWins: statsB.duelWins + (outcome === "b" ? 1 : 0),
+        duelLosses: statsB.duelLosses + (outcome === "a" ? 1 : 0),
+      })
+      .where(eq(userStats.userId, playerB));
+
+    await tx.update(duelMatches).set({ ratingDeltaA, ratingDeltaB }).where(eq(duelMatches.id, matchId));
+
+    return { ratingDeltaA, ratingDeltaB };
+  });
 }

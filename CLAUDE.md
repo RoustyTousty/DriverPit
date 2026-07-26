@@ -108,6 +108,16 @@ Where the Supabase session is cookie-backed (via `@supabase/ssr`), `daily_state(
 
 When `daily_submit_guess` completes a day it marks the row complete and calls the existing `recordDailyResult` path, still guarded by `daily_results`, so streaks and distribution can't be double-counted by a replay, a second device, or a re-hydration.
 
+### Streaks break on a missed day, not just a lost one
+
+A streak is **consecutive UTC days with a daily win**. Skipping a day ends it exactly like losing does — "just don't play" must never be the safe way to protect a streak. `user_stats.last_daily_date` (the UTC day of the last recorded result) is what makes that enforceable, and the rules are pure and unit-tested in `lib/game`-style isolation in `lib/stats/streak.ts`:
+
+- **On write** (`recordDailyResultForUser`): a win extends the stored streak only when it lands the day *after* `last_daily_date`; any gap restarts at 1. A loss is still 0. `last_daily_date` is written on losses too, so the column always means "the day of the last result".
+- **On read** — the half that's easy to miss: nothing writes `user_stats` on a day you skip, so a stored streak stays **frozen at its last value forever** unless every reader re-evaluates it. A stored streak counts as 0 unless `last_daily_date` is today or yesterday (today's puzzle isn't missed until the UTC day ends). Applied in `AuthProvider.toUserStats` for the viewer's own stats, and **in SQL in the `leaderboard` view** for everyone else — the view is not optional, because `getLeaderboard` does `ORDER BY current_streak` inside the database, where a client-side adjustment arrives too late to affect who got the slot.
+- **Null `last_daily_date` = no live streak.** After the drizzle/0037 backfill from `daily_results`, the only rows with a null anchor and a non-zero streak are legacy `migrateLocalStats` merges, whose streaks carry no dates and so can never be verified or decayed. They read as 0 and restart at 1 on the next result — trusting an undatable number forever is the bug itself.
+
+Decay-on-read rather than a nightly sweep: no cron to own, and it's exact the instant the UTC day turns over instead of whenever a job happens to run. The stored column stays stale by design; it is never the number shown or ranked.
+
 ## Fast guess evaluation (all modes)
 
 Every mode's guess must feel instant (~150-260ms measured for duel on a prod build). One path, applied everywhere:
@@ -244,7 +254,8 @@ any state ─▶ abandoned   (forfeit / disconnect)
 ```
 LOBBY_MIN_SEARCH_MS   1000   min time the "searching" UI shows before a match resolves
 MATCH_FOUND_HOLD_MS   2500   how long "Match found" + avatars/ratings hold before countdown
-COUNTDOWN_MS          4000    F1 lights-out into round 1 (and shorter mini-countdowns after)
+COUNTDOWN_MS          3900    F1 lights-out into a round -- the SAME for every round
+COUNTDOWN_GO_HOLD_MS   700    lights-out + "GO!" beat, inside the countdown (see below)
 ROUND_MS             60000    per-round guessing window (server-stamped)
 INTERMISSION_MS       6000    reveal + points animation + mini-countdown between rounds
 READY_TIMEOUT_MS      4000    fallback if a client never reports ready
@@ -258,7 +269,9 @@ These fix the "everything's too fast to see" complaints: the intermission is a r
 1. **Mode select.** `/online` landing shows Duel / Knockout (plus a guest upgrade prompt above them, same as Settings).
 2. **Lobby / matchmaking.** Selecting Duel renders the lobby UI *first* (searching animation) and enforces `LOBBY_MIN_SEARCH_MS` before resolving, so the player always sees the lobby load in. A Postgres RPC pairs atomically: `SELECT ... FOR UPDATE SKIP LOCKED` finds a waiting opponent (create match, mark both matched) or enqueues. No background worker. Match by rating when possible; widen the window the longer someone waits; fall back to anyone after a timeout.
 3. **Match found (staging).** Both avatars slide in from opposite sides (grid-start), with handles and ratings. Held `MATCH_FOUND_HOLD_MS`. Both clients report `ready`.
-4. **Lights-out countdown.** On both-ready (or timeout), `duel_begin_round` stamps round 1's `started_at = now() + COUNTDOWN_MS`, `ends_at = started_at + ROUND_MS`. Five red lights fill, then out = GO. Clients count to the absolute `started_at`, corrected for clock offset.
+4. **Lights-out countdown.** On both-ready (or timeout), `duel_begin_round` stamps the round's `started_at = now() + COUNTDOWN_MS`, `ends_at = started_at + ROUND_MS`. Every round gets the identical ceremony — same component, same length. The light **interval is derived, not fixed**: `useLightsCountdown` divides the budget actually remaining when the round lands by the four intervals between five lights, so the fifth light always arrives exactly `LIGHTS_ALL_LIT_HOLD_MS` before lights-out. A fixed interval left the leftover budget as dead air with all five lights on, and since that leftover shrank as latency grew, identical constants produced visibly different pauses per round. Five red lights fill one at a time — the number under them names the light that just lit (L1 = "5" … L5 = "1") — then out = GO. Clients count to the absolute `started_at`, corrected for clock offset.
+
+   **`started_at` means "the board is on screen and this player can act", not "the lights went out."** Lights-out is `COUNTDOWN_GO_HOLD_MS` *earlier*; clients run the lights to that moment and hold GO until `started_at`. This is load-bearing for fairness, not presentation: `ends_at` and `duel_submit_guess`'s ms-to-solve are both measured from `started_at`, so defining it as the instant play begins is what stops the ceremony being charged to the player's round time and to their speed points. Every constant in the countdown budget follows from it — the lights must complete within `countdown - COUNTDOWN_GO_HOLD_MS`.
 5. **Rounds (×3).** Each round targets one 10-year-pool driver.
    - **Guessing:** unlimited guesses within the timer, each returning the normal 5-attribute comparison (reuse `compare()`). Submission must feel **instant** — see "Instant guesses".
    - **Live standing:** every guess updates the tug-of-war live (not just at round end). Each player's **live score** = `100 (baseline) + confirmed round points + current-round provisional`. Provisional = locked speed points once solved, else the proximity value of the best guess so far. Both start at 100 so the bar opens centered and never snaps to an end.
@@ -286,6 +299,7 @@ Duel guessing uses the shared one-warm-hop path — see "Fast guess evaluation (
 ### Server authority (fairness)
 
 - Round timing is **server-stamped**: `duel_begin_round` sets `started_at`/`ends_at` from DB `now()`; both clients count down to the absolute `ends_at`, correcting for clock offset (ping server time once at match start). Never a client-authoritative clock.
+- **The round lifecycle is one warm hop too, for the same reason guesses are.** `beginRound`/`closeRound` are `supabase.rpc()` calls from the browser, never Server Actions. This is not only about feeling fast: a round's clock is stamped when the RPC runs but the client only learns when the response arrives, so *any* latency in that path is silently deducted from the countdown the player was meant to watch. A Server Action there (serverless invocation + auth hop + query hop + RPC hop) measured ~20s on a bad connection, which meant no lights at all and landing in a round already a third gone.
 - Round advancement is **client-triggered but idempotent**: when a client observes both done or the timer expired, it calls `duel_close_round` guarded on current round state — whichever fires first advances; the other is a no-op. A `pg_cron` sweep of expired rounds can back this up but isn't required for v1.
 - Guesses are validated and scored **server-side**. Never send the target driver to either client during a round; the target is disclosed only in the intermission, after the round is closed. Never send the opponent's guessed names — only abstracted heat/counts.
 - **Resume:** a `duel_state(match_id)` RPC returns the full current phase (status, current round, server timestamps, scores, both players) so a reloaded client rejoins at the right beat.
@@ -360,7 +374,9 @@ Accounts:
 ```
 profiles(id PK = auth.users.id, username, display_name, avatar_url, is_guest bool, created_at)
 user_stats(user_id PK FK, games_played, wins, current_streak, max_streak,
-           guess_distribution jsonb, last_result jsonb, duel_rating int default 1000,
+           guess_distribution jsonb, last_result jsonb,
+           last_daily_date date null,               -- UTC day of the last recorded daily result
+           duel_rating int default 1000,
            duel_wins, duel_losses)
 daily_results(user_id FK, date, won, guess_count, created_at, PRIMARY KEY (user_id, date))
 daily_progress(user_id FK, date,                    -- date is the UTC day, resolved server-side
@@ -444,6 +460,28 @@ duel_close_round(match_id, round_index)     -> stamps intermission_ends_at, pers
 duel_forfeit(match_id)                      -> marks abandoned/finished, opponent wins, writes ratings
 duel_state(match_id)                        -> full current phase for resume/reconnect
 ```
+
+The four above run on the **trusted Drizzle connection only** and have no `auth.uid()` check of
+their own -- `EXECUTE` is revoked from `anon`/`authenticated` (drizzle/0034), so a browser cannot
+reach them. The round lifecycle the browser *does* drive goes through thin `SECURITY DEFINER`
+authorization wrappers, so it gets the same one-warm-hop path as guesses:
+```
+duel_begin_round_client(match_id, round_index)   -> auth.uid() participant check, delegates to duel_begin_round
+duel_close_round_client(match_id, round_index)   -> auth.uid() participant check, delegates to duel_close_round
+duel_server_time()                               -> DB now(), for the clock-offset ping
+```
+Wrappers rather than adding the check inside the originals: `duel_close_round` is ~120 lines of
+scoring and advancement rules, and rewriting it to add four lines of authorization would put those
+rules at risk for no reason. One definition of the logic, one definition of the authorization.
+
+**Ratings are the deliberate exception to the warm path.** `duel_close_round_client` does not write
+them; `applyMatchRatings` (a Server Action, `lib/duel/actions.ts`) does, called separately and only
+when a close actually finished the match. The Elo math is a unit-tested TypeScript function
+(`lib/game/duelRating.ts`) and porting it to plpgsql would leave two definitions of the same rules
+to drift. It's the one moment in a duel where latency costs nothing -- the match is already over.
+Because it is no longer in the same server-side breath as the close, it is idempotent on its own:
+`duel_matches` row lock + a `rating_delta_a IS NULL` check, so a second caller reads back what the
+first wrote.
 
 Knockout (planned — not yet created):
 ```
