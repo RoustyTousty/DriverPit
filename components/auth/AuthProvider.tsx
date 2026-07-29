@@ -1,7 +1,7 @@
 "use client";
 
 import { isAuthRetryableFetchError, type Session, type User } from "@supabase/supabase-js";
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { forfeitMatch } from "@/lib/duel/actions";
 import { getLiveMatchId, isQueued } from "@/lib/duel/duelCommitments";
@@ -439,7 +439,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // and does NOT sign out or reload. Reloading anyway would strand a live match
   // or a matchable queue row while destroying the only client that still had
   // the session needed to clean it up.
-  async function signOutAndReset() {
+  //
+  // useCallback, not a plain function declaration: this goes into the context
+  // value, so an unstable identity would make that value new on every render no
+  // matter how the value itself is memoized -- and would churn the deps of any
+  // consumer that captures it (ProfileSection's sign-out handler).
+  const signOutAndReset = useCallback(async () => {
     // 1a. Forfeit a live match so the opponent gets an immediate clean win
     //     rather than waiting out DISCONNECT_GRACE_MS.
     const liveMatchId = getLiveMatchId();
@@ -468,13 +473,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // 3.
     window.location.assign("/");
-  }
+  }, [supabase]);
 
-  return (
-    <AuthContext.Provider
-      value={{ user, session, profile, stats, userId, isGuest, identityStatus, status, loading, refresh, signOutAndReset }}
-    >
-      {children}
-    </AuthContext.Provider>
+  // Memoized because AuthProvider wraps the ENTIRE app: a fresh object literal
+  // here re-renders every useAuth() consumer on every provider render, whether
+  // or not anything they read actually changed. `refresh` and `signOutAndReset`
+  // are both useCallback for the same reason -- one unstable function is enough
+  // to defeat the memo.
+  const value = useMemo(
+    () => ({
+      user,
+      session,
+      profile,
+      stats,
+      userId,
+      isGuest,
+      identityStatus,
+      status,
+      loading,
+      refresh,
+      signOutAndReset,
+    }),
+    [
+      user,
+      session,
+      profile,
+      stats,
+      userId,
+      isGuest,
+      identityStatus,
+      status,
+      loading,
+      refresh,
+      signOutAndReset,
+    ],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

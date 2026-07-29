@@ -1,0 +1,143 @@
+name: CI
+
+# Why this exists (audit 2026-07-27 §2.6): the live game rules are duplicated
+# between TypeScript and plpgsql -- the compare ladder, the duel scoring weights,
+# MAX_GUESSES, the daily pool cutoff -- and the suites that pin the two together
+# are `describe.skipIf(!RUN)` behind RUN_DB_INTEGRATION_TESTS=1. Locally that means
+# they run when someone remembers. Here they run on every push, which is the
+# difference between "documented" and "enforced".
+#
+# Two tiers, deliberately:
+#   * `static`   -- typecheck + the pure suites. Needs nothing, runs everywhere,
+#                   including on pull requests from forks.
+#   * `database` -- the RPC/parity/grant suites and `next build`. Needs a real
+#                   Supabase project, so it self-skips when the secrets are absent
+#                   rather than failing red and training everyone to ignore it.
+#
+# To turn the database tier on, set three repository secrets (Settings → Secrets
+# and variables → Actions). See .env.example for what they are:
+#   DATABASE_URL, NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
+#
+# Point them at a SCRATCH Supabase project, not production. These suites write
+# real rows: they sign in anonymous users (creating auth.users), pin probe days in
+# daily_targets, and create duel matches. They clean up after themselves, but
+# "cleans up after itself" is not the same as "safe to run against live players".
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: Typecheck + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The repo's two static checks, per CLAUDE.md. There is deliberately no
+      # ESLint config, so there is deliberately no lint step -- adding one here
+      # would be inventing a policy the codebase hasn't adopted. (`next build` is
+      # the other documented check; it needs a database, so it lives below.)
+      - name: tsc --noEmit
+        run: npm run typecheck
+
+      - name: Unit tests (pure suites)
+        run: npm test
+
+  preflight:
+    name: Database secrets configured?
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      # The `secrets` context is not available in a job-level `if:`, so the flag
+      # has to be computed in a step and passed out as an output. Values are only
+      # ever tested for emptiness; nothing is echoed.
+      - id: check
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -n "$DATABASE_URL" ] && [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Database suites skipped::Set DATABASE_URL, NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to run the RPC, parity and grant suites. Fork pull requests never receive secrets, so this is expected there."
+          fi
+
+  database:
+    name: Integration + parity suites
+    needs: [static, preflight]
+    if: needs.preflight.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    # Serialized across the whole repo, not per-ref: these suites share one
+    # database. Two runs pinning probe days in daily_targets or racing
+    # match_or_queue against each other would fail on interference rather than on
+    # a real regression, which is the fastest way to make a suite ignored.
+    concurrency:
+      group: db-integration
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The whole suite, with the opt-in gate lifted -- the parity tests that pin
+      # SQL compare_drivers to lib/game/compare.ts, the RPC behaviour tests, the
+      # matchmaking self-match guards, and the grant policy in
+      # lib/db/schemaGrants.test.ts (pg_proc.proacl + role_table_grants, the check
+      # §3.1's resolution asks for by name).
+      - name: Integration tests (RUN_DB_INTEGRATION_TESTS=1)
+        env:
+          RUN_DB_INTEGRATION_TESTS: "1"
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: npm test
+
+  build:
+    name: next build
+    needs: [static, preflight]
+    if: needs.preflight.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Needs the database because /daily, /infinite and /online are ISR pages
+      # that read the driver pool while prerendering -- which is also what makes
+      # this a real check and not a duplicate of `tsc`.
+      - name: Production build
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: npm run build

@@ -1,12 +1,8 @@
-import { eq, gte, sql } from "drizzle-orm";
+import { gte, sql } from "drizzle-orm";
 
-import { calculateAge, type Driver as GameDriver } from "../game/compare";
-import { pickDailyDriverId } from "../game/dailySelection";
 import { poolCutoffYear, type PoolWindow } from "../game/poolWindow";
 import { db } from "./index";
 import { drivers } from "./schema";
-
-export type DriverRow = typeof drivers.$inferSelect;
 
 export interface EligibleDriverOption {
   id: number;
@@ -57,51 +53,10 @@ export async function listPoolDriverOptions(
     .orderBy(drivers.fullName);
 }
 
-export async function listPoolDriverIds(window: PoolWindow, referenceYear: number): Promise<number[]> {
-  const rows = await db
-    .select({ id: drivers.id })
-    .from(drivers)
-    .where(poolCondition(window, referenceYear));
-  return rows.map((row) => row.id);
-}
-
-export async function getRandomPoolDriverId(window: PoolWindow, referenceYear: number): Promise<number> {
-  const [row] = await db
-    .select({ id: drivers.id })
-    .from(drivers)
-    .where(poolCondition(window, referenceYear))
-    .orderBy(sql`random()`)
-    .limit(1);
-
-  if (!row) {
-    throw new Error(`No drivers found for pool window "${window}". Run the seed script.`);
-  }
-  return row.id;
-}
-
-export async function getDriverById(
-  id: number,
-): Promise<DriverRow | undefined> {
-  const [row] = await db
-    .select()
-    .from(drivers)
-    .where(eq(drivers.id, id))
-    .limit(1);
-  return row;
-}
-
-export function toGameDriver(row: DriverRow): GameDriver {
-  return {
-    nationality: row.nationality,
-    team: row.lastTeam ?? "",
-    previousTeams: row.previousTeams,
-    dateOfBirth: row.dateOfBirth,
-    dateOfDeath: row.dateOfDeath,
-    debutYear: row.debutYear,
-    careerWins: row.careerWins,
-  };
-}
-
+// A guessed driver as the board renders it: the five compared attributes plus
+// identity. Produced in SQL now (compare_drivers / the three guess RPCs), so
+// there is no toDriverSummary() here to build one from a `drivers` row -- see
+// the note at the bottom of this file.
 export interface DriverSummary {
   id: number;
   fullName: string;
@@ -113,27 +68,19 @@ export interface DriverSummary {
   careerWins: number;
 }
 
-export function toDriverSummary(row: DriverRow, today: Date): DriverSummary {
-  return {
-    id: row.id,
-    fullName: row.fullName,
-    driverCode: row.driverCode,
-    nationality: row.nationality,
-    team: row.lastTeam ?? "—",
-    age: calculateAge(row.dateOfBirth, row.dateOfDeath, today),
-    debutYear: row.debutYear,
-    careerWins: row.careerWins,
-  };
-}
-
-// Computed fresh from the *current* pool on every call, not read from a
-// precomputed schedule -- see lib/game/dailySelection.ts for why.
-export async function getDailyDriverId(
-  window: PoolWindow,
-  referenceYear: number,
-  date: string,
-): Promise<number> {
-  const pool = await listPoolDriverIds(window, referenceYear);
-  return pickDailyDriverId(date, pool);
-}
-
+// WHAT IS DELIBERATELY NOT HERE, and why (audit 2026-07-27 §2.1, §3.1).
+//
+// This file is down to the two roster reads a page still does server-side. The
+// selection and comparison helpers that used to live beside them --
+// listPoolDriverIds, getRandomPoolDriverId, getDriverById, toGameDriver,
+// toDriverSummary -- were orphaned by the Server-Action -> RPC migration and are
+// gone. Every mode now picks its target and evaluates its guess inside Postgres
+// (compare_drivers, daily_target_id, the three *_submit_guess RPCs), so a TS
+// helper doing the same work is a second implementation with no callers.
+//
+// getDailyDriverId() specifically must never come back. The day's target is a
+// RANDOM pick made once inside public.daily_target_id (drizzle/0038) and pinned
+// in daily_targets. A TypeScript helper that could recompute it is exactly the
+// leak §3.1 closed -- /daily ships the whole pool WITH ids to the browser for
+// autocomplete, so a reproducible answer is a devtools one-liner. Server code
+// that needs the target reads daily_targets over the trusted connection.

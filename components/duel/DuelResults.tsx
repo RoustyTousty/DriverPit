@@ -7,7 +7,7 @@ import { useSettingsModal } from "@/components/layout/SettingsModalContext";
 import { AvatarGlyph } from "@/components/ui/AvatarGlyph";
 import { getDuelResults, type DuelResultsData } from "@/lib/duel/actions";
 
-import type { MatchEndReason, RematchState } from "./DuelMatch";
+import type { MatchEndReason, RematchState } from "./duelMatchTypes";
 
 // CLAUDE.md's Duel "Match end": rendered back in the site shell (DuelMatch
 // flips ActiveMatchContext off the moment its phase hits "finished", which

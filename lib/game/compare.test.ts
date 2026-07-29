@@ -121,6 +121,28 @@ describe("compare", () => {
       const guess = makeDriver({ team: "Ferrari" });
       expect(compare(guess, target, TODAY).team).toBe("miss");
     });
+
+    // "" is a driver with no constructor on record (null last_team). Absence
+    // is not a shared value: two teamless drivers must not read as exact.
+    it("reports miss when neither the guess nor the target has a team", () => {
+      const target = makeDriver({ team: "", previousTeams: [] });
+      const guess = makeDriver({ team: "", previousTeams: [] });
+      expect(compare(guess, target, TODAY).team).toBe("miss");
+    });
+
+    it("reports miss for a teamless guess against a target that has a team", () => {
+      const target = makeDriver({ team: "Mercedes", previousTeams: ["Mercedes"] });
+      const guess = makeDriver({ team: "", previousTeams: [] });
+      expect(compare(guess, target, TODAY).team).toBe("miss");
+    });
+
+    // A teamless target can still have a history, so a real team guessed
+    // against it must still be able to come back historical.
+    it("still reports historical against a teamless target with a team history", () => {
+      const target = makeDriver({ team: "", previousTeams: ["McLaren"] });
+      const guess = makeDriver({ team: "McLaren" });
+      expect(compare(guess, target, TODAY).team).toBe("historical");
+    });
   });
 
   describe("closeness", () => {
@@ -271,39 +293,25 @@ describe("calculateAge", () => {
 });
 
 describe("isWin", () => {
-  it("returns true when every attribute is exact/correct", () => {
-    expect(
-      isWin({
-        nationality: "exact",
-        team: "exact",
-        age: "correct",
-        debutYear: "correct",
-        careerWins: "correct",
-      }),
-    ).toBe(true);
+  it("returns true only for the target driver itself", () => {
+    expect(isWin(42, 42)).toBe(true);
+    expect(isWin(42, 43)).toBe(false);
   });
 
-  it("returns false when a single attribute is not exact/correct", () => {
-    expect(
-      isWin({
-        nationality: "exact",
-        team: "exact",
-        age: "correct",
-        debutYear: "higher",
-        careerWins: "correct",
-      }),
-    ).toBe(false);
-  });
+  // The whole point of the identity rule: a driver who matches the target on
+  // all five attributes is still not the target. Asserted through compare() so
+  // this fails if the win rule is ever re-derived from tiles.
+  it("is false for a different driver that matches on every attribute", () => {
+    const target = makeDriver();
+    const doppelganger = makeDriver();
 
-  it("returns false when nothing matches", () => {
-    expect(
-      isWin({
-        nationality: "miss",
-        team: "miss",
-        age: "lower",
-        debutYear: "lower",
-        careerWins: "lower",
-      }),
-    ).toBe(false);
+    const result = compare(doppelganger, target, TODAY);
+    expect(result.nationality).toBe("exact");
+    expect(result.team).toBe("exact");
+    expect(result.age).toBe("correct");
+    expect(result.debutYear).toBe("correct");
+    expect(result.careerWins).toBe("correct");
+
+    expect(isWin(1, 2)).toBe(false);
   });
 });

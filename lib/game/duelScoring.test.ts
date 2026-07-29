@@ -109,9 +109,10 @@ describe("proximityPoints", () => {
   });
 
   it("never outscores the worst possible solve, even at its own theoretical ceiling", () => {
-    // Every field maxed out -- not a combination compare() could actually
-    // produce for a non-winning guess (that would be a win), but it pins
-    // down the function's absolute ceiling regardless of real achievability.
+    // Every field maxed out. This IS reachable without solving: a driver who
+    // matches the target on all five attributes is still not the target (see
+    // compare.ts#isWin), so the "any solve beats any DNF" floor has to hold on
+    // the ceiling itself, not on the ceiling being unachievable.
     const ceiling = makeResult({
       nationality: "exact",
       team: "exact",
@@ -145,7 +146,10 @@ describe("proximityPoints", () => {
     const today = new Date("2026-07-17T00:00:00Z");
 
     const result = compare(guess, target, today);
-    expect(isWin(result)).toBe(false);
+    // A near miss, not a solve. What makes it a DNF is that it's a different
+    // driver (isWin is driver identity); the tiles only say how close it got.
+    expect(isWin(1, 2)).toBe(false);
+    expect(result.team).toBe("historical");
 
     const points = proximityPoints(result);
     expect(points).toBeGreaterThan(0);
@@ -154,7 +158,7 @@ describe("proximityPoints", () => {
 });
 
 describe("guessHeat", () => {
-  it("is 0 for a total miss and 1 for a perfect (winning) result", () => {
+  it("is 0 for a total miss and 1 for an all-attributes-match result", () => {
     expect(guessHeat(makeResult({ ageCloseness: 0, debutYearCloseness: 0, careerWinsCloseness: 0 }))).toBe(0);
     expect(
       guessHeat(

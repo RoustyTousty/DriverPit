@@ -7,9 +7,10 @@ import type { DriverOption } from "@/components/game/DriverAutocomplete";
 import { LoadingOverlay } from "@/components/game/LoadingOverlay";
 import { getMyLiveMatch } from "@/lib/duel/actions";
 import { setLiveMatchId } from "@/lib/duel/duelCommitments";
+import { matchHeartbeat } from "@/lib/duel/matchHeartbeat";
 import { useDuelChannel } from "@/lib/duel/useDuelChannel";
 import { useServerClock } from "@/lib/duel/useServerClock";
-import { READY_TIMEOUT_MS } from "@/lib/game/duelTiming";
+import { DUEL_HEARTBEAT_MS, READY_TIMEOUT_MS } from "@/lib/game/duelTiming";
 import type { MatchResult } from "@/lib/duel/matchmaking";
 
 import { useActiveMatch } from "./ActiveMatchContext";
@@ -124,6 +125,41 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
     setLiveMatchId(live);
     return () => setLiveMatchId(null);
   }, [phase, match]);
+
+  // Server-side liveness (drizzle/0040). Presence tells the two CLIENTS whether
+  // each other are there; this is what tells the DATABASE, which is where the
+  // decision that actually writes Elo gets authorized -- forfeitMatch refuses to
+  // forfeit a player whose beat isn't stale past DISCONNECT_GRACE_MS.
+  //
+  // Deliberately here and not in DuelMatch: the beat has to cover every phase in
+  // which the opponent's grace timer could fire against you, and that starts at
+  // staging (`found`), one component up. It stops by itself once the RPC reports
+  // the match terminal, so the results screen isn't writing every 5s while
+  // someone thinks about a rematch. Ends up in exactly the same phases
+  // setLiveMatchId covers above, for the same reason.
+  const heartbeatMatchId = phase === "landing" || phase === "searching" ? null : (match?.matchId ?? null);
+  useEffect(() => {
+    if (heartbeatMatchId === null) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const stop = () => {
+      if (timer !== null) clearInterval(timer);
+      timer = null;
+    };
+    const beat = async () => {
+      const result = await matchHeartbeat(heartbeatMatchId);
+      // "error" keeps the interval alive on purpose -- a beat lost to a flaky
+      // connection must not stand liveness down and make a present player
+      // forfeitable. Only a definitive "this match is over" stops it.
+      if (!cancelled && result === "terminal") stop();
+    };
+    void beat();
+    timer = setInterval(() => void beat(), DUEL_HEARTBEAT_MS);
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [heartbeatMatchId]);
 
   function handleFound(found: MatchResult) {
     setMatch(found);

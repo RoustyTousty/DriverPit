@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { buildHashForwardHtml, sanitizeErrorCode, sanitizeNextPath } from "@/lib/auth/oauthCallback";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+// Auth redirects carry per-user state and must never sit in a shared cache.
+const NO_STORE = { "cache-control": "no-store" };
 
 // Lands here after an OAuth redirect (Google sign-in, or linkIdentity()
 // upgrading an anonymous guest). Exchanges the auth code for a session —
@@ -9,11 +13,12 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const rawNext = searchParams.get("next") ?? "/daily";
   // `next` round-trips through Supabase's redirect and back to us -- only
   // ever trust it as a same-site path, never an absolute URL, so a crafted
-  // `?next=` can't turn this into an open redirect.
-  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/daily";
+  // `?next=` can't turn this into an open redirect or (in the no-code branch
+  // below, which serves HTML) inject markup. See lib/auth/oauthCallback.ts
+  // for the rules; anything unexpected becomes `/daily`.
+  const next = sanitizeNextPath(searchParams.get("next"));
 
   if (code) {
     const supabase = await createSupabaseServerClient();
@@ -23,7 +28,7 @@ export async function GET(request: NextRequest) {
       // OAuthErrorHandler can show a closing confirmation -- otherwise a
       // recovered identity-conflict sign-in (see below) ends in silence,
       // which reads as "did that actually work?" even though it did.
-      return NextResponse.redirect(`${origin}${next}?oauth=success`);
+      return NextResponse.redirect(`${origin}${next}?oauth=success`, { headers: NO_STORE });
     }
     console.error("OAuth code exchange failed", error);
     // Forward the real reason (e.g. "identity_already_exists" when a
@@ -31,7 +36,8 @@ export async function GET(request: NextRequest) {
     // DriverPit account) so OAuthErrorHandler can react to it specifically
     // instead of showing a generic failure.
     return NextResponse.redirect(
-      `${origin}${next}?error_code=${encodeURIComponent(error.code ?? "oauth_callback_failed")}`,
+      `${origin}${next}?error_code=${encodeURIComponent(sanitizeErrorCode(error.code))}`,
+      { headers: NO_STORE },
     );
   }
 
@@ -44,13 +50,32 @@ export async function GET(request: NextRequest) {
   // client code ever sees it), serve a one-line script that reads the hash
   // itself and forwards it as a query param on `next`, where
   // OAuthErrorHandler can reliably pick it up either way.
-  const fallbackCode = searchParams.get("error_code") ?? searchParams.get("error") ?? "oauth_callback_failed";
-  const html = `<!doctype html><script>
-(function () {
-  var hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-  var code = hashParams.get("error_code") || ${JSON.stringify(fallbackCode)};
-  window.location.replace(${JSON.stringify(next)} + "?error_code=" + encodeURIComponent(code));
-})();
-</script>`;
-  return new NextResponse(html, { headers: { "content-type": "text/html; charset=utf-8" } });
+  //
+  // This is the app's only server-rendered HTML built from request input, and
+  // the session cookies @supabase/ssr writes are readable by script, so the
+  // response is locked down accordingly: values reach the script as escaped
+  // `data-*` attributes rather than interpolated source, and the CSP below
+  // admits only this exact nonce -- no inline, no external, no anything else.
+  const nonce = crypto.randomUUID();
+  const html = buildHashForwardHtml({
+    next,
+    errorCode: sanitizeErrorCode(searchParams.get("error_code") ?? searchParams.get("error")),
+    nonce,
+  });
+
+  return new NextResponse(html, {
+    headers: {
+      ...NO_STORE,
+      "content-type": "text/html; charset=utf-8",
+      "content-security-policy": [
+        "default-src 'none'",
+        `script-src 'nonce-${nonce}'`,
+        "base-uri 'none'",
+        "form-action 'none'",
+        "frame-ancestors 'none'",
+      ].join("; "),
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "no-referrer",
+    },
+  });
 }

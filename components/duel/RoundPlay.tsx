@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo } from "react";
+
 import { DriverAutocomplete, type DriverOption } from "@/components/game/DriverAutocomplete";
 import { MAX_ROUNDS } from "@/lib/duel/liveMatch";
 import { DUEL_BASELINE, liveScore, proximityPoints } from "@/lib/game/duelScoring";
@@ -68,20 +70,43 @@ export function RoundPlay({
   // Live standing (CLAUDE.md's Duel "Live standing"): baseline + confirmed
   // round points (already closed rounds) + this round's provisional --
   // locked speed points once solved, else the best proximity among guesses
-  // so far. Recomputed every render straight from state already held here
-  // (myGuesses, the opponent's last guess/solved broadcast), so the tug bar
-  // moves on every new best guess and jumps on a solve, not only when
-  // duel_close_round actually closes the round.
+  // so far. Derived straight from state already held here (myGuesses, the
+  // opponent's last guess/solved broadcast), so the tug bar moves on every new
+  // best guess and jumps on a solve, not only when duel_close_round actually
+  // closes the round.
+  //
+  // Memoized on the guess list rather than recomputed per render because this
+  // component re-renders on every countdown tick and the proximity scan is
+  // field math over every guess of the round -- 10x a second for a value that
+  // only changes when a guess lands (audit 2026-07-27 §1.0).
   const myConfirmed = isPlayerA ? confirmedScoreA : confirmedScoreB;
   const opponentConfirmed = isPlayerA ? confirmedScoreB : confirmedScoreA;
-  const myProvisional = me.solved
-    ? (me.roundPoints ?? 0)
-    : Math.max(0, ...me.guesses.map((g) => proximityPoints(g.result)));
+  const bestProximity = useMemo(
+    () => Math.max(0, ...me.guesses.map((g) => proximityPoints(g.result))),
+    [me.guesses],
+  );
+  const myProvisional = me.solved ? (me.roundPoints ?? 0) : bestProximity;
   const opponentProvisional = opponent.progress.solved
     ? (opponent.progress.solvedPoints ?? 0)
     : opponent.progress.provisionalPoints;
   const liveMine = liveScore({ baseline: DUEL_BASELINE, confirmedPoints: myConfirmed, provisional: myProvisional });
   const liveOpponent = liveScore({ baseline: DUEL_BASELINE, confirmedPoints: opponentConfirmed, provisional: opponentProvisional });
+
+  // Stable prop objects, so OpponentPanel's memo() actually holds across the
+  // ticks: a fresh literal every render would defeat it on identity alone.
+  const myPanelStats = useMemo(
+    () => ({ handle: me.handle, avatarUrl: me.avatarUrl, livePoints: liveMine, guessCount: me.guesses.length }),
+    [me.handle, me.avatarUrl, liveMine, me.guesses.length],
+  );
+  const opponentPanelStats = useMemo(
+    () => ({
+      handle: opponent.handle,
+      avatarUrl: opponent.avatarUrl,
+      livePoints: liveOpponent,
+      guessCount: opponent.progress.guessCount,
+    }),
+    [opponent.handle, opponent.avatarUrl, liveOpponent, opponent.progress.guessCount],
+  );
 
   return (
     <div className="flex flex-col gap-4 px-4 py-6">
@@ -100,13 +125,8 @@ export function RoundPlay({
       </div>
 
       <OpponentPanel
-        me={{ handle: me.handle, avatarUrl: me.avatarUrl, livePoints: liveMine, guessCount: me.guesses.length }}
-        opponent={{
-          handle: opponent.handle,
-          avatarUrl: opponent.avatarUrl,
-          livePoints: liveOpponent,
-          guessCount: opponent.progress.guessCount,
-        }}
+        me={myPanelStats}
+        opponent={opponentPanelStats}
         opponentBestHeat={opponent.progress.bestHeat}
         opponentSolved={opponent.progress.solved}
         opponentSolvedPoints={opponent.progress.solvedPoints}

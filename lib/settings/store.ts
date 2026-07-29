@@ -47,3 +47,23 @@ export function applyColorblindAttribute(colorblindMode: boolean) {
   if (typeof document === "undefined") return;
   document.documentElement.dataset.colorblind = colorblindMode ? "true" : "false";
 }
+
+// The same attribute, set by a BLOCKING inline script as the first thing in
+// <body> (app/layout.tsx) rather than from an effect after hydration.
+//
+// The setting can only be read from localStorage, which the server doesn't
+// have, so the first paint would otherwise always be the default: a colorblind
+// player saw green "correct" tiles flip to blue a moment later. For the one
+// user this setting exists for, a flash of exactly the colour they can't
+// distinguish is the failure mode (docs/audit-2026-07-27.md §4.7). Running
+// before the browser has parsed any of the page below it means the attribute
+// is set before anything paints, so there is no wrong frame at all.
+//
+// Built from STORAGE_KEY here rather than written out in the layout so the key
+// can't drift from readSettings(), and it falls back to "false" on a missing
+// or unparseable value exactly like DEFAULT_SETTINGS does. Its whole input is
+// this module's own constants -- no interpolated user data, ever.
+export const COLORBLIND_BOOTSTRAP_SCRIPT =
+  `try{var v=localStorage.getItem(${JSON.stringify(STORAGE_KEY)});` +
+  `document.documentElement.dataset.colorblind=v&&JSON.parse(v).colorblindMode?"true":"false"}` +
+  `catch(e){document.documentElement.dataset.colorblind="false"}`;

@@ -1,11 +1,12 @@
 "use server";
 
-import { and, desc, eq, gt, ne, notInArray, or } from "drizzle-orm";
+import { and, desc, eq, gt, ne, notInArray, or, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { duelForfeit, duelState } from "@/lib/db/duelRpc";
 import { duelMatches, duelRoundResults, duelRounds, userStats } from "@/lib/db/schema";
 import { updateDuelRatings } from "@/lib/game/duelRating";
+import { DISCONNECT_GRACE_MS } from "@/lib/game/duelTiming";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 import type { MatchResult } from "./matchmaking";
@@ -155,11 +156,31 @@ export type ForfeitMatchResult =
 // after DISCONNECT_GRACE_MS. Idempotent through duel_forfeit's own row-lock
 // guard (see drizzle/0026): however many times this is called, from either
 // side, the status flip and the rating/record write happen exactly once.
+//
+// FORFEITING SOMEONE ELSE NEEDS SERVER-VERIFIED ABSENCE. The checks used to be
+// "the caller is a participant" and "the target is a participant" -- both true
+// of an attacker forfeiting their live opponent mid-match, which set
+// winner_id = attacker and wrote real Elo: a guaranteed win on demand, farming
+// the column the leaderboard sorts on (audit 2026-07-27 §3.3). The client-side
+// DISCONNECT_GRACE_MS timer was the entire enforcement. Now the absent player's
+// own liveness heartbeat (drizzle/0040) has to agree, and the comparison is
+// evaluated IN THE DATABASE alongside the row read -- both timestamps then come
+// off the same clock, and it costs no extra round trip. Forfeiting *yourself*
+// is unconditional, as it must be: it is how Exit and sign-out work.
 export async function forfeitMatch(matchId: number, forfeitedPlayerId?: string): Promise<ForfeitMatchResult> {
   const userId = await getCurrentUserId();
   if (!userId) return { ok: false, error: "Not signed in." };
 
-  const [match] = await db.select().from(duelMatches).where(eq(duelMatches.id, matchId));
+  const graceSeconds = DISCONNECT_GRACE_MS / 1000;
+  const [match] = await db
+    .select({
+      playerA: duelMatches.playerA,
+      playerB: duelMatches.playerB,
+      absentA: sql<boolean>`now() - ${duelMatches.lastSeenA} > (${graceSeconds}::double precision * interval '1 second')`,
+      absentB: sql<boolean>`now() - ${duelMatches.lastSeenB} > (${graceSeconds}::double precision * interval '1 second')`,
+    })
+    .from(duelMatches)
+    .where(eq(duelMatches.id, matchId));
   if (!match) return { ok: false, error: "Match not found." };
   if (match.playerA !== userId && match.playerB !== userId) {
     return { ok: false, error: "You are not part of this match." };
@@ -168,6 +189,13 @@ export async function forfeitMatch(matchId: number, forfeitedPlayerId?: string):
   const forfeited = forfeitedPlayerId ?? userId;
   if (forfeited !== match.playerA && forfeited !== match.playerB) {
     return { ok: false, error: "That player is not part of this match." };
+  }
+
+  if (forfeited !== userId && !(forfeited === match.playerA ? match.absentA : match.absentB)) {
+    // Not an error state for the honest caller: their grace timer retries, and
+    // a still-present opponent means there was nothing to declare. Only a
+    // forged call sees this as a dead end.
+    return { ok: false, error: "Your opponent is still connected." };
   }
 
   let result;

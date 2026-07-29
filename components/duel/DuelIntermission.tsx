@@ -10,12 +10,13 @@ import type { DuelChannelState } from "@/lib/duel/useDuelChannel";
 import { DUEL_BASELINE } from "@/lib/game/duelScoring";
 import { POINTS_COUNT_UP_MS, READY_TIMEOUT_MS } from "@/lib/game/duelTiming";
 import { countryCode } from "@/lib/game/flags";
+import { tileValueLabel } from "@/lib/game/tileLabel";
 import { usePrefersReducedMotion } from "@/lib/settings/usePrefersReducedMotion";
 import { useSettings } from "@/lib/settings/useSettings";
 
 import { TugOfWarBar } from "./TugOfWarBar";
 import { useCountUp } from "./useCountUp";
-import { useServerCountdown } from "./useServerCountdown";
+import { useServerDeadlinePassed } from "./useServerCountdown";
 
 interface IntermissionPlayer {
   handle: string;
@@ -92,8 +93,12 @@ export function DuelIntermission({
   const myCountUp = useCountUp(me.roundPoints, POINTS_COUNT_UP_MS, reducedMotion);
   const opponentCountUp = useCountUp(opponent.roundPoints, POINTS_COUNT_UP_MS, reducedMotion);
 
-  const remainingMs = useServerCountdown(intermissionEndsAt, clockOffsetMs);
-  const countdownDone = remainingMs <= 0;
+  // Only the *edge* is needed, never the number: this beat's remaining time
+  // hasn't been drawn since the mini-countdown was removed (see the note by
+  // the status line below), it just gates the ready-gate. It was still being
+  // polled at 10Hz for ~60 renders an intermission on top of the two
+  // DuelMatch was already running -- audit 2026-07-27 §1.0's worst screen.
+  const countdownDone = useServerDeadlinePassed(intermissionEndsAt, clockOffsetMs);
   const countdownDoneRef = useRef(false);
   const [readySent, setReadySent] = useState(false);
   const [readyTimedOut, setReadyTimedOut] = useState(false);
@@ -151,13 +156,26 @@ export function DuelIntermission({
 
       <p className="text-lg font-bold text-text">{targetDriver.fullName}</p>
 
+      {/* The one tile row with no column headers above it, so the labels carry
+          the column names as well as the values -- and there's no verdict to
+          say here: these are the answer's stats, not a comparison. */}
       <div className="flex w-full gap-1 [perspective:600px]">
         <DriverCodeBadge code={targetDriver.driverCode} />
-        <Tile feedback="exact">{nationalityValue}</Tile>
-        <Tile feedback="exact">{targetDriver.team}</Tile>
-        <Tile feedback="correct">{targetDriver.age}</Tile>
-        <Tile feedback="correct">{targetDriver.debutYear}</Tile>
-        <Tile feedback="correct">{targetDriver.careerWins}</Tile>
+        <Tile feedback="exact" label={tileValueLabel("nationality", targetDriver.nationality)}>
+          {nationalityValue}
+        </Tile>
+        <Tile feedback="exact" label={tileValueLabel("team", targetDriver.team)}>
+          {targetDriver.team}
+        </Tile>
+        <Tile feedback="correct" label={tileValueLabel("age", targetDriver.age)}>
+          {targetDriver.age}
+        </Tile>
+        <Tile feedback="correct" label={tileValueLabel("debutYear", targetDriver.debutYear)}>
+          {targetDriver.debutYear}
+        </Tile>
+        <Tile feedback="correct" label={tileValueLabel("careerWins", targetDriver.careerWins)}>
+          {targetDriver.careerWins}
+        </Tile>
       </div>
 
       <div className="flex w-full items-center justify-between gap-4">

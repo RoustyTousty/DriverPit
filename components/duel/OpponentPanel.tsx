@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 
 import { AvatarGlyph } from "@/components/ui/AvatarGlyph";
 
@@ -19,7 +19,11 @@ export interface PlayerLiveStats {
 // abstracted signals alone: a pulse on every guess (guessCount ticking),
 // a continuous glow scaled by their best heat (0-1), and a burst +
 // "SOLVED +N" the moment they solve.
-export function OpponentPanel({
+//
+// memo'd: two AvatarGlyphs (DiceBear-rendered) is real work to walk on every
+// round-timer tick, and none of what it draws changes between guesses. Its
+// two object props are memoized by RoundPlay so the comparison can hold.
+export const OpponentPanel = memo(function OpponentPanel({
   me,
   opponent,
   opponentBestHeat,
@@ -106,4 +110,4 @@ export function OpponentPanel({
       </div>
     </div>
   );
-}
+});

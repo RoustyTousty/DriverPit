@@ -65,7 +65,10 @@ describe.skipIf(!RUN)("compare_drivers SQL parity with compare.ts (integration)"
       .values({
         fullName: `SQL parity fixture ${fixtureCounter}`,
         nationality: driver.nationality,
-        lastTeam: driver.team,
+        // "" is how compare.ts's Driver represents a null last_team, so
+        // round-trip it back to a real NULL -- that's the column state the
+        // teamless cases below exist to exercise.
+        lastTeam: driver.team === "" ? null : driver.team,
         previousTeams: driver.previousTeams,
         dateOfBirth: driver.dateOfBirth,
         dateOfDeath: driver.dateOfDeath,
@@ -151,6 +154,28 @@ describe.skipIf(!RUN)("compare_drivers SQL parity with compare.ts (integration)"
   it("team: miss -- no relation to the target's team history", async () => {
     const target = makeDriver({ team: "Mercedes", previousTeams: ["Mercedes", "McLaren"] });
     const guess = makeDriver({ team: "Ferrari" });
+    await assertParity(guess, target, TODAY);
+  });
+
+  // A null last_team on either side -- the case both implementations used to
+  // get wrong in the same direction (two teamless drivers compared as 'exact'
+  // via COALESCE(a,'') = COALESCE(b,''), which parity could never catch
+  // because TS agreed). Now pinned from both ends.
+  it("team: two teamless drivers are a miss, not a free exact", async () => {
+    const target = makeDriver({ team: "", previousTeams: [] });
+    const guess = makeDriver({ team: "", previousTeams: [] });
+    await assertParity(guess, target, TODAY);
+  });
+
+  it("team: teamless guess against a target that has a team is a miss", async () => {
+    const target = makeDriver({ team: "Mercedes", previousTeams: ["Mercedes"] });
+    const guess = makeDriver({ team: "", previousTeams: [] });
+    await assertParity(guess, target, TODAY);
+  });
+
+  it("team: teamless target still reports historical for a team in its history", async () => {
+    const target = makeDriver({ team: "", previousTeams: ["McLaren"] });
+    const guess = makeDriver({ team: "McLaren" });
     await assertParity(guess, target, TODAY);
   });
 

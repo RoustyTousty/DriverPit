@@ -267,6 +267,62 @@
       "when": 1785003972415,
       "tag": "0037_streak_gap_reset",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1785003973415,
+      "tag": "0038_daily_target_secret",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1785003974415,
+      "tag": "0039_daily_rpc_anon_revoke",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1785003975415,
+      "tag": "0040_duel_match_liveness",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1785003976415,
+      "tag": "0041_local_stats_merge_once",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1785003977415,
+      "tag": "0042_server_authoritative_table_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1785003978415,
+      "tag": "0043_drivers_seed_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1785003979415,
+      "tag": "0044_win_by_driver_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1785003980415,
+      "tag": "0045_profiles_column_grants",
+      "breakpoints": true
     }
   ]
 }

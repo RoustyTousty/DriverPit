@@ -2,6 +2,7 @@ import { Flag } from "@/components/ui/Flag";
 import type { DriverSummary } from "@/lib/db/queries";
 import type { ExactFeedback, GuessResult, OrderedFeedback, TeamFeedback } from "@/lib/game/compare";
 import { countryCode } from "@/lib/game/flags";
+import { guessTileLabels, type TileColumn } from "@/lib/game/tileLabel";
 
 type Feedback = ExactFeedback | OrderedFeedback | TeamFeedback;
 
@@ -26,11 +27,19 @@ export function Tile({
   feedback,
   closeness,
   delayMs,
+  label,
   children,
 }: {
   feedback: Feedback;
   closeness?: number;
   delayMs?: number;
+  // The tile's whole meaning in one sentence, built by lib/game/tileLabel.ts.
+  // Applied as role="img" + aria-label, which makes the tile ATOMIC to a
+  // screen reader: the label is announced and the contents (the raw value,
+  // the Flag's own aria-label, the arrow chip) are skipped, so nothing is
+  // said twice. Optional because the marketing legend's tiles are captioned
+  // in visible prose already -- those keep their contents readable as-is.
+  label?: string;
   children?: React.ReactNode;
 }) {
   const isCorrect = feedback === "exact" || feedback === "correct";
@@ -47,6 +56,8 @@ export function Tile({
   return (
     <div
       data-tile={isCorrect ? "correct" : undefined}
+      role={label ? "img" : undefined}
+      aria-label={label}
       className={`animate-tile-reveal motion-reduce:animate-none relative flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg px-0.5 py-2 text-center font-mono text-xs leading-tight font-semibold tabular-nums sm:text-sm ${
         isCorrect ? "bg-correct text-white" : "bg-miss text-text"
       }`}
@@ -77,9 +88,20 @@ export function Tile({
 // current drivers share a code, e.g. Jos and Max Verstappen both being
 // "VER"), but it's always shown attached to one specific guess row, so
 // there's no ambiguity about which driver it refers to in context.
-export function DriverCodeBadge({ code }: { code: string | null }) {
+//
+// The code is a *visual* shorthand for the name, and rotated text at that, so
+// a screen reader got "V E R" (or "em dash") with no context. role="img" +
+// the driver's actual name restores what the sighted reading already had:
+// which driver this row is about. Callers that already say the name in
+// adjacent prose (ResultCard, the duel reveal) omit `driverName` and get the
+// code spelled out instead of repeating it.
+export function DriverCodeBadge({ code, driverName }: { code: string | null; driverName?: string | null }) {
+  const label = driverName ?? (code ? `Driver code ${code}` : "No driver code");
+
   return (
     <div
+      role="img"
+      aria-label={label}
       className={`flex min-h-14 ${CODE_COLUMN_WIDTH} shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-surface-2`}
     >
       <span className="-rotate-90 font-mono text-[10px] font-bold tracking-widest whitespace-nowrap text-text-muted sm:text-xs">
@@ -161,19 +183,38 @@ export function GuessRow({
     ) : (
       guessedDriver.nationality
     );
-  const columns: { feedback: Feedback; closeness?: number; value: React.ReactNode }[] = [
-    { feedback: result.nationality, value: nationalityValue },
-    { feedback: result.team, value: guessedDriver.team },
-    { feedback: result.age, closeness: result.ageCloseness, value: guessedDriver.age },
-    { feedback: result.debutYear, closeness: result.debutYearCloseness, value: guessedDriver.debutYear },
-    { feedback: result.careerWins, closeness: result.careerWinsCloseness, value: guessedDriver.careerWins },
+  // Every tile's meaning is colour, opacity and an aria-hidden glyph, so the
+  // spoken row is built here instead (lib/game/tileLabel.ts, unit-tested).
+  const labels = guessTileLabels(guessedDriver, result);
+  const columns: { column: TileColumn; feedback: Feedback; closeness?: number; value: React.ReactNode }[] = [
+    { column: "nationality", feedback: result.nationality, value: nationalityValue },
+    { column: "team", feedback: result.team, value: guessedDriver.team },
+    { column: "age", feedback: result.age, closeness: result.ageCloseness, value: guessedDriver.age },
+    {
+      column: "debutYear",
+      feedback: result.debutYear,
+      closeness: result.debutYearCloseness,
+      value: guessedDriver.debutYear,
+    },
+    {
+      column: "careerWins",
+      feedback: result.careerWins,
+      closeness: result.careerWinsCloseness,
+      value: guessedDriver.careerWins,
+    },
   ];
 
   return (
     <div className="flex gap-1 [perspective:600px]">
-      <DriverCodeBadge code={guessedDriver.driverCode} />
+      <DriverCodeBadge code={guessedDriver.driverCode} driverName={guessedDriver.fullName} />
       {columns.map((column, index) => (
-        <Tile key={index} feedback={column.feedback} closeness={column.closeness} delayMs={index * 70}>
+        <Tile
+          key={index}
+          feedback={column.feedback}
+          closeness={column.closeness}
+          delayMs={index * 70}
+          label={labels[column.column]}
+        >
           {column.value}
         </Tile>
       ))}

@@ -1,10 +1,16 @@
+"use client";
+
+import { memo } from "react";
+
 export interface RoundResult {
   roundIndex: number;
   solved: boolean;
   points: number;
 }
 
-export function RoundResultCards({ results }: { results: RoundResult[] }) {
+// memo'd on the completed-rounds array, which only grows twice a match --
+// everything else on the round screen re-renders on the countdown tick.
+export const RoundResultCards = memo(function RoundResultCards({ results }: { results: RoundResult[] }) {
   if (results.length === 0) return null;
 
   return (
@@ -23,4 +29,4 @@ export function RoundResultCards({ results }: { results: RoundResult[] }) {
       ))}
     </div>
   );
-}
+});

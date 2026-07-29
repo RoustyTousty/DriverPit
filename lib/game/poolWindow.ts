@@ -34,8 +34,3 @@ export function poolCutoffYear(window: PoolWindow, referenceYear: number): numbe
       return null;
   }
 }
-
-export function isInPool(lastActiveYear: number, window: PoolWindow, referenceYear: number): boolean {
-  const cutoff = poolCutoffYear(window, referenceYear);
-  return cutoff === null || lastActiveYear >= cutoff;
-}

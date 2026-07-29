@@ -1,8 +1,19 @@
-import { boolean, check, date, integer, jsonb, numeric, pgTable, pgView, primaryKey, serial, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, date, index, integer, jsonb, numeric, pgTable, pgView, primaryKey, serial, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const drivers = pgTable("drivers", {
   id: serial("id").primaryKey(),
+  // F1DB's own driver slug ("lewis-hamilton") -- the stable natural key the
+  // seed upserts on, so a re-seed updates rows IN PLACE. `id` is a serial that
+  // daily_targets, duel_rounds and infinite_rounds hold FKs to and that
+  // daily_progress.guesses stores bare (no FK, so it would break silently), so
+  // it must never be reassigned; the old delete-and-reinsert seed did exactly
+  // that. See drizzle/0043 and scripts/rosterPlan.ts.
+  //
+  // Nullable only for rows that predate drizzle/0043 -- the seed adopts them by
+  // (full_name, date_of_birth) on its next run. NULLs are exempt from UNIQUE in
+  // Postgres, which is what makes that intermediate state representable.
+  f1dbId: text("f1db_id").unique(),
   fullName: text("full_name").notNull(),
   // F1DB's official 3-letter driver abbreviation. Nullable: coverage isn't
   // guaranteed across the full historical roster (only the modern/well-
@@ -67,16 +78,33 @@ export const userStats = pgTable("user_stats", {
   // daily history (or a legacy localStorage merge, which carries no dates),
   // which counts as no live streak.
   lastDailyDate: date("last_daily_date"),
+  // Set the first (and only) time lib/stats/actions.ts#migrateLocalStats folds
+  // this account's pre-accounts localStorage stats in (drizzle/0041). The "once"
+  // guard used to be readStats() clearing localStorage client-side, which an
+  // attacker calling the action in a loop simply doesn't run -- and every call
+  // ADDED again (audit 2026-07-27 §3.7). Deliberately on user_stats, which has
+  // no client write policy at all, rather than on profiles, which still carries
+  // a table-wide client UPDATE policy (§3.6): a marker the client can clear
+  // isn't a marker. Null = the merge hasn't happened (or the account predates
+  // the column, in which case it's still available exactly once).
+  localStatsMergedAt: timestamp("local_stats_merged_at", { withTimezone: true }),
   duelRating: integer("duel_rating").notNull().default(1000),
   duelWins: integer("duel_wins").notNull().default(0),
   duelLosses: integer("duel_losses").notNull().default(0),
 });
 
-// One row per (user, day) a daily result was recorded. Exists purely as a
-// server-side idempotency guard for lib/stats/actions.ts#recordDailyResult
-// -- without it, that action would be replayable from devtools to inflate
-// user_stats. Doubles as a real per-day history if a "your recent results"
-// UI ever wants one, but nothing reads it that way yet.
+// One row per (user, day) a daily result was recorded. Exists as the
+// server-side idempotency guard for lib/stats/actions.ts#recordDailyResult --
+// without it, that action would be REPLAYABLE from devtools to inflate
+// user_stats. Note the limit of what it does, since the original comment here
+// overstated it and that gap was a live hole: a PK guard stops a replay, not a
+// FORGERY. It cannot tell an honest write from an invented one, and being
+// first-write-wins it would let an invented one suppress the honest result for
+// that day. What stops forgery is that recordDailyResult no longer accepts an
+// outcome at all -- it reads won/guess_count/date off daily_progress
+// (audit 2026-07-27 §3.2). The two defences are complementary; neither replaces
+// the other. Doubles as a real per-day history if a "your recent results" UI
+// ever wants one, but nothing reads it that way yet.
 export const dailyResults = pgTable(
   "daily_results",
   {
@@ -124,25 +152,36 @@ export const dailyProgress = pgTable(
   (table) => [primaryKey({ columns: [table.userId, table.date] })],
 );
 
-// The day's pinned target driver. Lazily written by the first caller of the
-// day (daily_state / daily_submit_guess RPCs, drizzle/0030) via
-// INSERT ... ON CONFLICT DO NOTHING, then read by everyone else -- so the
-// target is a single indexed read instead of a per-call pool scan + pick, and
-// can't silently drift if the pool definition changes intra-day (the exact bug
-// lib/game/dailySelection.ts's old precomputed table had). One source of truth
-// for the day's answer, read by both the hydrate and guess RPCs via the
-// daily_target_id() helper. RLS is enabled with NO policy at
-// all (drizzle/0030): the target is a secret during the day, so a direct
-// PostgREST SELECT must return nothing -- the only readers are the SECURITY
-// DEFINER RPCs, which run as the table owner and bypass RLS. Same "default
-// deny" treatment as duel_rounds / infinite_rounds.
-export const dailyTargets = pgTable("daily_targets", {
-  // The UTC day. PK, so exactly one target per day.
-  date: date("date").primaryKey(),
-  driverId: integer("driver_id")
-    .notNull()
-    .references(() => drivers.id),
-});
+// The day's pinned target driver, and the ONLY place the day's answer exists.
+// Lazily written by the first caller of the day (daily_state /
+// daily_submit_guess RPCs, via the daily_target_id() helper), then read by
+// everyone else -- so the target is a single indexed read instead of a per-call
+// pool scan + pick, and can't silently drift if the pool definition changes
+// intra-day (the exact bug lib/game/dailySelection.ts's old precomputed table
+// had).
+//
+// The pick itself is RANDOM, made once server-side (drizzle/0038). It used to
+// be a deterministic hash of the date over the id-sorted pool, which meant the
+// answer was recomputable in the browser from the pool /daily already ships for
+// autocomplete -- pinning a secret is only a secret if the pin is unpredictable
+// (audit 2026-07-27 §3.1). RLS is enabled with NO policy at all (drizzle/0030),
+// so a direct PostgREST SELECT returns nothing; the only readers are the
+// SECURITY DEFINER RPCs, which run as the table owner and bypass RLS, and
+// daily_target_id itself has EXECUTE revoked from anon/authenticated. Same
+// "default deny" treatment as duel_rounds / infinite_rounds.
+export const dailyTargets = pgTable(
+  "daily_targets",
+  {
+    // The UTC day. PK, so exactly one target per day.
+    date: date("date").primaryKey(),
+    driverId: integer("driver_id")
+      .notNull()
+      .references(() => drivers.id),
+  },
+  // Supports the recent-repeat cooldown in daily_target_id's pick, which asks
+  // "has this driver been the answer lately?" once per candidate driver.
+  (table) => [index("daily_targets_driver_id_idx").on(table.driverId)],
+);
 
 // Real-time 1v1 duel (replaces the legacy duel_rooms/duel_players room-code
 // game -- see CLAUDE.md "Duel (real-time race)"). One row per waiting
@@ -220,6 +259,19 @@ export const duelMatches = pgTable(
     ratingDeltaB: integer("rating_delta_b"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
+    // Per-player liveness inside the match (drizzle/0040), refreshed by
+    // duel_heartbeat() every DUEL_HEARTBEAT_MS from whichever client is holding
+    // this match on screen. The server's ONLY evidence that a player is still
+    // there: presence lives in a Realtime channel Postgres can't see, so before
+    // this, "your opponent is absent" was a claim the remaining client made and
+    // the server took at face value -- one devtools call
+    // `forfeitMatch(id, opponentId)` mid-match was a guaranteed win and real Elo
+    // (audit 2026-07-27 §3.3). Now forfeiting SOMEONE ELSE requires their column
+    // to be stale past DISCONNECT_GRACE_MS; forfeiting yourself never does.
+    // Defaults to now() at insert so a freshly created match can't be claimed
+    // stale before either client has had a chance to beat.
+    lastSeenA: timestamp("last_seen_a", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenB: timestamp("last_seen_b", { withTimezone: true }).notNull().defaultNow(),
     // Set by requestRematch() the moment one finished-match participant asks
     // for a rematch; null again once consumed (the second participant's
     // matching request finds it set to the *other* player's id and creates

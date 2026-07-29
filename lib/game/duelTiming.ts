@@ -5,9 +5,15 @@
 // RPCs (lib/db/duelRpc.ts) and the ready-gate logic that calls them.
 // Every duel duration lives here -- nothing in components/duel or
 // lib/duel hardcodes one -- with a single documented exception: the SQL
-// literals inside drizzle/0021's functions (COUNTDOWN_MS/ROUND_MS/
-// INTERMISSION_MS mirrors), which plpgsql can't import and each carry a
-// keep-in-sync comment pointing back at this file.
+// literals mirroring COUNTDOWN_MS/ROUND_MS/INTERMISSION_MS, which plpgsql can't
+// import and each carry a keep-in-sync comment pointing back at this file.
+//
+// Those literals live in whichever migration last defined the function, NOT in
+// the one that introduced it -- a `CREATE OR REPLACE` in a later migration
+// silently makes every earlier copy dead text. As of drizzle/0045:
+// duel_begin_round is drizzle/0036, duel_close_round is drizzle/0024. Check
+// with `grep -n "CREATE OR REPLACE FUNCTION public.duel_" drizzle/*.sql` and
+// take the LAST hit before trusting any pointer below.
 
 // Min time the "searching" UI shows before a match resolves, so the lobby
 // never flash-skips even when a match is found instantly.
@@ -58,6 +64,17 @@ export const COUNTDOWN_MS = 3_900;
 export const MIN_LIGHT_ON_INTERVAL_MS = 150;
 export const MAX_LIGHT_ON_INTERVAL_MS = 900;
 
+// How often a countdown re-renders while it is genuinely counting
+// (useServerCountdown, useLightsCountdown). Fine enough that the round timer
+// never visibly skips a second and that a round closes promptly on expiry.
+//
+// This is a *render* cadence, so the thing that matters about it isn't the
+// number -- it's that both hooks stop ticking the moment they have nothing
+// left to count. Neither did until audit 2026-07-27 §1.0: useServerCountdown's
+// only stop condition was a null target, so a duel re-rendered at 20-30Hz for
+// whole rounds and then indefinitely on the results screen.
+export const COUNTDOWN_TICK_MS = 100;
+
 // The "all five lit" beat before lights-out -- now the WHOLE dwell rather than
 // a floor under it, since the sweep is sized to end exactly this far from
 // lights-out. Also still the race guard for when the server clock resolves
@@ -81,13 +98,14 @@ export const COUNTDOWN_GO_HOLD_MS = 700;
 
 // Per-round guessing window, server-stamped: duel_begin_round sets
 // ends_at = started_at + ROUND_MS. Keep in sync with the SQL literal in
-// drizzle/0021_duel_lifecycle_rpcs.sql#duel_begin_round.
+// drizzle/0036_duel_countdown_no_slack.sql#duel_begin_round -- the LAST
+// definition of that function, not 0021's original (see the header).
 export const ROUND_MS = 60_000;
 
 // Reveal + points count-up + mini-countdown between rounds --
 // duel_close_round stamps intermission_ends_at = now() + INTERMISSION_MS.
 // Keep in sync with the SQL literal in
-// drizzle/0021_duel_lifecycle_rpcs.sql#duel_close_round.
+// drizzle/0024_duel_close_round_reveal.sql#duel_close_round.
 export const INTERMISSION_MS = 6_000;
 
 // Fallback if a client never reports ready. The ready-gate itself is
@@ -96,7 +114,27 @@ export const INTERMISSION_MS = 6_000;
 export const READY_TIMEOUT_MS = 4_000;
 
 // Reconnect window before a dropped opponent is treated as forfeited.
+//
+// Used on BOTH sides of that decision, which is the point. The remaining client
+// waits this long after presence goes away before asking; forfeitMatch
+// (lib/duel/actions.ts) then independently refuses unless the absent player's
+// duel_matches.last_seen_a/b is itself older than this. Until drizzle/0040 only
+// the client half existed, so "my opponent is gone" was a claim the server took
+// on trust -- and one devtools call was a guaranteed win plus real Elo (audit
+// 2026-07-27 §3.3).
+//
+// The two windows are the same value deliberately. A player who dies the
+// instant after a heartbeat is stale by exactly this much when the client asks,
+// so the very first attempt can land a hair inside the window and be refused --
+// which is why DuelMatch's grace timer retries rather than firing once.
 export const DISCONNECT_GRACE_MS = 10_000;
+
+// Liveness beat inside a live match (drizzle/0040's duel_heartbeat), the
+// in-match twin of QUEUE_HEARTBEAT_MS. Same 3:1 ratio against the window it
+// feeds (DISCONNECT_GRACE_MS), so a player survives two missed beats before
+// they can be declared absent. Stops on its own once the match is terminal --
+// the RPC reports it, so nobody beats through a results screen.
+export const DUEL_HEARTBEAT_MS = 5_000;
 
 // How often DuelSearching re-runs match_or_queue while waiting (each call
 // atomically re-searches with a freshly widened rating band).

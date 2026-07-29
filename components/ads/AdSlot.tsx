@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { getAdsenseClientId, getAdsenseSlotId } from "@/components/ads/adsenseConfig";
+import { getAdsenseUnit } from "@/components/ads/adsenseConfig";
 import { useAdConsent } from "@/components/ads/useAdConsent";
 
 // Fixed min-height reserves layout space so this never causes a layout
@@ -12,13 +12,12 @@ import { useAdConsent } from "@/components/ads/useAdConsent";
 // placeholder. Falls back to the placeholder again if the ad request
 // itself fails, rather than leaving an empty box.
 export function AdSlot() {
-  const clientId = getAdsenseClientId();
-  const slotId = getAdsenseSlotId();
+  const unit = getAdsenseUnit();
   const consent = useAdConsent();
   const requested = useRef(false);
   const [requestFailed, setRequestFailed] = useState(false);
 
-  const canServe = clientId !== null && slotId !== null && consent === "granted" && !requestFailed;
+  const canServe = unit !== null && consent === "granted" && !requestFailed;
 
   useEffect(() => {
     if (!canServe || requested.current) return;
@@ -36,12 +35,12 @@ export function AdSlot() {
 
   return (
     <div className="flex min-h-[100px] w-full max-w-160 items-center justify-center rounded-lg border border-border bg-surface text-xs text-text-muted">
-      {canServe ? (
+      {canServe && unit ? (
         <ins
           className="adsbygoogle block w-full"
           style={{ display: "block" }}
-          data-ad-client={clientId}
-          data-ad-slot={slotId ?? undefined}
+          data-ad-client={unit.clientId}
+          data-ad-slot={unit.slotId}
           data-ad-format="auto"
           data-full-width-responsive="true"
         />

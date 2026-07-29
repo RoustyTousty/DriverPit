@@ -1,3 +1,7 @@
+"use client";
+
+import { memo, useMemo } from "react";
+
 import { ColumnLabels, GuessRow, PendingGuessRow, type Guess } from "@/components/game/GuessGrid";
 import { CLOSEST_BOARD_SIZE } from "@/lib/duel/liveMatch";
 import { guessHeat } from "@/lib/game/duelScoring";
@@ -23,7 +27,13 @@ export interface RankedGuess extends Guess {
 // chrome (this ranking/fade), never a bespoke second board. No rank number
 // is rendered inside or beside the row for exactly that reason; position
 // alone conveys rank.
-export function ClosestGuessesBoard({
+//
+// memo'd, and the ranking memoized inside it: this is the heaviest thing on
+// the round screen (a copy + sort, each comparison costing a guessHeat field
+// scan, then a GuessRow -> 5 Tiles -> Flag subtree per row) and the round
+// timer above it re-renders the parent 10x a second. Its props only change
+// when a guess actually lands (audit 2026-07-27 §1.0).
+export const ClosestGuessesBoard = memo(function ClosestGuessesBoard({
   guesses,
   pending,
   showFlags,
@@ -32,7 +42,10 @@ export function ClosestGuessesBoard({
   pending: boolean;
   showFlags: boolean;
 }) {
-  const ranked = [...guesses].sort((a, b) => guessHeat(b.result) - guessHeat(a.result)).slice(0, CLOSEST_BOARD_SIZE);
+  const ranked = useMemo(
+    () => [...guesses].sort((a, b) => guessHeat(b.result) - guessHeat(a.result)).slice(0, CLOSEST_BOARD_SIZE),
+    [guesses],
+  );
 
   if (ranked.length === 0 && !pending) {
     return <p className="py-4 text-center text-xs text-text-muted">Your guesses will rank here by closeness.</p>;
@@ -53,4 +66,4 @@ export function ClosestGuessesBoard({
       ))}
     </div>
   );
-}
+});

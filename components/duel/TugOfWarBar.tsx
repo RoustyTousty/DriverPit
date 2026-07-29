@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 
 import { tugFill } from "@/lib/game/duelScoring";
 
@@ -16,7 +16,12 @@ import { tugFill } from "@/lib/game/duelScoring";
 // back-and-forth pressure rather than a single static gauge. Smooth
 // transitions; snaps under reduced motion instead of easing, and the pulse
 // is skipped outright.
-export function TugOfWarBar({ liveMine, liveOpponent }: { liveMine: number; liveOpponent: number }) {
+//
+// memo'd on its two numbers: both the round screen and the intermission
+// re-render around it far more often than the balance actually moves, and
+// re-rendering it needlessly is also what re-armed the pull-point pulse's
+// timer for no visible change.
+export const TugOfWarBar = memo(function TugOfWarBar({ liveMine, liveOpponent }: { liveMine: number; liveOpponent: number }) {
   const fill = tugFill(liveMine, liveOpponent);
   const myPct = Math.round(fill * 100);
 
@@ -68,4 +73,4 @@ export function TugOfWarBar({ liveMine, liveOpponent }: { liveMine: number; live
       </div>
     </div>
   );
-}
+});

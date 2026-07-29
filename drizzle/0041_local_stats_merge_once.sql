@@ -1,0 +1,35 @@
+-- A server-side once-marker for the legacy localStorage stats merge, plus the
+-- dangling grant that would have undermined it. Closes audit 2026-07-27 §3.7
+-- (and the §3.11 note about user_stats' leftover UPDATE grant, which is not a
+-- separate concern here -- it is what this marker's integrity rests on).
+--
+-- THE PROBLEM. migrateLocalStats (lib/stats/actions.ts) is a "use server"
+-- export, i.e. an ordinary HTTP endpoint whose action id ships in the bundle.
+-- It ADDED the supplied numbers to user_stats every time it was called, and the
+-- only thing making it happen "once" was readStats() clearing localStorage in
+-- the browser afterwards -- which a caller in a devtools loop simply doesn't
+-- run. max_streak, wins and games_played are all reachable that way, and
+-- max_streak is a PUBLIC leaderboard column (drizzle/0009).
+--
+-- WHY user_stats AND NOT profiles. The audit suggested either. profiles is the
+-- wrong table: it still carries the table-wide `profiles_update_own` client
+-- UPDATE policy (§3.6), so a marker stored there could be set back to NULL from
+-- the browser -- which would hand the merge back, once per clear, forever.
+-- user_stats has no client-facing write policy at all (its UPDATE policy was
+-- correctly dropped in drizzle/0008), so the marker can only be written by the
+-- trusted Drizzle connection that performs the merge.
+--
+-- BACKFILL, DELIBERATELY NOT DONE. Existing rows keep local_stats_merged_at
+-- NULL, so an account that already merged before this migration can merge once
+-- more. That is the right trade: there is no record of which rows have merged,
+-- so a blanket backfill would permanently deny the merge to every genuine
+-- legacy player who hasn't upgraded yet, to take one already-possible replay
+-- off a set of accounts that could equally have done it yesterday. Bounding
+-- future replays at one, with every field now validated (lib/stats/
+-- localStatsMerge.ts), is the actual fix.
+-- The marker is only worth anything if a browser can't clear it. `user_stats`
+-- has no client write POLICY, but it did still carry client write GRANTS -- see
+-- drizzle/0042, which is where that is dealt with for every table in the same
+-- position, this one included.
+ALTER TABLE public.user_stats
+  ADD COLUMN IF NOT EXISTS local_stats_merged_at timestamptz;

@@ -46,7 +46,15 @@ function compareExact(guessValue: string, targetValue: string): ExactFeedback {
   return guessValue === targetValue ? "exact" : "miss";
 }
 
+// `team` is "" for a driver with no constructor on record (a null `last_team`;
+// SQL compare_drivers coalesces it to "" and the UI shows "—"). That absence is
+// never a match: two teamless drivers used to compare as "exact", a green tile
+// claiming to have found a team neither of them has — and, in duel, 15 free
+// proximity points. An absent team says nothing about the target, so it reads
+// as a miss. A teamless *target* is untouched: it can still have a history, so
+// a real team guessed against it can still come back "historical".
 function compareTeam(guessTeam: string, target: Pick<Driver, "team" | "previousTeams">): TeamFeedback {
+  if (guessTeam === "") return "miss";
   if (guessTeam === target.team) return "exact";
   if (target.previousTeams.includes(guessTeam)) return "historical";
   return "miss";
@@ -101,12 +109,14 @@ export function compare(guess: Driver, target: Driver, today: Date): GuessResult
   };
 }
 
-export function isWin(result: GuessResult): boolean {
-  return (
-    result.nationality === "exact" &&
-    result.team === "exact" &&
-    result.age === "correct" &&
-    result.debutYear === "correct" &&
-    result.careerWins === "correct"
-  );
+// A win is naming the target *driver* — deliberately not "every tile came back
+// exact/correct", which is how all three modes used to decide it. Drivers are
+// not uniquely identified by these five attributes: this roster holds six pairs
+// that match on all of them (François Mazet / Max Jean, three Kurtis Kraft
+// pairs, …), so a tile-derived win let one stand in for the other and then
+// revealed the other's name — "You won! The driver was Someone Else."
+// docs/audit-2026-07-27.md §3.8; the live rule is the same identity comparison
+// in drizzle/0044_win_by_driver_identity.sql, which this specifies.
+export function isWin(guessDriverId: number, targetDriverId: number): boolean {
+  return guessDriverId === targetDriverId;
 }

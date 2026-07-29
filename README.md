@@ -1,36 +1,149 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DriverPit
 
-## Getting Started
+A daily Wordle-style game where you guess a Formula 1 driver in six tries. Each guess is compared
+to the target across five attributes — nationality, team, age, debut year and career wins — and the
+tiles tell you how close you got.
 
-First, run the development server:
+Four modes, three of them built:
+
+| Mode | Route | What it is |
+|---|---|---|
+| **Daily** | `/daily` | One driver a day, the same for everyone, resets at UTC midnight. Progress is stored per account and follows you across devices. |
+| **Infinite** | `/infinite` | Unlimited rounds from a driver pool you choose (current season → the entire historical roster). |
+| **Duel** | `/online` | Real-time 1v1. Three rounds, matchmade opponent, tug-of-war scoring, Elo. |
+| **Knockout** | `/online` | 20-player elimination. Planned, not built — shown as "coming soon". |
+
+Next.js 15 (App Router) · TypeScript · Tailwind v4 · Supabase (Postgres + Auth + Realtime) ·
+Drizzle ORM · deployed on Vercel.
+
+---
+
+## Prerequisites
+
+- **Node 22+** and npm.
+- **A Supabase project.** Not optional — there is no local/offline mode. Auth, the driver roster,
+  the daily board, matchmaking and every guess evaluation live in Postgres.
+
+Everything below assumes a **scratch** Supabase project, not one with real players in it. The
+migrations rewrite grants and policies, and the opt-in test suites create real users and matches.
+
+## Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone <this repo> && cd DriverScrabble
+npm install
+cp .env.example .env      # then fill it in -- see below
+npm run db:migrate        # create the schema, RPCs, policies and grants
+npm run db:seed           # pull the driver roster from F1DB
+npm run dev               # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 1. Environment
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Copy `.env.example` to `.env` and fill in three values from **Supabase Dashboard → Project
+Settings**. `.env.example` documents each one; the short version:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Where from | Notes |
+|---|---|---|
+| `DATABASE_URL` | Database → Connection string | Use the **pooled** connection (port 6543). `lib/db` sets `prepare: false` because that port is PgBouncer in transaction mode. |
+| `NEXT_PUBLIC_SUPABASE_URL` | API | Public by design. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | API | Public by design — every visitor holds it, which is why access control is RLS + `EXECUTE` grants, never secrecy. |
 
-## Learn More
+`NEXT_PUBLIC_ADSENSE_CLIENT` / `NEXT_PUBLIC_ADSENSE_SLOT` are optional. Until **both** are set the
+ad slot renders a neutral placeholder, which is the normal state in development.
 
-To learn more about Next.js, take a look at the following resources:
+### 2. Enable anonymous sign-ins
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+**Supabase Dashboard → Authentication → Sign In / Providers → Anonymous sign-ins: on.**
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Every first-time visitor is silently signed in anonymously, so they have a real identity for duels
+and stats from the first page view. Without this the app cannot bootstrap an identity and no board
+will load. Signing in later with email or Google *links* to that anonymous user rather than
+replacing it, so guest progress carries over.
 
-## Deploy on Vercel
+Enable **Email** and **Google** too if you want the upgrade paths. For Google you also need the
+OAuth callback (`/auth/callback`) allowed in the Supabase redirect URL list.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 3. Migrations
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run db:migrate
+```
+
+Applies everything in `drizzle/` in journal order: tables, RLS policies, the `SECURITY DEFINER`
+RPCs the browser calls, the `leaderboard` view and the `auth.users` signup triggers.
+
+Most migrations from `0005` onward are **hand-written SQL** — functions, policies, views and
+triggers are things `drizzle-kit generate` cannot express. Adding one means writing the `.sql` file
+*and* appending its entry to `drizzle/meta/_journal.json` by hand. `npm run db:generate` is only
+for plain table/column diffs.
+
+### 4. Seed the driver roster
+
+```bash
+npm run db:seed              # or: npm run db:seed -- --dry-run
+```
+
+Downloads the latest **[F1DB](https://github.com/f1db/f1db)** release and upserts every driver who
+has ever started a race. This is currently the only way driver data gets in or gets updated —
+re-run it after a race weekend to refresh wins and teams.
+
+It is an **idempotent upsert keyed on F1DB's own driver slug, and `drivers.id` is never
+reassigned** (other tables hold foreign keys to it). Nothing is ever deleted: drivers the release
+no longer mentions are kept and reported. `--dry-run` performs the whole write and rolls it back so
+you can read the reconciliation report first — worth doing on any database that has already served
+a day.
+
+## Everyday commands
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Dev server (Turbopack). |
+| `npm run typecheck` | `tsc --noEmit`. **There is no ESLint config in this repo** — this and `next build` are the checks. |
+| `npm test` | Vitest. Pure unit suites only; needs no database, runs offline. |
+| `npm run build` / `npm start` | Production build. Measure performance here, never on `next dev`. |
+| `npm run db:migrate` / `db:seed` / `db:generate` | See above. |
+
+### Integration tests
+
+The suites that pin TypeScript against its plpgsql mirror — the `compare_drivers` and duel-scoring
+parity tests, the RPC behaviour tests, the matchmaking self-match guards and the grant policy in
+`lib/db/schemaGrants.test.ts` — are gated behind an opt-in flag so `npm test` stays instant:
+
+```bash
+RUN_DB_INTEGRATION_TESTS=1 npm test
+```
+
+They write real rows (anonymous users, probe days, duel matches) and clean up after themselves, but
+"cleans up after itself" is not "safe against live players". Scratch project only.
+
+CI (`.github/workflows/ci.yml`) runs the same thing on every push in a second tier that **self-skips
+when the three repository secrets are absent**, so fork pull requests stay green.
+
+## Where things are
+
+```
+app/(game)/       /daily, /infinite, /online -- the persistent game shell
+app/(info)/       /about, /faq, /how-to-play, ... -- standalone content pages
+components/game/  the shared board: tiles, guess rows, autocomplete, pool select
+components/duel/  live-match UI: staging, countdown, tug-of-war, results
+lib/game/         PURE rules -- compare, scoring, pool windows, timing constants
+lib/db/           Drizzle schema + queries. No SQL inlined in components.
+drizzle/          every migration, including all RPCs, policies and triggers
+docs/             the 2026-07-27 codebase audit and its resolutions
+CLAUDE.md         the real architecture document -- design decisions and the
+                  reasoning behind them, far past what this file covers
+```
+
+**Read `CLAUDE.md` before changing anything non-trivial.** It records why things are the way they
+are — why guesses go through a Postgres RPC instead of a Server Action, why the daily answer is
+random rather than derived from the date, why a win is driver identity and not tile equality, and
+which invariants must not be "tidied up".
+
+## Deploying
+
+Vercel, with the same environment variables set on the project. Vercel cannot hold WebSockets, so
+all realtime goes through Supabase Realtime.
+
+`npm run db:migrate` is **not** run by the build — apply migrations yourself against the target
+database before deploying a change that depends on one.

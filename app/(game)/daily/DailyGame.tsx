@@ -263,8 +263,13 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
         // recordDailyResult path (its daily_results idempotency guard is
         // unchanged), then refresh the auth context so Statistics reflects it.
         // Latency here is irrelevant -- the day is already over.
+        //
+        // It takes no arguments: the outcome and the day are read back from the
+        // daily_progress row daily_submit_guess just wrote, not asserted from
+        // here (audit 2026-07-27 §3.2). `result` above is still what the board
+        // renders -- it's just no longer what the stats believe.
         if (result.completed) {
-          await recordDailyResult(result.won, next.guesses.length);
+          await recordDailyResult();
           await refresh();
         }
       } catch {

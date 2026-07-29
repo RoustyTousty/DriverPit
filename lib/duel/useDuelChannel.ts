@@ -44,12 +44,12 @@ export interface DuelChannelHandlers {
   onRematchRequest?: (payload: RematchRequestPayload) => void;
   // The opponent turned down a rematch I asked for.
   onRematchDecline?: (payload: RematchDeclinePayload) => void;
-  // Presence join/leave for the *opponent* specifically -- surfaced so a
-  // later prompt can drive the disconnect-grace-period timer
-  // (DISCONNECT_GRACE_MS, lib/game/duelTiming.ts) off real leave events
-  // rather than polling presence state itself.
-  onOpponentJoin?: () => void;
-  onOpponentLeave?: () => void;
+  // No onOpponentJoin/onOpponentLeave. They were declared and wired here for a
+  // consumer that never arrived: DuelMatch drives the disconnect grace period
+  // (DISCONNECT_GRACE_MS, lib/game/duelTiming.ts) off `opponentConnected`
+  // below, and presence is not the authority on absence anyway -- forfeitMatch
+  // checks duel_matches.last_seen_a/b server-side (drizzle/0040). Presence
+  // decides when a client ASKS; it can't decide the answer.
 }
 
 export interface DuelChannelState {
@@ -223,14 +223,8 @@ export function useDuelChannel(
         setOpponentReady(data.ready);
       })
       .on("presence", { event: "sync" }, syncOpponentPresence)
-      .on("presence", { event: "join" }, ({ key }) => {
-        if (key === safeOpponentUserId) handlersRef.current.onOpponentJoin?.();
-        syncOpponentPresence();
-      })
-      .on("presence", { event: "leave" }, ({ key }) => {
-        if (key === safeOpponentUserId) handlersRef.current.onOpponentLeave?.();
-        syncOpponentPresence();
-      })
+      .on("presence", { event: "join" }, syncOpponentPresence)
+      .on("presence", { event: "leave" }, syncOpponentPresence)
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
           setConnected(true);

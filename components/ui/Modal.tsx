@@ -68,6 +68,23 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
     return unlockScroll;
   }, [isRendered]);
 
+  // The focus trap must NOT re-run when `onClose` changes identity. Callers
+  // routinely pass an inline arrow (`onClose={() => setOpen(false)}`), so a
+  // caller that re-renders while the modal is open -- e.g. DailyGame's 1 Hz
+  // "next puzzle" countdown, which only ticks once the round is over, i.e.
+  // exactly when the share modal is reachable -- would tear the effect down and
+  // set it up again every tick. The teardown restores focus to the trigger and
+  // the setup pulls it back into the panel, so focus flickered once a second
+  // and keyboard/screen-reader users could not work the dialog at all.
+  //
+  // Fixing it here rather than asking every caller to useCallback: the effect
+  // genuinely depends on the *latest* onClose, not on its identity, which is
+  // what a ref expresses.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
   // Focus trap: move focus in on mount, cycle Tab within the panel, restore
   // focus to whatever triggered the modal on the way out.
   useEffect(() => {
@@ -79,7 +96,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -103,7 +120,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
       document.removeEventListener("keydown", handleKeyDown);
       previouslyFocused.current?.focus();
     };
-  }, [isRendered, onClose]);
+  }, [isRendered]);
 
   if (!isRendered) return null;
 

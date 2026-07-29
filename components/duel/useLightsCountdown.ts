@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import {
   COUNTDOWN_GO_HOLD_MS,
+  COUNTDOWN_TICK_MS,
   LIGHTS_ALL_LIT_HOLD_MS,
   MAX_LIGHT_ON_INTERVAL_MS,
   MIN_LIGHT_ON_INTERVAL_MS,
@@ -33,13 +34,22 @@ export interface LightsCountdownState {
 }
 
 // Drives every duel pre-round countdown (lights, "GO!", and the hold
-// before handing off to the live round). Renders fresh off `Date.now()`
-// on every call rather than owning its own interval -- every caller
-// already re-renders every ~100ms via its own useServerCountdown tracking
-// the same round (needed for the round's own end-of-round timer too, so
-// that ticking already runs for the round's whole duration regardless); a
-// second independent interval here would just be a redundant timer
-// ticking forever after the lights are done. Three problems this solves:
+// before handing off to the live round). Every value it returns is derived
+// fresh off `Date.now()` in the render body; the interval at the bottom only
+// forces the re-renders that keep those derivations advancing, and it stops
+// for good at `holdComplete`.
+//
+// It used to have no interval at all, borrowing the caller's
+// useServerCountdown ticks instead. That stopped being safe once those stop
+// on their deadline (audit 2026-07-27 §1.0): two of the three things below
+// are timed against this hook's OWN local clock rather than the server one,
+// so on a round that lands with under a second of countdown budget left --
+// a slow duel_begin_round round trip -- the caller's countdown reaches
+// started_at and goes quiet while this hook still owes an
+// LIGHTS_ALL_LIT_HOLD_MS dwell. No further renders, so `isGo` never fires,
+// `holdComplete` never fires, and DuelCountdown's onGo never hands the round
+// over: a hung match. Self-terminating and bounded to the ceremony, so it
+// isn't the kind of forever-timer §1.0 was about. Three problems this solves:
 //
 // 1. duel_begin_round stamps `started_at` the instant the RPC runs
 //    server-side, not when the response gets back to this client -- so
@@ -81,6 +91,7 @@ export interface LightsCountdownState {
 // Subtracted here rather than by each caller so a third one can't forget it and
 // quietly start charging players for the GO beat again (see duelTiming.ts).
 export function useLightsCountdown(remainingMs: number, key: string | null, loading = false): LightsCountdownState {
+  const [, forceTick] = useState(0);
   const remainingToLightsOutMs = remainingMs - COUNTDOWN_GO_HOLD_MS;
   const realIsGo = !loading && remainingToLightsOutMs <= 0;
   const alreadyResolvedAtFirstSight = !loading && realIsGo;
@@ -139,6 +150,17 @@ export function useLightsCountdown(remainingMs: number, key: string | null, load
     const timeout = setTimeout(() => setHoldComplete(true), COUNTDOWN_GO_HOLD_MS);
     return () => clearTimeout(timeout);
   }, [isGo, holdComplete]);
+
+  // The ceremony's own tick, alive only while there is a ceremony on screen:
+  // no round pending (`key === null`) never starts it, and `holdComplete` --
+  // which every path reaches, either immediately via skipCeremony or through
+  // the timeout above -- ends it. At most one countdown's worth of ticks per
+  // round, versus the caller-borrowed ones that never stopped.
+  useEffect(() => {
+    if (key === null || holdComplete) return;
+    const interval = setInterval(() => forceTick((n) => n + 1), COUNTDOWN_TICK_MS);
+    return () => clearInterval(interval);
+  }, [key, holdComplete]);
 
   return { litCount, isGo, holdComplete };
 }
