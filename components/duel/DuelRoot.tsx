@@ -137,6 +137,11 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
   // the match terminal, so the results screen isn't writing every 5s while
   // someone thinks about a rematch. Ends up in exactly the same phases
   // setLiveMatchId covers above, for the same reason.
+  //
+  // Living here is only safe because the match id lives here too: it re-arms on
+  // a rematch's new id (handleMatchIdChange) after having stood itself down on
+  // the old match's terminal status. That is precisely what it could not do
+  // while the id was owned in two places -- see that handler.
   const heartbeatMatchId = phase === "landing" || phase === "searching" ? null : (match?.matchId ?? null);
   useEffect(() => {
     if (heartbeatMatchId === null) return;
@@ -211,6 +216,26 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
     }
     if (phase !== "found") readyGatePassedRef.current = false;
   }, [phase, readyGatePassed]);
+
+  // A rematch (CLAUDE.md "Rematch is mutual consent") pairs the same two players
+  // into a NEW duel_matches row, so `match.matchId` has to move with it -- the
+  // two effects above are keyed on it.
+  //
+  // This used to live only inside useDuelLifecycle's own copy of the match, and
+  // the consequence was that both of them went inert for the entire rematch
+  // (audit 2026-07-29 §0.1): the heartbeat had already stopped itself on the old
+  // match's terminal status and never re-armed, so neither player's
+  // last_seen_a/b moved past the row's insert-time default -- both were "stale"
+  // about four seconds into round 1, and forfeitMatch's server-verified absence
+  // check (drizzle/0040), the whole of §3.3's fix, would authorize forfeiting a
+  // fully present opponent for real Elo. Signing out mid-rematch forfeited the
+  // already-finished match too, stranding the opponent. The id is one value now.
+  function handleMatchIdChange(newMatchId: number) {
+    setMatch((prev) => (prev ? { ...prev, matchId: newMatchId } : prev));
+    // Round 0 of the PREVIOUS match. The rematch stamps its own once its
+    // ready-gate passes, so this must not be handed to it as a starting point.
+    setInitialRound(null);
+  }
 
   function handleFindNewOpponent() {
     setMatch(null);
@@ -291,6 +316,7 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
       initialRound={initialRound}
       eligibleDrivers={eligibleDrivers}
       clockOffsetMs={clockOffsetMs}
+      onMatchIdChange={handleMatchIdChange}
       onFindNewOpponent={handleFindNewOpponent}
       onBackToModes={handleBackToModes}
     />

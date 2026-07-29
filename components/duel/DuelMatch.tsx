@@ -27,6 +27,7 @@ export function DuelMatch({
   initialRound,
   eligibleDrivers,
   clockOffsetMs,
+  onMatchIdChange,
   onFindNewOpponent,
   onBackToModes,
 }: {
@@ -46,12 +47,17 @@ export function DuelMatch({
   // mounts -- reused here rather than re-measuring a second, possibly slightly
   // different offset for the same match.
   clockOffsetMs: number;
+  // A rematch is a NEW duel_matches row between the same two players, and the
+  // id is DuelRoot's to hold -- the liveness heartbeat and the sign-out forfeit
+  // registration are both keyed on it up there. This is how the new id gets
+  // there; nothing in here keeps a second copy (audit 2026-07-29 §0.1).
+  onMatchIdChange: (newMatchId: number) => void;
   onFindNewOpponent: () => void;
   // Results-panel CTA back to the /online landing (mode select) -- DuelRoot owns
   // that phase state, so it provides the handler.
   onBackToModes: () => void;
 }) {
-  const duel = useDuelLifecycle({ me, match, initialRound, clockOffsetMs });
+  const duel = useDuelLifecycle({ me, match, initialRound, clockOffsetMs, onMatchIdChange });
   const { activeMatch, scoreboard, channel, intermission, round } = duel;
 
   const myHandle = me.displayName || me.username;

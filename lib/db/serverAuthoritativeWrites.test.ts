@@ -220,6 +220,49 @@ describe.skipIf(!RUN)("server-authoritative writes (integration)", () => {
       const { data } = await a.client.rpc("duel_heartbeat", { p_match_id: matchId });
       expect(data).toBe(false);
     });
+
+    // Audit 2026-07-29 §0.1. A rematch is a SECOND duel_matches row between the
+    // same two players (requestRematch inserts it as 'lobby'), and last_seen_a/b
+    // default to insert time -- so the ONLY thing that keeps either player
+    // present through it is the client beating the NEW id. It beat the old one:
+    // the id was owned in two places, DuelRoot's copy never moved, and its
+    // interval had already stood itself down on the old match going terminal.
+    // Both players were stale ~4s into round 1 of every rematch, and §3.3's
+    // forfeit-on-demand was back for the duration.
+    //
+    // What a DB test can pin is the server contract the client has to satisfy;
+    // which id the browser actually beats is a component-level fact and there is
+    // no component tier here (audit §2.6). Every assertion below is therefore
+    // one the fixed client meets and the broken one does not.
+    //
+    // One guest pair for the whole sequence -- each newGuest() spends an
+    // anonymous sign-in against a per-IP hourly quota this suite runs close to.
+    it("follows the same players into a rematch, lobby phase included", async () => {
+      const [a, b] = [await newGuest(), await newGuest()];
+      const finished = await newMatch(a, b, "finished");
+      const rematch = await newMatch(a, b, "lobby");
+
+      // Beating the OLD id contributes nothing and says so -- there is no
+      // arrangement of the old match under which it stands in for the new one.
+      expect((await a.client.rpc("duel_heartbeat", { p_match_id: finished })).data).toBe(false);
+
+      // Left un-beaten for one grace window, both players on the rematch are
+      // forfeitable: `stale` is the exact predicate forfeitMatch authorizes on,
+      // so `true` here is a stranger being able to end this match for real Elo.
+      await backdateBoth(rematch);
+      expect(await stale(rematch)).toEqual({ a: true, b: true });
+
+      // And the beat is accepted while the rematch is still in 'lobby'. That
+      // matters on its own: staging plus the lights-out countdown
+      // (MATCH_FOUND_HOLD_MS 2500 + COUNTDOWN_MS 3900) already exceed
+      // DISCONNECT_GRACE_MS 10000 when added to the row's age, so a beat that
+      // only started once a round went active would arrive after the window it
+      // was meant to hold open.
+      expect((await a.client.rpc("duel_heartbeat", { p_match_id: rematch })).data).toBe(true);
+      expect((await b.client.rpc("duel_heartbeat", { p_match_id: rematch })).data).toBe(true);
+      // Neither player can now be forfeited by the other.
+      expect(await stale(rematch)).toEqual({ a: false, b: false });
+    });
   });
 
   // --- drizzle/0042: the tables those derivations read ---------------------

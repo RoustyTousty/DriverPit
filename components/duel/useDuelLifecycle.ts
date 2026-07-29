@@ -89,16 +89,26 @@ export function useDuelLifecycle({
   match,
   initialRound,
   clockOffsetMs,
+  onMatchIdChange,
 }: {
   me: Profile;
   match: MatchResult;
   initialRound: LocalRound | null;
   clockOffsetMs: number;
+  // A rematch replaces the match id in place. This hook does NOT own that id --
+  // see the note on `activeMatch` below.
+  onMatchIdChange: (newMatchId: number) => void;
 }): DuelLifecycle {
   const { setActive } = useActiveMatch();
   const toast = useToast();
 
-  const [activeMatch, setActiveMatch] = useState(match);
+  // THE match id, owned one level up in DuelRoot and read here as a prop -- it
+  // is deliberately not copied into state. It used to be (`useState(match)`),
+  // and a rematch mutated only this copy: DuelRoot stayed pinned to the finished
+  // match for the whole rematch, which silently disabled the liveness heartbeat
+  // and setLiveMatchId that live up there (audit 2026-07-29 §0.1). One value,
+  // one owner; everything keyed on it, at either level, moves together.
+  const activeMatch = match;
   const [phase, setPhase] = useState<Phase>(initialRound ? "playing" : "loading");
   const [round, setRound] = useState<LocalRound | null>(initialRound);
   const [winnerId, setWinnerId] = useState<string | null>(null);
@@ -494,7 +504,11 @@ export function useDuelLifecycle({
     lobbyBeganRef.current = false;
     roundIndexRef.current = -1;
     phaseRef.current = "loading";
-    setActiveMatch((prev) => ({ ...prev, matchId: newMatchId }));
+    // Hands the new id to its owner. Everything below that keys on it (the
+    // duel:{matchId} channel, the resume effect, the rematch negotiation) reacts
+    // to the prop coming back down -- and so, now, does everything above it that
+    // keys on it: the liveness heartbeat and the sign-out forfeit registration.
+    onMatchIdChange(newMatchId);
   }
 
   // Mount once per activeMatch.matchId: rehydrate from duel_state (CLAUDE.md
