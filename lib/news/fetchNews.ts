@@ -40,7 +40,11 @@ async function fetchFeed(feed: FeedConfig): Promise<NewsItem[]> {
     const response = await fetch(feed.url, {
       next: { revalidate: REVALIDATE_SECONDS },
       signal: controller.signal,
-      headers: { "User-Agent": "DriverPitBot/1.0 (+https://github.com/f1db/f1db)" },
+      // The contact URL must be OURS: a feed operator who wants to rate-limit or
+      // block this crawler follows it. It used to point at github.com/f1db/f1db
+      // (copy-pasted from the seed's source), which sent five news publishers to
+      // the F1DB maintainers about traffic they didn't generate.
+      headers: { "User-Agent": "DriverPitBot/1.0 (+https://driver-pit.vercel.app)" },
     });
     if (!response.ok) return [];
 

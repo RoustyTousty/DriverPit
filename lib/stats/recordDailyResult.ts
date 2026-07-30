@@ -3,6 +3,7 @@ import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { db } from "../db";
 import { dailyProgress, dailyResults, userStats } from "../db/schema";
 import { MAX_GUESSES } from "../game/constants";
+import { normalizeDistribution } from "./guessDistribution";
 import { nextCurrentStreak } from "./streak";
 
 // The core of recordDailyResult (lib/stats/actions.ts), parameterized on an
@@ -89,8 +90,15 @@ export async function recordDailyResultForUser(userId: string): Promise<RecordDa
     if (!current) return { ok: false, reason: "no-stats-row" };
 
     const index = Math.min(Math.max(guessCount, 1), MAX_GUESSES) - 1;
-    const nextDistribution = [...current.guessDistribution];
-    if (won) nextDistribution[index] = (nextDistribution[index] ?? 0) + 1;
+    // normalizeDistribution, not a plain spread: a row created between
+    // drizzle/0007 and drizzle/0016 still holds FIVE buckets (0016 moved the
+    // default and backfilled nothing). A spread kept it five, so the row only
+    // ever healed if the player happened to win in exactly six guesses -- the
+    // one index whose write extends the array. Doing it here means every such
+    // row self-heals on its next result of any kind, which is a backfill
+    // migration's job done without a migration that could miss a row.
+    const nextDistribution = normalizeDistribution(current.guessDistribution);
+    if (won) nextDistribution[index] += 1;
 
     // A win only EXTENDS the streak when it lands the day after the last
     // recorded result; any gap restarts it at 1 (lib/stats/streak.ts). This

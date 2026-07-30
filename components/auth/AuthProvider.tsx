@@ -8,6 +8,7 @@ import { getLiveMatchId, isQueued } from "@/lib/duel/duelCommitments";
 import { leaveQueue } from "@/lib/duel/matchmaking";
 import { awaitInFlightGuess } from "@/lib/game/inFlightGuess";
 import { migrateLocalStats } from "@/lib/stats/actions";
+import { normalizeDistribution } from "@/lib/stats/guessDistribution";
 import { currentStreakAsOf, todayUtcDateString } from "@/lib/stats/streak";
 import { readStats, resetStats } from "@/lib/stats/store";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -78,6 +79,8 @@ export interface UserStats {
   // render this directly and must NOT re-derive it from lastDailyDate.
   currentStreak: number;
   maxStreak: number;
+  // Always MAX_GUESSES buckets -- see toUserStats. Consumers render this
+  // directly and must NOT re-pad it or invent a fallback length.
   guessDistribution: number[];
   lastResult: { won: boolean; guessCount: number } | null;
   // The UTC day of the last recorded daily result, null if there is none.
@@ -116,7 +119,11 @@ function toUserStats(row: UserStatsRow): UserStats {
     // authoritative -- what's stored, what's ranked -- moves with it.
     currentStreak: currentStreakAsOf(row.current_streak, row.last_daily_date, todayUtcDateString()),
     maxStreak: row.max_streak,
-    guessDistribution: row.guess_distribution,
+    // Normalised HERE for the same reason the streak is decayed here: so no
+    // consumer can forget. drizzle/0016 moved guess_distribution's default from
+    // five buckets to six and backfilled nothing, so a row created before it is
+    // still five long and would render five bars.
+    guessDistribution: normalizeDistribution(row.guess_distribution),
     lastResult: row.last_result,
     lastDailyDate: row.last_daily_date,
     duelRating: row.duel_rating,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@/components/auth/AuthProvider";
+import { emptyDistribution } from "@/lib/stats/guessDistribution";
 
 function StatTile({ value, label }: { value: React.ReactNode; label: string }) {
   return (
@@ -22,7 +23,11 @@ export function StatisticsSection() {
   const wins = stats?.wins ?? 0;
   const currentStreak = stats?.currentStreak ?? 0;
   const maxStreak = stats?.maxStreak ?? 0;
-  const guessDistribution = stats?.guessDistribution ?? [0, 0, 0, 0, 0];
+  // Not a hardcoded [0,0,0,0,0] (audit 2026-07-29 §0.6): that rendered five
+  // bars for a viewer whose stats hadn't loaded and then six once they had.
+  // A loaded value is already MAX_GUESSES buckets -- AuthProvider.toUserStats
+  // normalises it -- so this fallback only has to agree with that length.
+  const guessDistribution = stats?.guessDistribution ?? emptyDistribution();
   const lastResult = stats?.lastResult ?? null;
   const duelRating = stats?.duelRating ?? 1000;
   const duelWins = stats?.duelWins ?? 0;

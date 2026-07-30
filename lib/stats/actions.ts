@@ -4,10 +4,10 @@ import { and, eq, isNull } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { profiles, userStats } from "@/lib/db/schema";
-import { MAX_GUESSES } from "@/lib/game/constants";
 import { getDailyPuzzleNumber } from "@/lib/game/dailySelection";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+import { emptyDistribution, mergeDistributions } from "./guessDistribution";
 import { sanitizeLocalStats } from "./localStatsMerge";
 import { recordDailyResultForUser } from "./recordDailyResult";
 import { todayUtcDateString } from "./streak";
@@ -95,9 +95,12 @@ export async function migrateLocalStats(local: StatsState): Promise<{ ok: boolea
     if (!current) return { ok: false };
     if (current.localStatsMergedAt !== null) return { ok: true };
 
-    const mergedDistribution = current.guessDistribution.map(
-      (count, i) => count + (clean.guessDistribution[i] ?? 0),
-    );
+    // Built from MAX_GUESSES, never from either input's length (audit
+    // 2026-07-29 §0.4). This was `current.guessDistribution.map(...)`, and
+    // `.map` preserves the RECEIVER's length -- so merging into one of the
+    // five-bucket rows drizzle/0016 never backfilled dropped exactly the
+    // legacy player's 6-guess wins and left the row five buckets forever.
+    const mergedDistribution = mergeDistributions(current.guessDistribution, clean.guessDistribution);
     const hasServerHistory = current.gamesPlayed > 0;
 
     await tx
@@ -133,7 +136,7 @@ export async function resetUserStats(): Promise<{ ok: boolean }> {
       wins: 0,
       currentStreak: 0,
       maxStreak: 0,
-      guessDistribution: Array(MAX_GUESSES).fill(0),
+      guessDistribution: emptyDistribution(),
       lastResult: null,
       lastDailyDate: null,
     })
