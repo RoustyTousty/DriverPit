@@ -7,7 +7,14 @@
 // letters instead of an actual flag glyph (Segoe UI Emoji has no flag
 // coverage on most Windows builds) -- unusable cross-platform. Codes here
 // back real flag icons instead (see components/ui/Flag.tsx, `flag-icons`).
-const COUNTRY_CODES: Record<string, string> = {
+//
+// Whether this map still COVERS the roster is a question about the data, so it
+// is asked of the database rather than of a copy of this list: see
+// lib/db/driversRosterIntegrity.test.ts -> "nationality coverage" (database CI
+// tier). flags.test.ts pins the map's shape, which is all that can be checked
+// without a database -- hence the export, which is the spec side of that check
+// and not an app-facing accessor. App code calls `countryCode`.
+export const COUNTRY_CODES: Record<string, string> = {
   Argentina: "ar",
   Australia: "au",
   Austria: "at",
@@ -51,8 +58,16 @@ const COUNTRY_CODES: Record<string, string> = {
 };
 
 // Null for anything unmapped (e.g. new nationalities added to the roster
-// before this table is updated) so callers can fall back to plain text
+// before this table is updated, or an F1DB slug left by a seed lookup miss --
+// see scripts/releaseGuards.ts §5.2b) so callers can fall back to plain text
 // instead of rendering a broken flag.
+//
+// `hasOwn` rather than a bare index: on an object literal, `COUNTRY_CODES.
+// constructor` inherits from Object.prototype, so a nationality named after a
+// prototype member would return a function past a `?? null` and break the
+// `string | null` this signature promises.
 export function countryCode(nationality: string): string | null {
-  return COUNTRY_CODES[nationality] ?? null;
+  return Object.hasOwn(COUNTRY_CODES, nationality)
+    ? COUNTRY_CODES[nationality]
+    : null;
 }

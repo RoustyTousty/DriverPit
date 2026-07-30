@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { DriverAutocomplete, type DriverOption } from "@/components/game/DriverAutocomplete";
 import { MAX_ROUNDS } from "@/lib/duel/liveMatch";
@@ -85,6 +85,20 @@ export function RoundPlay({
     () => Math.max(0, ...me.guesses.map((g) => proximityPoints(g.result))),
     [me.guesses],
   );
+
+  // Withheld from the suggestions, same as daily/infinite (audit 2026-07-29
+  // §4.7). Guesses are unlimited here so a duplicate costs no turn -- it costs
+  // *seconds*, in the one mode where the clock is the score. `me.guesses` is
+  // per-round (adoptRound clears it), so a driver guessed in round 1 is
+  // suggestable again in round 2, where it's a different target.
+  //
+  // Memoized on the same dependency as the scan above, so it holds across the
+  // 10Hz countdown re-renders instead of handing DriverAutocomplete's memo() a
+  // new Set ten times a second.
+  const guessedDriverIds = useMemo(
+    () => new Set(me.guesses.map((g) => g.guessedDriver.id)),
+    [me.guesses],
+  );
   const myProvisional = me.solved ? (me.roundPoints ?? 0) : bestProximity;
   const opponentProvisional = opponent.progress.solved
     ? (opponent.progress.solvedPoints ?? 0)
@@ -107,6 +121,28 @@ export function RoundPlay({
     }),
     [opponent.handle, opponent.avatarUrl, liveOpponent, opponent.progress.guessCount],
   );
+
+  // Solving unmounts DriverAutocomplete, which is where the keyboard player's
+  // focus was -- so focus dropped to <body> and Tab restarted from the top of
+  // the page, mid-match, at the one moment they most need to stay put (audit
+  // 2026-07-29 §4.7). The solved panel replaces the input in the same slot, so
+  // it takes the focus too; being focused is also what gets the points read
+  // out, since a region that mounts already populated is unreliably announced.
+  //
+  // Same shape and same guard as PoolSelect's restore (§4.5): only claim focus
+  // if it was genuinely lost. If the player has opened the exit modal or tabbed
+  // to something deliberately, taking it back would be the worse bug.
+  const solvedPanelRef = useRef<HTMLDivElement>(null);
+  const wasSolvedRef = useRef(me.solved);
+  useEffect(() => {
+    const justSolved = me.solved && !wasSolvedRef.current;
+    wasSolvedRef.current = me.solved;
+    // Not on mount: a client resuming mid-round arrives already solved, and
+    // there is no focus of theirs to restore.
+    if (!justSolved) return;
+    const active = document.activeElement;
+    if (!active || active === document.body) solvedPanelRef.current?.focus();
+  }, [me.solved]);
 
   return (
     <div className="flex flex-col gap-4 px-4 py-6">
@@ -144,7 +180,13 @@ export function RoundPlay({
           what made the old line read as shouting. */}
       {me.solved ? (
         <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-correct/40 bg-correct/10 px-4 py-3">
+          <div
+            ref={solvedPanelRef}
+            // Programmatic focus target only -- never in the tab order, so a
+            // player who tabs past it once doesn't have to tab past it again.
+            tabIndex={-1}
+            className="flex items-center justify-between gap-3 rounded-lg border border-correct/40 bg-correct/10 px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
             <span className="text-xs font-semibold tracking-wide text-correct uppercase">Solved</span>
             <span className="flex items-baseline gap-3 font-mono tabular-nums">
               {me.solveMs !== null && (
@@ -172,6 +214,7 @@ export function RoundPlay({
           onSelect={onGuess}
           disabled={pendingGuess || timeUp}
           placeholder="Guess a driver…"
+          guessedDriverIds={guessedDriverIds}
         />
       )}
 

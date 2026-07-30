@@ -10,11 +10,17 @@ ALTER TABLE "duel_matches" ADD CONSTRAINT "duel_matches_status_check" CHECK ("du
 -- called straight from the client via supabase.rpc() and so needs
 -- SECURITY DEFINER + auth.uid(), these take explicit ids/indexes and trust
 -- the caller (a server action) to have already verified the requesting
--- user is a match participant. Deliberately never GRANTed to `authenticated`
--- -- Supabase revokes PUBLIC execute by default, so leaving that grant out
--- keeps them unreachable from the anon/authenticated PostgREST roles
--- entirely, the same way gen_guest_username()/handle_new_user() in
--- drizzle/0006_auth_trigger_rls.sql are internal-only.
+-- user is a match participant.
+--
+-- CORRECTION (audit 2026-07-27 §3.11, applied 2026-07-29). This block used to
+-- claim that leaving the GRANT out was enough -- "Supabase revokes PUBLIC
+-- execute by default". That is FALSE, and drizzle/0034, 0038 and 0039 all
+-- exist to undo the consequences of believing it: Postgres default-grants
+-- EXECUTE to PUBLIC on every new function, and the Supabase bootstrap's
+-- ALTER DEFAULT PRIVILEGES adds grants to `anon` and `authenticated` BY NAME
+-- on top of that. These three shipped fully client-reachable. drizzle/0034
+-- revoked them by name and added the duel_*_client wrappers; the rule is
+-- written up in CLAUDE.md ("Schema") and enforced by schemaGrants.test.ts.
 
 -- Ready-gated round timer stamping. Readiness itself is realtime/presence
 -- only (never a DB column, see lib/game/duelTiming.ts) -- the caller

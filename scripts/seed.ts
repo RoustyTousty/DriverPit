@@ -8,15 +8,23 @@ import { client, db } from "../lib/db";
 import { drivers } from "../lib/db/schema";
 import { poolCutoffYear } from "../lib/game/poolWindow";
 import {
+  assertColumns,
+  assertLookupsResolved,
+  assertRosterSanity,
+  describeLookupMisses,
+  describeWriteMode,
+  newLookupTally,
+  resolveName,
+  resolveRelease,
+  resolveWriteMode,
+} from "./releaseGuards";
+import {
   assertUniqueF1dbIds,
   planRoster,
   type ExistingDriver,
   type IncomingDriver,
   type RosterPlan,
 } from "./rosterPlan";
-
-const F1DB_CSV_URL =
-  "https://github.com/f1db/f1db/releases/latest/download/f1db-csv.zip";
 
 // F1DB positionText codes meaning the driver never actually started the race
 // (did not qualify / did not practice / did not start / excluded pre-race).
@@ -30,18 +38,13 @@ const SAMPLE_SIZE = 20;
 // transaction so tripping it rolls everything back. The seed now UPDATES rows
 // in place, so a release that parses badly no longer fails loudly on a foreign
 // key -- it quietly rewrites 792 rows instead. This catches only the crude
-// version of that (most of the feed missing); the silent per-column failures
-// are audit §5.2's job (pin the release, assert the headers).
+// version of that (most of the feed missing). The silent per-column failures
+// are caught earlier and per-column: releaseGuards.ts (the pin, the header
+// assertion, the canary drivers) and drizzle/0047's CHECK constraints, which
+// abort this same transaction on a value that can't be true of a real driver.
 const MIN_ROSTER_RATIO = 0.9;
 
 const MAX_REPORTED_ROWS = 10;
-
-// `npm run db:seed -- --dry-run` does the whole write and then rolls it back,
-// so the reconciliation report can be read before anything is committed. Worth
-// having now that a re-seed UPDATES live rows rather than failing loudly on a
-// foreign key: the plan is the part worth checking, and this is the only way to
-// check it against the real table.
-const DRY_RUN = process.argv.includes("--dry-run");
 
 /** Thrown to roll a dry run back. Never an error condition. */
 class DryRunRollback extends Error {}
@@ -49,11 +52,16 @@ class DryRunRollback extends Error {}
 type CsvRow = Record<string, string>;
 
 // Every row the seed builds has a slug -- `f1db_id` is nullable in the schema
-// only for rows that predate drizzle/0043 (see the column's comment there).
-type DriverInsert = typeof drivers.$inferInsert & { f1dbId: string };
+// only for rows that predate drizzle/0043 (see the column's comment there) --
+// and a win count, which is optional on insert only because the column carries
+// a default. Both are always computed here, and releaseGuards.ts reads them.
+type DriverInsert = typeof drivers.$inferInsert & {
+  f1dbId: string;
+  careerWins: number;
+};
 
-async function downloadCsvZip(): Promise<AdmZip> {
-  const res = await fetch(F1DB_CSV_URL);
+async function downloadCsvZip(url: string): Promise<AdmZip> {
+  const res = await fetch(url);
   if (!res.ok) {
     throw new Error(
       `Failed to download F1DB release: ${res.status} ${res.statusText}`,
@@ -68,10 +76,15 @@ function readCsv(zip: AdmZip, fileName: string): CsvRow[] {
   if (!entry) {
     throw new Error(`F1DB release is missing expected file: ${fileName}`);
   }
-  return parse(entry.getData().toString("utf-8"), {
+  const rows = parse(entry.getData().toString("utf-8"), {
     columns: true,
     skip_empty_lines: true,
   }) as CsvRow[];
+
+  // A missing *file* already threw above; a missing *column* used to sail
+  // straight through as `undefined` and become plausible-looking data.
+  assertColumns(fileName, rows);
+  return rows;
 }
 
 interface DriverAggregate {
@@ -85,6 +98,7 @@ interface DriverAggregate {
 
 function aggregateRaceResults(rows: CsvRow[]): Map<string, DriverAggregate> {
   const byDriver = new Map<string, DriverAggregate>();
+  let nonStartRows = 0;
 
   for (const row of rows) {
     let agg = byDriver.get(row.driverId);
@@ -103,6 +117,7 @@ function aggregateRaceResults(rows: CsvRow[]): Map<string, DriverAggregate> {
     const year = Number(row.year);
     const round = Number(row.round);
     const started = !NON_START_CODES.has(row.positionText);
+    if (!started) nonStartRows += 1;
 
     if (started) {
       if (agg.debutYear === null || year < agg.debutYear) {
@@ -122,6 +137,20 @@ function aggregateRaceResults(rows: CsvRow[]): Map<string, DriverAggregate> {
     if (row.positionNumber === "1") {
       agg.careerWins += 1;
     }
+  }
+
+  // The column can survive a release that changes what goes IN it, and that is
+  // the audit's worst silent mode: if no positionText matches NON_START_CODES
+  // any more, every DNQ/DNS becomes a race start and the whole roster's debut
+  // years, last_active_year and pool membership move. Free -- the loop above
+  // already visits every row.
+  if (nonStartRows === 0) {
+    throw new Error(
+      `Sanity check failed: not one of ${rows.length} race results carries a ` +
+        `non-start positionText (${[...NON_START_CODES].join(", ")}). Those ` +
+        `codes changed meaning, so every DNQ/DNS would count as a race start. ` +
+        `Nothing written.`,
+    );
   }
 
   return byDriver;
@@ -170,10 +199,18 @@ function reportPlan(plan: RosterPlan, existingCount: number): void {
   }
 }
 
-/** Downloads the current release and reduces it to the rows we import. */
-async function buildRoster(): Promise<DriverInsert[]> {
-  console.log(`Downloading latest F1DB release from ${F1DB_CSV_URL} ...`);
-  const zip = await downloadCsvZip();
+/** Downloads the chosen release and reduces it to the rows we import. */
+async function buildRoster(currentYear: number): Promise<DriverInsert[]> {
+  const release = resolveRelease(process.env);
+  if (!release.pinned) {
+    console.warn(
+      "! F1DB_RELEASE=latest — importing whatever upstream published most " +
+        "recently. The header assertion and sanity checks below are the only " +
+        "thing standing between a renamed column and 792 silently rewritten rows.",
+    );
+  }
+  console.log(`Downloading F1DB release ${release.release} from ${release.url} ...`);
+  const zip = await downloadCsvZip(release.url);
 
   const driverRows = readCsv(zip, "f1db-drivers.csv");
   const countryRows = readCsv(zip, "f1db-countries.csv");
@@ -189,6 +226,13 @@ async function buildRoster(): Promise<DriverInsert[]> {
     constructorRows.map((c) => [c.id, c.name]),
   );
   const aggregates = aggregateRaceResults(resultRows);
+
+  // Both joins below go through `resolveName`, which tallies what it can't
+  // resolve instead of falling back to the raw id in silence (audit §5.2b). A
+  // slug where a country or team name belongs is a comparison bug, not a
+  // cosmetic one -- compare_drivers compares both by string equality.
+  const nationalityLookup = newLookupTally("nationality", "f1db-countries.csv");
+  const teamLookup = newLookupTally("team", "f1db-constructors.csv");
 
   const values: DriverInsert[] = [];
   let skippedNoStarts = 0;
@@ -210,15 +254,16 @@ async function buildRoster(): Promise<DriverInsert[]> {
       continue;
     }
 
-    const nationality =
-      countryNameById.get(row.nationalityCountryId) ??
-      row.nationalityCountryId;
+    const nationality = resolveName(
+      nationalityLookup,
+      countryNameById,
+      row.nationalityCountryId,
+    );
     const lastTeam = agg.lastConstructorId
-      ? (constructorNameById.get(agg.lastConstructorId) ??
-        agg.lastConstructorId)
+      ? resolveName(teamLookup, constructorNameById, agg.lastConstructorId)
       : null;
-    const previousTeams = [...agg.constructorIds].map(
-      (id) => constructorNameById.get(id) ?? id,
+    const previousTeams = [...agg.constructorIds].map((id) =>
+      resolveName(teamLookup, constructorNameById, id),
     );
 
     values.push({
@@ -248,12 +293,27 @@ async function buildRoster(): Promise<DriverInsert[]> {
     );
   }
 
+  // Silent on a healthy release; on a partial one it names every id that fell
+  // back to a slug, which is the whole of §5.2b.
+  for (const line of describeLookupMisses(
+    [nationalityLookup, teamLookup],
+    MAX_REPORTED_ROWS,
+  )) {
+    console.warn(line);
+  }
+
+  // Before the transaction opens, not inside it: a release that fails here has
+  // no business reaching the write path at all.
+  assertLookupsResolved([nationalityLookup, teamLookup]);
+  assertRosterSanity(values, currentYear);
+
   return values;
 }
 
 async function writeRoster(
   values: DriverInsert[],
   incoming: IncomingDriver[],
+  dryRun: boolean,
 ): Promise<void> {
   // One transaction for the whole write. Nothing is deleted and no id is ever
   // reassigned: rows are matched to the release by f1db_id and UPDATEd in
@@ -341,12 +401,22 @@ async function writeRoster(
       );
     }
 
-    if (DRY_RUN) throw new DryRunRollback();
+    if (dryRun) throw new DryRunRollback();
   });
 }
 
 async function main() {
-  const values = await buildRoster();
+  // Argv is read here rather than at module scope so a bad flag lands in
+  // main()'s catch, which closes the postgres client -- a throw during import
+  // would leave the connection open and the process hanging on it.
+  //
+  // Writing is opt-in (see resolveWriteMode): the safe mode is the one you get
+  // by default, because it is the flag for the safe mode that shells drop.
+  const mode = resolveWriteMode(process.argv.slice(2));
+  console.log(describeWriteMode(mode));
+
+  const currentYear = new Date().getUTCFullYear();
+  const values = await buildRoster(currentYear);
 
   const incoming = values.map((v) => ({
     f1dbId: v.f1dbId,
@@ -356,13 +426,15 @@ async function main() {
   assertUniqueF1dbIds(incoming);
 
   try {
-    await writeRoster(values, incoming);
+    await writeRoster(values, incoming, !mode.commit);
   } catch (err) {
     if (!(err instanceof DryRunRollback)) throw err;
-    console.log("\nDry run — transaction rolled back, nothing written.");
+    console.log(
+      "\nDry run — transaction rolled back, nothing written. " +
+        "Re-run with `npm run db:seed:commit` to keep it.",
+    );
   }
 
-  const currentYear = new Date().getUTCFullYear();
   const defaultPoolCutoff = poolCutoffYear("10-years", currentYear)!;
   const defaultPoolDrivers = await db
     .select()

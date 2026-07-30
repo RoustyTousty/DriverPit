@@ -4,6 +4,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { MAX_GUESSES } from "../game/constants";
 import { db } from "./index";
 import { dailyProgress, dailyResults, dailyTargets, drivers } from "./schema";
 
@@ -83,14 +84,17 @@ describe.skipIf(!RUN)("daily_state / daily_submit_guess (integration)", () => {
     if (!pin) throw new Error("target was not pinned by daily_state");
     targetId = pin.driverId;
 
-    // Six distinct non-target driver ids (guess validation is existence-only,
-    // so pool membership doesn't matter -- these just need to not be the win).
+    // A full board's worth of distinct non-target driver ids (guess validation
+    // is existence-only, so pool membership doesn't matter -- these just need to
+    // not be the win). MAX_GUESSES rather than a literal, so a change to the TS
+    // constant that the RPC's own cap doesn't mirror fails on the assertion
+    // below instead of on an undefined array element.
     const others = await db
       .select({ id: drivers.id })
       .from(drivers)
       .where(sql`${drivers.id} <> ${targetId}`)
       .orderBy(drivers.id)
-      .limit(6);
+      .limit(MAX_GUESSES);
     wrongIds = others.map((r) => r.id);
   });
 
@@ -121,7 +125,7 @@ describe.skipIf(!RUN)("daily_state / daily_submit_guess (integration)", () => {
     const row = data as SubmitRow;
     expect(row.won).toBe(false);
     expect(row.completed).toBe(false);
-    expect(row.guesses_remaining).toBe(5);
+    expect(row.guesses_remaining).toBe(MAX_GUESSES - 1);
     expect(row.guessed_driver_id).toBe(wrongIds[0]);
     expect(row.target_driver_id).toBeNull();
 
@@ -144,7 +148,7 @@ describe.skipIf(!RUN)("daily_state / daily_submit_guess (integration)", () => {
 
   it("completes as a loss on the sixth miss (revealing the target) and rejects a seventh guess", async () => {
     let last: SubmitRow | undefined;
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < MAX_GUESSES; i++) {
       const { data, error } = await submit(supabase, wrongIds[i]);
       expect(error).toBeNull();
       last = data as SubmitRow;
@@ -157,6 +161,30 @@ describe.skipIf(!RUN)("daily_state / daily_submit_guess (integration)", () => {
     // The anti-second-attempt guard: no seventh guess onto a finished day.
     const { error: seventh } = await submit(supabase, wrongIds[0]);
     expect(seventh).not.toBeNull();
+  });
+
+  // drizzle/0049 (audit 2026-07-29 §3.9). The client half withholds guessed
+  // drivers from the suggestions; this is the half a devtools console or a
+  // second device with a stale board meets.
+  it("rejects a driver already guessed today, without ending or advancing the day", async () => {
+    const { error: first } = await submit(supabase, wrongIds[0]);
+    expect(first).toBeNull();
+
+    const { error: repeat } = await submit(supabase, wrongIds[0]);
+    expect(repeat).not.toBeNull();
+    expect(repeat!.message).toMatch(/already guessed/i);
+
+    // The rejection must cost nothing: the board still holds exactly the one
+    // real guess, and a different driver is still accepted afterwards.
+    const { data } = await supabase.rpc("daily_state");
+    const board = data as StateBoard;
+    expect(board.guesses.map((g) => g.driverId)).toEqual([wrongIds[0]]);
+    expect(board.guessesRemaining).toBe(MAX_GUESSES - 1);
+    expect(board.completed).toBe(false);
+
+    const { data: next, error: nextErr } = await submit(supabase, wrongIds[1]);
+    expect(nextErr).toBeNull();
+    expect((next as SubmitRow).guesses_remaining).toBe(MAX_GUESSES - 2);
   });
 
   it("pins the day's target exactly once and never moves it across calls", async () => {

@@ -1,39 +1,70 @@
 import { boolean, check, date, index, integer, jsonb, numeric, pgTable, pgView, primaryKey, serial, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
-export const drivers = pgTable("drivers", {
-  id: serial("id").primaryKey(),
-  // F1DB's own driver slug ("lewis-hamilton") -- the stable natural key the
-  // seed upserts on, so a re-seed updates rows IN PLACE. `id` is a serial that
-  // daily_targets, duel_rounds and infinite_rounds hold FKs to and that
-  // daily_progress.guesses stores bare (no FK, so it would break silently), so
-  // it must never be reassigned; the old delete-and-reinsert seed did exactly
-  // that. See drizzle/0043 and scripts/rosterPlan.ts.
-  //
-  // Nullable only for rows that predate drizzle/0043 -- the seed adopts them by
-  // (full_name, date_of_birth) on its next run. NULLs are exempt from UNIQUE in
-  // Postgres, which is what makes that intermediate state representable.
-  f1dbId: text("f1db_id").unique(),
-  fullName: text("full_name").notNull(),
-  // F1DB's official 3-letter driver abbreviation. Nullable: coverage isn't
-  // guaranteed across the full historical roster (only the modern/well-
-  // documented majority of it).
-  driverCode: text("driver_code"),
-  nationality: text("nationality").notNull(),
-  dateOfBirth: date("date_of_birth").notNull(),
-  dateOfDeath: date("date_of_death"),
-  debutYear: integer("debut_year").notNull(),
-  careerWins: integer("career_wins").notNull().default(0),
-  lastTeam: text("last_team"),
-  // Every distinct constructor this driver has ever raced for, current team
-  // included. Used to show a "used to drive for them" hint on a team miss.
-  previousTeams: text("previous_teams").array().notNull().default([]),
-  // The most recent year they started a race. Drives which pool windows
-  // (current season / last 10-30 years / legacy) a driver falls into —
-  // see lib/game/poolWindow.ts. Every driver in this table has raced at
-  // least once, so this is always set.
-  lastActiveYear: integer("last_active_year").notNull(),
-});
+// The one table with RLS disabled, so its grants ARE its access control
+// (drizzle/0043). Its `check()`s are the per-column half of the seed's defence
+// against a mis-parsed F1DB release: scripts/releaseGuards.ts catches a renamed
+// column or a dead canary before the write, and these catch a value that can't
+// be true of a real driver, inside the seed's own transaction (drizzle/0047,
+// audit 2026-07-29 §5.2d).
+export const drivers = pgTable(
+  "drivers",
+  {
+    id: serial("id").primaryKey(),
+    // F1DB's own driver slug ("lewis-hamilton") -- the stable natural key the
+    // seed upserts on, so a re-seed updates rows IN PLACE. `id` is a serial that
+    // daily_targets, duel_rounds and infinite_rounds hold FKs to and that
+    // daily_progress.guesses stores bare (no FK, so it would break silently), so
+    // it must never be reassigned; the old delete-and-reinsert seed did exactly
+    // that. See drizzle/0043 and scripts/rosterPlan.ts.
+    //
+    // Nullable only for rows that predate drizzle/0043 -- the seed adopts them by
+    // (full_name, date_of_birth) on its next run. NULLs are exempt from UNIQUE in
+    // Postgres, which is what makes that intermediate state representable.
+    f1dbId: text("f1db_id").unique(),
+    fullName: text("full_name").notNull(),
+    // F1DB's official 3-letter driver abbreviation. Nullable: coverage isn't
+    // guaranteed across the full historical roster (only the modern/well-
+    // documented majority of it).
+    driverCode: text("driver_code"),
+    nationality: text("nationality").notNull(),
+    dateOfBirth: date("date_of_birth").notNull(),
+    dateOfDeath: date("date_of_death"),
+    debutYear: integer("debut_year").notNull(),
+    careerWins: integer("career_wins").notNull().default(0),
+    lastTeam: text("last_team"),
+    // Every distinct constructor this driver has ever raced for, current team
+    // included. Used to show a "used to drive for them" hint on a team miss.
+    previousTeams: text("previous_teams").array().notNull().default([]),
+    // The most recent year they started a race. Drives which pool windows
+    // (current season / last 10-30 years / legacy) a driver falls into —
+    // see lib/game/poolWindow.ts. Every driver in this table has raced at
+    // least once, so this is always set.
+    lastActiveYear: integer("last_active_year").notNull(),
+  },
+  // Write-time only -- `drivers` is written by scripts/seed.ts and nothing
+  // else, so none of this is on a guess or board-load path. See drizzle/0047
+  // for why each one is phrased the way it is.
+  (table) => [
+    check("drivers_career_wins_check", sql`${table.careerWins} >= 0`),
+    check(
+      "drivers_season_order_check",
+      sql`${table.debutYear} <= ${table.lastActiveYear}`,
+    ),
+    check(
+      "drivers_season_range_check",
+      sql`${table.debutYear} >= 1950 AND ${table.lastActiveYear} <= EXTRACT(YEAR FROM CURRENT_DATE)::int + 1`,
+    ),
+    check(
+      "drivers_death_after_birth_check",
+      sql`${table.dateOfDeath} IS NULL OR ${table.dateOfDeath} > ${table.dateOfBirth}`,
+    ),
+    check(
+      "drivers_born_before_debut_check",
+      sql`${table.dateOfBirth} < make_date(${table.debutYear}, 1, 1)`,
+    ),
+  ],
+);
 
 // `id` is `auth.users.id` (Supabase Auth). The FK to auth.users, the
 // signup trigger that inserts this row, and its RLS policies all live in

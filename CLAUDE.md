@@ -45,6 +45,10 @@ The `drivers` table holds every driver who has ever started a race. Which are of
 
 Defined in `lib/game/poolWindow.ts` (pure, shared by server queries and client filtering). Daily and Duel always use `10-years`. Infinite defaults to `10-years`; the player can switch, persisted in localStorage. Autocomplete suggestions are scoped to the active pool; guess *validation* only checks the driver exists, not pool membership.
 
+**A driver already guessed this round isn't offered again — and in daily isn't accepted again.** A repeat guess returns the row the board is already showing and, in daily/infinite, burns one of six turns for it. `DriverAutocomplete` takes a `guessedDriverIds` set and withholds those drivers from the suggestions in all three modes, naming the one the query matched ("Lewis Hamilton — already guessed") rather than removing it silently — otherwise the dropdown says "no driver in this pool matches Hamilton", which is false and reads as a broken search. It withholds without rebuilding the search index (`partitionSearchIndex`, `lib/game/fuzzyMatch.ts`): filtering the `drivers` array instead would hand the component a new array identity per guess and re-fold ~800 names, undoing the fix that made typing instant. `daily_submit_guess` rejects the repeat outright (drizzle/0049), under the same row lock as the append — the suggestions are a *list*, and PostgREST is reachable without one, plus a second device's board can be stale. Not extended to the other two: `infinite_rounds` stores `guess_count`, not the guesses, so there is nothing server-side to compare against; duel guesses are unlimited, so a duplicate there costs seconds rather than a turn.
+
+**The cutoff is mirrored in plpgsql and pinned to the TypeScript by a parity suite.** A Postgres function can't import `DAILY_POOL_WINDOW`, so three live functions carry their own copy: `daily_target_id` (drizzle/0038) picks the day's answer, `duel_begin_round` (drizzle/0036) picks each duel round's, and `infinite_start_round` (drizzle/0028) mirrors the whole `poolCutoffYear` ladder. Change the constant alone and **only the autocomplete moves** — the target keeps coming from the old window, so `/daily` can serve a driver the player cannot type, with nothing erroring and nothing looking broken. `lib/game/poolWindow.sqlParity.test.ts` (database CI tier) closes that, and pins `MAX_GUESSES`'s three plpgsql copies in the same pass (audit 2026-07-29 §2.5). The daily cutoff is checked **behaviourally** — `daily_target_id` takes the date as a parameter, so a far-future probe day brackets its cutoff year from both sides with no string matching; the other sites are extracted from `pg_get_functiondef()` and executed, same as the scoring suite. Both probe days must be in the future, and the suite refuses to run rather than pin-and-delete a live day's answer.
+
 ## Accounts & auth
 
 Uses **Supabase Auth**. Three entry points, one identity model:
@@ -225,6 +229,7 @@ Intentional scale (e.g. 12 / 14 / 16 / 20 / 28 / 40).
 - Motion minimal and purposeful: tile reveal, button press, modal enter/exit. Respect `prefers-reduced-motion`. No ambient loops — **except** the duel tug-of-war bar and countdown, which are live and must animate smoothly (still honor reduced-motion by snapping instead of easing).
 - Mobile-first (most players on phones). Visible `--accent` focus rings. Modals trap focus, close on Escape + backdrop.
 - **A tile's meaning must exist in text, not only in colour.** Colour, opacity and the ↑/↓ glyph are the *visual* encoding; the spoken one is `lib/game/tileLabel.ts` (pure, unit-tested), applied by `Tile` as `role="img"` + `aria-label` — `role="img"` both because a bare `aria-label` on a `<div>` may be ignored and because it makes the tile atomic, so the value isn't announced twice. A comparison tile gets `guessTileLabels`; a reveal tile gets `tileValueLabel` (no verdict). The label is optional only where visible prose already states the rule (the marketing legend). Same reason `DriverCodeBadge` announces the driver's *name*, not "V E R".
+- **A readable board still isn't an audible game — the *event* has to be announced too.** Labelling the tiles made the grid navigable; submitting a guess was still silent, so a screen-reader user had to go back into the grid after every guess to find out what happened. `GuessAnnouncer` (`components/game/`) is one polite `role="status"` region rendered by `GuessGrid`, so daily and infinite get it identically and a later mode gets it by construction. Two rules it must keep: it composes `guessAnnouncement` from the same `guessTileLabels` the tiles use (so spoken row and spoken tile can't drift), and it announces **only guesses that passed through the pending row** — a resumable daily board hydrates a whole day of guesses at once, and reading the last one aloud on every page load is not an event the player caused. Focus works the same way: when a control disappears under the player (a disabled `PoolSelect`, the duel input on solve) the thing that replaces it takes focus, and only if focus was genuinely lost (`document.activeElement` is `body`).
 - Themed scrollbar; `html` has `scrollbar-gutter: stable` so modal scroll-lock doesn't shift content. Don't remove without an equivalent fix.
 
 ### Duel visual consistency (important)
@@ -236,6 +241,19 @@ This is enforced by extraction, not by discipline: `components/game/` owns `Tile
 ## Modals
 
 One reusable `Modal` primitive (focus trap, Escape, backdrop close, scroll lock) backs all of these.
+
+**The two global ones are `next/dynamic`, and the shape around them is load-bearing.** `GameModals`
+sits in the `(game)` layout, so a static import put the whole Settings tree — and, through
+`LeaderboardModal` → `AvatarGlyph`, DiceBear — on `/daily`'s and `/infinite`'s critical path to
+render nothing until a top-bar button is pressed, for an avatar never visible on either route
+(audit 2026-07-29 §1.4). Three things keep it working: `SettingsSection` is imported **as a type**
+(a value import drags the module straight back); each modal renders only behind a **one-way mount
+latch**, because a lazy chunk is fetched when it first *renders* — an always-mounted
+`open={false}` would defeat the split, and a plain `openModal === "settings" &&` would cut off
+`Modal`'s 200ms exit transition; and a `requestIdleCallback` **warms both chunks** after first
+paint, so the split costs the initial load and not the first click. `/online` keeps DiceBear eager
+on purpose — five `components/duel/` modules import `AvatarGlyph` directly and the avatars are on
+screen.
 
 ### Settings modal — sectioned
 
@@ -253,7 +271,11 @@ Settings live in localStorage (`lib/settings/store.ts`) and are applied to `<htm
 
 ### Leaderboard modal — the cup button
 
-The top-bar **cup** button (left of the logo) opens the **global Leaderboard** — not personal stats, which live in Settings → Statistics. Two boards, tabbed: **duel rating** and **daily streak**. Full accounts only are ranked (`leaderboard` view filters `is_guest = false`); guests see the board with a "Save your progress" upgrade prompt. A viewer outside the top 50 gets their own real rank appended (`myDuelRank` / `myStreakRank`), counted against everyone rather than within the fetched page.
+The top-bar **cup** button (left of the logo) opens the **global Leaderboard** — not personal stats, which live in Settings → Statistics. Two boards, tabbed: **duel rating** and **daily streak**. Full accounts only are ranked (`leaderboard` view filters `is_guest = false`); guests see the board with a "Save your progress" upgrade prompt. A viewer outside the rendered slots gets their own real rank appended (`myDuelRank` / `myStreakRank`), counted against everyone rather than within the fetched page — one query, both ranks, as correlated counts beside the viewer's own row.
+
+**How many rows each board shows is one constant, `LEADERBOARD_TOP_SLOTS` (`lib/leaderboard/constants.ts`), read by the action and the modal.** They were 50 and 10, which fetched 100 rows to render 20 — and worse, "already visible up top" was decided against the fetched 50, so a player ranked 11-50 was suppressed from the "you're #N" row *and* never rendered in the top 10. Two numbers that must agree are one number.
+
+The rank expressions live in `lib/leaderboard/rank.ts` rather than inline, because their outer column reference has to be **table-qualified** and nothing in the result shows whether it is: the subquery aliases the same view, so an unqualified `duel_rating` binds to the *inner* alias, the predicate compares a row to itself, and every viewer comes back rank 1 with no error. `rank.test.ts` (static tier) renders them and pins the qualification.
 
 ## Duel (real-time race)
 
@@ -411,25 +433,33 @@ Single responsive banner in the fixed-height slot under the game window.
 - Postgres via Supabase, Drizzle ORM (`postgres` driver); migrations in `drizzle/`
 - **Supabase Auth** (anonymous + email + Google), `@supabase/ssr` for the cookie-backed server client
 - **Supabase Realtime** (broadcast + presence) for matchmaking and live matches
-- **Vitest** for unit tests (`npm test`). DB integration suites in the same tree are opt-in behind `RUN_DB_INTEGRATION_TESTS=1` so the default run needs no database.
+- **Vitest** for tests (`npm test`), in **two projects split by environment**: `node` (`lib/**`, `scripts/**` — pure logic, as it always was) and `dom` (`**/*.test.tsx` — real components rendered in jsdom with Testing Library; `npm run test:dom` for just those). DB integration suites live in the `node` project and are opt-in behind `RUN_DB_INTEGRATION_TESTS=1` so the default run needs no database. The `dom` project exists because six audit resolutions in a row closed with *"not verified in a browser"* — an ARIA promise, a live region's firing rule, a timer's rollover and a mount latch are all facts about a rendered DOM that `tsc` cannot see. **A component test earns its place by pinning behaviour a player or a screen reader can observe** (what the listbox offers, what gets announced, where focus lands, what stays mounted), never a component's internals; write it so it fails against the pre-fix code, and check that it does.
 - Avatars are **DiceBear** glyphs generated from a seed string (`lib/avatars.tsx`) — `profiles.avatar_url` stores the seed, not a URL. There is no upload or Storage path.
-- Deployed on Vercel. **No ESLint config in the repo** — `tsc --noEmit` (`npm run typecheck`) and `next build` are the checks.
-- **CI: `.github/workflows/ci.yml`**, two tiers. `static` (typecheck + `npm test`) needs nothing and runs everywhere, including fork PRs. `database` + `build` need three repository secrets (`DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, see `.env.example`) and **self-skip when they're absent** rather than failing red; point them at a **scratch** project, since those suites write real rows. The database tier is what actually runs the opt-in suites — the TS↔SQL parity tests, the RPC and matchmaking suites, and the grant policy — so it's the difference between those rules being documented and being enforced. There is deliberately no lint step: adding one would invent a policy the codebase hasn't adopted.
+- Deployed on Vercel. The checks are `tsc --noEmit` (`npm run typecheck`), `npm run lint`, `npm test` and `next build`.
+- **ESLint is adopted, and deliberately narrow** (`eslint.config.mjs`, 2026-07-30 — audit §0.5). Four rules and nothing else: `react-hooks/rules-of-hooks`, `react-hooks/exhaustive-deps`, `@typescript-eslint/no-explicit-any` (the "No `any`" convention below, enforced) and `@next/next`'s recommended set minus one Pages-Router rule that can only false-positive here. **No style or formatting rules** — `tsc` is the type authority and a house style invented inside a lint adoption is how a lint step becomes one people skip. The scope was chosen by *measuring* each candidate ruleset against the tree first; `eslint.config.mjs` records those numbers and names what was rejected (react-hooks v7's React Compiler preset, 30 violations on patterns this codebase chose on purpose). `reportUnusedDisableDirectives` is an **error**, so a suppression that stops being needed fails the build — the count of `eslint-disable` comments can now only fall unless someone writes one deliberately. Adding a rule means measuring it the same way; a new suppression means a reason at the call site.
+- **CI: `.github/workflows/ci.yml`**, two tiers. `static` (typecheck + lint + `npm test`, both vitest projects) needs nothing and runs everywhere, including fork PRs. `database` + `build` need three repository secrets (`DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, see `.env.example`) and **self-skip when they're absent** rather than failing red; point them at a **scratch** project, since those suites write real rows. The database tier is what actually runs the opt-in suites — the TS↔SQL parity tests, the RPC and matchmaking suites, and the grant policy — so it's the difference between those rules being documented and being enforced. There is deliberately no lint step: adding one would invent a policy the codebase hasn't adopted.
 
 ## Data
 
-Seeded from **F1DB** (https://github.com/f1db/f1db) — the full historical roster, pulled as `f1db-csv.zip` from the latest release by `scripts/seed.ts` (`npm run db:seed`). This is currently the **only** way driver data gets in or gets updated: re-run the seed after a race weekend to refresh wins and teams.
+Seeded from **F1DB** (https://github.com/f1db/f1db) — the full historical roster, pulled as `f1db-csv.zip` by `scripts/seed.ts` (`npm run db:seed` to rehearse, `npm run db:seed:commit` to write). This is currently the **only** way driver data gets in or gets updated: re-run the seed after a race weekend to refresh wins and teams.
+
+**Which release is an env var, and there is no default.** `F1DB_RELEASE=v2026.11.0` pins a tag; `F1DB_RELEASE=latest` follows upstream and says so in the log. Unset, the seed refuses to run. That is not ceremony — see the next bullet list.
 
 **The seed is an idempotent upsert, and `drivers.id` is never reassigned.** It used to `DELETE FROM drivers` and re-insert, which throws a foreign-key violation against any database that has served one daily — and, forced past that, renumbers a `serial` that `daily_targets`, `duel_rounds` and `infinite_rounds` hold FKs to and that `daily_progress.guesses` stores with no FK at all (audit §5.1, drizzle/0043). Now every row is matched to the release on **`f1db_id`** — F1DB's own driver slug — and `UPDATE`d in place, inside one transaction, with nothing ever deleted:
 
 - **Reconciliation is `scripts/rosterPlan.ts`**, pure and unit-tested. Rows imported before drizzle/0043 carry no slug, so they're adopted by `(full_name, date_of_birth)`; a row whose slug changed upstream is re-keyed rather than duplicated; genuine ambiguity on either side is reported and never guessed at. Rows the release no longer mentions are **kept and reported**, never deleted.
-- **`npm run db:seed -- --dry-run`** does the whole write and rolls it back, so the reconciliation report can be read before anything commits. Worth using every time now that a re-seed updates live rows rather than failing loudly.
+- **The seed fails closed: `npm run db:seed` is a dry run, and writing takes `npm run db:seed:commit`.** It does the whole write either way — the reconciliation report is only worth reading against the real table — and rolls back unless `--commit` was passed. The default was inverted on 2026-07-30 (audit §5.1 residual) because the old shape put the *safe* mode behind the flag, and the flag is the part a shell can eat: **Windows PowerShell 5.1 drops the bare `--`** when it invokes a native command, npm then swallows `--dry-run` as its own config flag, and `process.argv.slice(2)` arrives as `[]`. That silently committed a 792-row roster refresh once. Now the same stripping produces a dry run — measured: `npm run db:seed -- --commit` in PowerShell prints `Mode: DRY RUN`, while `npm run db:seed:commit` (flag inside the script string, nothing to forward) prints `Mode: REAL WRITE`. **A lost `--commit` costs a re-run; a lost `--dry-run` cost a database.** `resolveWriteMode` (`scripts/releaseGuards.ts`, pure + unit-tested) also rejects an unrecognised argument outright rather than shrugging at a typo, and `main()` prints the mode as its first line before the download, because the difference is 792 live rows and should be on screen rather than inferred from a message at the end.
+- **The upsert made a loud failure silent, so the loudness was rebuilt** (audit 2026-07-29 §5.2). The old `DELETE` hit a foreign key when a release parsed wrong; an in-place `UPDATE` of 792 rows just commits, and the first symptom is players reporting that the comparisons are wrong. `MIN_ROSTER_RATIO` only catches "most of the feed is missing" — the three dangerous modes all preserve the row count exactly: a renamed `positionText` makes every DNQ/DNS a race start (shifting debut years, `last_active_year` and pool membership), a renamed `positionNumber` zeroes every driver's wins, a renamed `round` makes the last-team tie-break `NaN`. **`scripts/releaseGuards.ts`** (pure, unit-tested, runs in the static CI tier) is the answer: the release pin above, a **header assertion** on every column the seed reads out of all four CSVs, and canaries — Hamilton has ≥ 100 wins, Verstappen's `last_active_year >= currentYear - 1`, and at least one race result still carries a `NON_START_CODES` value. A missing canary slug is a failure, not a skip: it means the driver key scheme moved, which every join in the seed rests on.
+- **The two reference-table joins count what they can't resolve** (audit 2026-07-29 §5.2b). The seed stores country and constructor *names*, looked up from ids; both lookups fell back to the raw id (`?? id`) with nothing counted or logged, so a roster could hold `"united-states-of-america"` beside `"United States of America"`. That is a comparison bug, not a cosmetic one: `compare_drivers` compares nationality **and** team by string equality, so two drivers *of the same country* report a nationality **miss** against each other (and `countryCode()` returns null for a slug, so the flag silently vanishes). Every lookup now goes through `resolveName`, which tallies misses — same reason `assertColumns` lives inside `readCsv`: the counting can't be forgotten. The fallback **stays**, because one unresolvable id must not cost the other 791 drivers their refreshed wins; what's new is that misses are reported worst-first on every run, and that a join resolving **nothing** is a hard failure before the transaction opens — that means the id space moved, and it preserves the row count exactly, so `MIN_ROSTER_RATIO` and the header assertion both miss it by construction. Measured against `v2026.11.0`: 40 country ids, 176 constructor ids, **zero** misses.
+- **`drivers` carries value `check()` constraints** (drizzle/0047) — non-negative wins, `debut_year <= last_active_year`, seasons within 1950…next year, `date_of_death > date_of_birth`, and born before the debut season (the immutable form of "no future birth date"). They are the per-column half of the same defence and they fail the *seed's own transaction*, so a bad row rolls the whole run back rather than reaching the game. Write-time only — `drivers` is written by the seed and nothing else, so this costs a guess or a board load nothing.
 - The seed's writes go through **scalar parameters in batched `VALUES` lists, never one big array or jsonb parameter** — a single large parameter kills the Supabase transaction pooler connection (`write CONNECTION_CLOSED`) where thousands of small ones are fine. There's a measured note on this in `seed.ts`.
 - `drivers` is the one table with **RLS disabled**, so its grants *are* its access control. drizzle/0043 revoked the client write set from `anon`/`authenticated`; before that any visitor could `UPDATE`/`DELETE` the whole roster with the public anon key. Reads stay open (the pool is public by design). Same rule as drizzle/0042: **grants and RLS should have to fail together.**
 
 **Not built yet:** the **Jolpica-F1** (https://api.jolpi.ca/ergast/f1/) weekly cron that was planned to refresh current wins/teams automatically and double as a Supabase keepalive. There is no cron route, no `vercel.json`, and no Jolpica code anywhere in the repo. When it is built: cache hard, never call it from a request handler.
 
 Attribute definitions: age = current age (age at death if deceased); team = most recently raced constructor; wins = all-time race wins; debut = first race-start year; nationality = country string; driver_code = F1DB 3-letter abbreviation (unique only within what's shown together); previous_teams = every distinct constructor raced for; last_active_year = most recent race-start year, drives pool membership.
+
+**Whether `lib/game/flags.ts` still covers the roster is asked of the roster, not of a copy of the map** (audit 2026-07-29 §5.2c). `flags.test.ts` used to hold a hand-transcribed duplicate of `COUNTRY_CODES`' 40 keys and assert each one resolved — true by construction, and blind to a nationality entering, leaving or being renamed. That question moved to the database tier: `lib/db/driversRosterIntegrity.test.ts` → *"nationality coverage"* runs `SELECT DISTINCT nationality FROM drivers` and asserts every value resolves, that **no two values map to the same country code**, and that none is blank. The second is the sharp one: the seed keeps rows a release no longer mentions, so an upstream country rename leaves the old spelling on the un-refreshed drivers and writes the new one on the rest — one country under two strings, which by string-equality compare is a nationality **miss** between two drivers of the same country. What stays in the static tier is only what needs no database: the map's shape (ISO-shaped codes, no aliases, no untrimmed keys) and `countryCode`'s contract. Same rule as the plpgsql constants — **a claim about the data belongs in the tier that can see the data.**
 
 ## Schema
 
@@ -441,7 +471,10 @@ drivers(id, f1db_id text unique null, full_name, driver_code, nationality, date_
 ```
 `f1db_id` (drizzle/0043) is F1DB's own driver slug and the seed's upsert key — the reason `id`
 survives a re-seed. Nullable only for rows imported before it existed; the seed adopts those by
-`(full_name, date_of_birth)` on its next run. No client write grants (see "Data").
+`(full_name, date_of_birth)` on its next run. No client write grants (see "Data"). Five value
+`check()`s (drizzle/0047) reject what can't be true of a real driver, so a mis-parsed release
+rolls the seed's transaction back instead of committing — the per-column half of the release
+guards in `scripts/releaseGuards.ts`.
 
 Accounts:
 ```
@@ -483,7 +516,8 @@ is live.
 daily_state()                  -> { guesses[{driverId, name, code, tiles}], completed, won,
                                     guessesRemaining, target|null }   -- target only when completed
 daily_submit_guess(driver_id)  -> same shape; appends to daily_progress, resolves UTC date + guess
-                                  index itself, rejects a complete/exhausted day; SQL compare_drivers
+                                  index itself, rejects a complete/exhausted day and a driver already
+                                  in guesses[] (drizzle/0049); SQL compare_drivers
 infinite_start_round(pool_window)   -> upserts infinite_rounds with a fresh random pool driver
 infinite_submit_guess(driver_id)    -> { tiles, status: won|lost|continue, target? }; enforces the
                                        6-guess cap; target only when status ≠ continue
@@ -545,13 +579,17 @@ silently-restored default fails it too. CI runs it on every push (`.github/workf
 database tier). Adding an RPC or a table therefore means adding its entry there; that file is the
 policy, and the migration is only how the policy gets applied.
 
-One relation is deliberately recorded as still open: the `leaderboard` **view** never had the
-bootstrap's write set revoked (drizzle/0042 swept the nine tables and didn't consider the view).
-It is inert only because a `JOIN` view is not auto-updatable — so **do not flatten `leaderboard` to
-a single-table view or give it an `INSTEAD OF` trigger** without revoking those grants first. A view
-is owner-privileged and isn't checked against RLS, so making it updatable would turn standing
-`anon`/`authenticated` grants into real writes to `user_stats` as the owner. The suite pins the
-property (`is_updatable`/`is_insertable_into` must stay `NO`) rather than the view's shape.
+**Views are a relation too, and the `leaderboard` view was the sweep's blind spot.** drizzle/0042
+swept the nine tables and didn't consider it, so it kept the bootstrap's full write set for both
+client roles until drizzle/0048 revoked it (`SELECT` stays — it exists to be read). Nothing was
+exploitable in between, but only because a `JOIN` view is not auto-updatable: a view is
+owner-privileged and **isn't checked against RLS**, so making one updatable turns standing
+`anon`/`authenticated` grants into real writes to `user_stats` *as the owner*. That made "don't
+flatten `leaderboard` to a single-table view or give it an `INSTEAD OF` trigger" a load-bearing
+security constraint held by a test comment. Both halves are now checked — `schemaGrants.test.ts`
+pins the grants and, separately, the property (`is_updatable`/`is_insertable_into` must stay `NO`)
+rather than the view's shape — so re-granting a write set and making it updatable have to happen
+together to be dangerous.
 
 `profiles` + `user_stats` rows created by a Postgres trigger on `auth.users` insert (`SECURITY
 DEFINER`, so it writes as the owner and is unaffected by the revokes above). RLS: self
@@ -632,6 +670,16 @@ Wrappers rather than adding the check inside the originals: `duel_close_round` i
 scoring and advancement rules, and rewriting it to add four lines of authorization would put those
 rules at risk for no reason. One definition of the logic, one definition of the authorization.
 
+One more `authenticated`-granted function exists that no application code ever calls — **Postgres**
+calls it, as an RLS predicate:
+```
+duel_topic_participant(topic)   -> is auth.uid() a player in the match this Realtime topic names?
+                                   The USING/WITH CHECK of realtime.messages' two policies
+                                   (drizzle/0046). SECURITY DEFINER, and total by construction:
+                                   a non-duel topic parses to NULL and reads as false, never as an
+                                   exception raised inside an RLS check.
+```
+
 **Ratings are the deliberate exception to the warm path.** `duel_close_round_client` does not write
 them; `applyMatchRatings` (a Server Action, `lib/duel/actions.ts`) does, called separately and only
 when a close actually finished the match. The Elo math is a unit-tested TypeScript function
@@ -650,8 +698,8 @@ Knockout (planned — not yet created):
 
 ## Realtime channels
 
-- **`lobby`** (presence + broadcast) — the channel every searching player joins; broadcasts a just-created match to the player who was waiting for it (`MATCHED_EVENT`, see `DuelSearching`).
-- **`duel:{matchId}`** (broadcast + presence) — the live match. Broadcast events (all opponent data abstracted — never target or guessed names):
+- **`lobby`** (presence + broadcast) — the channel every searching player joins; broadcasts a just-created match to the player who was waiting for it (`MATCHED_EVENT`, see `DuelSearching`). Deliberately **public**: it is shared by everyone searching, so scoping it to a participant set isn't a thing the topic can express. Nothing on it is authoritative — a forged `MATCHED_EVENT` just sends a client to a match id it isn't in, which `duel_state` rejects.
+- **`duel:{matchId}`** (broadcast + presence) — the live match, and a **private channel**. Broadcast events (all opponent data abstracted — never target or guessed names):
   ```
   round_start      { roundIndex, startedAt, endsAt }
   guess            { playerId, guessCount, bestHeat, provisionalPoints }  -- activity + live bar
@@ -667,6 +715,14 @@ Knockout (planned — not yet created):
   ```
   Payload types live in one shared module (`lib/duel/realtimeEvents.ts`) so client and (relaying) server can't drift.
 
+  **Realtime Authorization is on, and `private: true` is the half of it that lives in the client.** A Supabase channel is public unless it asks not to be, and until drizzle/0046 this one didn't ask: any signed-in user — and `AuthProvider` signs *everyone* in on first visit — could join `duel:{N}` for arbitrary `N` and post arbitrary events. Nothing on this channel writes the database (`duel_submit_guess`, `duel_close_round` and `applyMatchRatings` each validate independently), so what a forgery cost was the **round**, live, in a rated match: a fake `round_end` pulled the victim out of play onto an attacker-chosen reveal and scores, a fake `round_start` handed them an `endsAt` already in the past and their own expiry effect turned it into an instant DNF. `config.private` makes Realtime consult RLS on `realtime.messages` at join time — `SELECT` for "may receive", `INSERT` for "may broadcast and track presence" — and drizzle/0046's two policies scope both to the match's own participants via `duel_topic_participant(realtime.topic())`. **Both halves are required**: the flag without the policies is deny-all (RLS is on and there were none), the policies without the flag are never consulted. `lib/db/duelRealtimeAuthorization.test.ts` reproduces the join-time check on the live database, in both directions.
+
+  It costs **nothing per event**: authorization runs once per join (and again on a token refresh), never per broadcast, so `guess`/`solved` are exactly as fast as before. The one client-side consequence is that the join must carry the user's JWT, so `useDuelChannel` awaits `supabase.realtime.setAuth()` before subscribing — a join sent before the session resolved would be evaluated as `anon` and refused.
+
+  **The `duel:` prefix is now a cross-language contract** — `lib/duel/liveMatch.ts#duelChannelName` and the regex inside `duel_topic_participant`. If they drift nothing errors; every duel channel just silently stops joining. The test above pins them together.
+
+  **A private channel narrows the attacker set to the two participants; it does not empty it.** Payloads that decide anything are still re-verified server-side: `onForfeit` re-reads `duel_state`, and `onRoundStart`'s intermission fast path takes the round clock from the idempotent `duel_begin_round_client` RPC rather than from the broadcast (audit 2026-07-29 §0.2 — the payload says *that* a round started, never *when*). `round_end`/`match_end` are still applied as sent, which is now an opponent-trust decision rather than an internet-trust one.
+
   **`ready` is a broadcast, not a presence field** — this is deliberate and must not be "tidied up" back into presence. Presence has a much stricter Supabase rate limit ("Client presence rate limit exceeded") that a *single match* can trip on its own: every ready-gate (pre-match hold, then once per intermission) tracks at least once, on top of the staging channel's own tracking, and a few rounds is enough to get the whole channel force-closed by the server — silently, with no reconnect. Broadcast has no such ceiling in practice (`guess`/`solved` fire constantly all match without issue). Presence is kept for the one thing it's genuinely needed for: **join/leave membership** for disconnect detection, via a single `track()` per subscription, never repeated.
 
   `ratingDeltaA/B` on `match_end` are nullable on purpose: the rating write is a separate call from closing the round (see "Ratings are the deliberate exception"), so if it hasn't landed the opponent shows no delta rather than a fabricated "+0". The results panel reads the authoritative values from `duel_matches` regardless.
@@ -674,10 +730,12 @@ Knockout (planned — not yet created):
 ## Architecture constraints
 
 - `lib/game/compare.ts` and `lib/game/duelScoring.ts` (speed + proximity + live-score helpers) are pure and unit-tested. Don't touch compare's rules unless a task says to. **Both are mirrored in plpgsql and both are pinned by a parity suite** — `compare.sqlParity.test.ts` and `duelScoring.sqlParity.test.ts`. The duel one is the more urgent of the pair, because both sides are live *simultaneously*: the TypeScript drives the tug-of-war bar the player watches, the SQL writes the authoritative score, so drift makes the bar lie. It pins the **live** definition rather than a transcription — the arithmetic is extracted from `pg_get_functiondef()` and executed, so a weight changed in a future migration fails the suite without anyone remembering the file exists. Neither of these is a caller-free "dead" module; deleting `compare()`/`isWin()`/`speedPoints()` deletes the spec side of a running check.
+- **Every constant duplicated into plpgsql has a parity suite, not a comment.** Four rules are mirrored TS↔SQL because a Postgres function can't import TypeScript: the compare ladder, the duel scoring weights, `DAILY_POOL_WINDOW`'s cutoff and `MAX_GUESSES`. All four are now pinned (`compare.sqlParity`, `duelScoring.sqlParity`, `poolWindow.sqlParity`) and run in the database CI tier. **A new duplicated constant gets an assertion there in the same change that creates it** — a keep-in-sync comment is what let the pool cutoff go unguarded, and its failure mode (a daily answer outside the pool the board autocompletes) is silent to everyone including the player. See "Driver pools".
 - **A win is driver identity, never tile equality** — `p_guess_driver_id = <target id>`, in all three guess RPCs. The five attributes don't identify a driver uniquely (six colliding pairs on this roster), so a tile-derived win is winnable with the wrong driver. See "Game rules".
 - Never send the target driver to a client during a round; comparison and scoring are server-side (via `duel_submit_guess`). The target is revealed only at round end. Opponent reads are abstracted heat/counts only.
 - Guess evaluation in **every mode** is **one warm hop** — a `supabase.rpc()` Postgres call (`duel_submit_guess`, `daily_submit_guess`, `infinite_submit_guess`) with optimistic client render. No Next.js Server Action on any guess or daily-hydration critical path; compare runs in the parity-tested SQL `compare_drivers`.
 - **The board's first paint never waits on profile/stats.** Daily hydration (`daily_state`) fires as soon as the auth identity resolves and runs in parallel with `loadProfileAndStats`; board readiness gates only on identity + `daily_state`. Chaining data loads behind auth is what made the board take seconds.
+- **Ticking state lives in the leaf that renders it, never on a board.** `GuessAnnouncer` and `NextPuzzleCountdown` (daily's "next driver in HH:MM:SS") both hold their own state and pass only real *events* upward — the countdown's single `onRollover` when the UTC day turns. Held on `DailyBoard`, that one `setCountdown` re-rendered `GuessGrid`'s 36 tiles, `ResultCard` and the share `Modal` 60×/minute to repaint eight characters (audit 2026-07-29 §1.2). `GuessGrid` is `memo()`'d for the renders that remain, which is why both callers keep `guesses` in state or a `useMemo` rather than mapping it per render — a fresh array identity makes the memo a no-op.
 - Vercel can't hold WebSockets; all realtime goes through Supabase Realtime.
 - Matchmaking pairing is atomic (`FOR UPDATE SKIP LOCKED` RPC), never a background worker. Round timing is server-stamped; round advancement, forfeit, and match finish are all idempotent.
 - Every phase transition is **ready-gated or server-timestamped** so the two clients stay in sync; a reloaded client resumes via `duel_state`.
@@ -690,6 +748,7 @@ Knockout (planned — not yet created):
 - **Streaks are decayed on every read**, never trusted from the stored column — in `AuthProvider` for the viewer and in SQL in the `leaderboard` view for the ranking. A stored streak with a stale `last_daily_date` is meaningless by design.
 - **A live match owns the screen.** One `ActiveMatchContext` flag hides the mode tabs, marketing, footer and ad slot (`GameChrome`, `AdSlotGate`). Whatever gets added to the shell, check what it does mid-duel.
 - **Realtime readiness rides on broadcast, not presence** (Supabase's presence rate limit force-closes the channel otherwise). Presence is join/leave membership only, one `track()` per subscription.
+- **`duel:{matchId}` is a private channel.** `private: true` plus `realtime.messages` RLS scoped to the match's two participants (drizzle/0046). A Supabase channel is public unless it asks not to be, and an unauthenticated live-match channel is a stolen round in a rated 1v1. Any new per-match or per-user channel gets the same treatment — and a `private: true` with no matching policy is deny-all, so it fails closed either way.
 
 ## Conventions
 

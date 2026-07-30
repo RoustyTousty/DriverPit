@@ -2,6 +2,14 @@ export type PoolWindow = "current-season" | "10-years" | "20-years" | "30-years"
 
 // Daily always uses this window — fixed, not user-selectable. Infinite
 // mode defaults to the same value but the player can change it.
+//
+// The cutoff below this constant implies is DUPLICATED IN plpgsql, because a
+// Postgres function can't import it: daily_target_id (drizzle/0038) and
+// duel_begin_round (drizzle/0036) both hardcode it, and infinite_start_round
+// (drizzle/0028) mirrors the whole poolCutoffYear ladder. Changing it here and
+// nowhere else moves only the autocomplete, leaving a target the player can't
+// type. `poolWindow.sqlParity.test.ts` (database CI tier) pins all three to
+// this file — see its header for the failure it exists to catch.
 export const DAILY_POOL_WINDOW: PoolWindow = "10-years";
 export const DEFAULT_POOL_WINDOW: PoolWindow = DAILY_POOL_WINDOW;
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -18,6 +18,8 @@ import { buildShareText } from "@/lib/game/emojiGrid";
 import { renderResultImage } from "@/lib/game/shareImage";
 import { recordDailyResult } from "@/lib/stats/actions";
 import { useSettings } from "@/lib/settings/useSettings";
+
+import { NextPuzzleCountdown } from "./NextPuzzleCountdown";
 
 // Server-authoritative daily board: state comes from the daily_state() /
 // daily_submit_guess() Postgres RPCs, called straight from the browser
@@ -101,20 +103,6 @@ function toGuess(g: DailyBoardGuess): Guess {
   };
 }
 
-function msUntilNextUtcMidnight(): number {
-  const now = new Date();
-  const nextMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
-  return nextMidnight - now.getTime();
-}
-
-function formatCountdown(msLeft: number): string {
-  const totalSeconds = Math.max(0, Math.floor(msLeft / 1000));
-  const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
-  const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, "0");
-  const seconds = String(totalSeconds % 60).padStart(2, "0");
-  return `${hours}:${minutes}:${seconds}`;
-}
-
 interface DailyGameProps {
   eligibleDrivers: DriverOption[];
   puzzleNumber: number;
@@ -154,7 +142,6 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
   const [shareState, setShareState] = useState<"idle" | "sharing" | "shared" | "copied">("idle");
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [lastShareFormat, setLastShareFormat] = useState<"image" | "text" | null>(null);
-  const [countdown, setCountdown] = useState("");
 
   // Each hydrate bumps this; a slow response from a previous identity (or a
   // pre-rollover day) is discarded when a newer hydrate has superseded it, so
@@ -218,22 +205,14 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
 
   const isRoundOver = board?.completed ?? false;
 
-  // Ticks only once the round is over; when it hits zero the UTC day has rolled
-  // over, so pull fresh server data and re-hydrate for the new day.
-  useEffect(() => {
-    if (!isRoundOver) return;
-    function tick() {
-      const msLeft = msUntilNextUtcMidnight();
-      setCountdown(formatCountdown(msLeft));
-      if (msLeft <= 0) {
-        router.refresh();
-        void hydrate();
-      }
-    }
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, [isRoundOver, router, hydrate]);
+  // The UTC day turned over under a finished board: pull fresh server data
+  // (a new puzzle number and pool) and re-hydrate onto the new day. Called by
+  // NextPuzzleCountdown, which owns the 1 Hz tick itself so it doesn't
+  // re-render this whole board every second -- audit 2026-07-29 §1.2.
+  const handleRollover = useCallback(() => {
+    router.refresh();
+    void hydrate();
+  }, [router, hydrate]);
 
   function handleSelect(driver: DriverOption) {
     if (!board || board.completed || pending || !userId) return;
@@ -360,9 +339,23 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
     }
   }
 
-  const guesses = board ? board.guesses.map(toGuess) : [];
+  // Memoized on `board` rather than rebuilt per render so the rows keep one
+  // identity across the renders the board state doesn't change on (opening the
+  // share modal, the share button's own idle/sharing/copied cycle, an auth
+  // context refresh). That is what lets memo(GuessGrid) actually skip, and it
+  // stops GuessAnnouncer's effect re-running against an identical list.
+  const guesses = useMemo(() => (board ? board.guesses.map(toGuess) : []), [board]);
   const guessesLeft = board?.guessesRemaining ?? MAX_GUESSES;
   const isLoading = phase === "loading";
+
+  // Withheld from the suggestions, so a duplicate can't burn one of six turns
+  // for a row already on the board (audit 2026-07-29 §4.7). Recomputed when the
+  // board changes -- a guess or a hydrate -- and never on an unrelated render,
+  // so the set keeps one identity across those.
+  const guessedDriverIds = useMemo(
+    () => new Set(board?.guesses.map((g) => g.driverId) ?? []),
+    [board],
+  );
 
   return (
     // `relative` anchors the hydration overlay over the ENTIRE game window --
@@ -400,6 +393,7 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
             drivers={eligibleDrivers}
             onSelect={handleSelect}
             disabled={isLoading || pending || isRoundOver}
+            guessedDriverIds={guessedDriverIds}
           />
 
           {!isRoundOver && (
@@ -458,7 +452,7 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
                       : "Copied"
                     : "Share result"}
               </button>
-              <p className="text-center text-sm text-text-muted">Next driver in {countdown}</p>
+              <NextPuzzleCountdown onRollover={handleRollover} />
             </div>
           )}
         </div>

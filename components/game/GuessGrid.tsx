@@ -1,8 +1,12 @@
+import { memo } from "react";
+
 import { Flag } from "@/components/ui/Flag";
 import type { DriverSummary } from "@/lib/db/queries";
 import type { ExactFeedback, GuessResult, OrderedFeedback, TeamFeedback } from "@/lib/game/compare";
 import { countryCode } from "@/lib/game/flags";
 import { guessTileLabels, type TileColumn } from "@/lib/game/tileLabel";
+
+import { GuessAnnouncer } from "./GuessAnnouncer";
 
 type Feedback = ExactFeedback | OrderedFeedback | TeamFeedback;
 
@@ -227,7 +231,15 @@ export interface Guess {
   result: GuessResult;
 }
 
-export function GuessGrid({
+// memo()'d because this is the most expensive subtree either board renders --
+// up to six rows of a code badge plus five Tiles, each of which builds its own
+// aria-label -- and both callers re-render for reasons that leave the grid
+// untouched (daily's share-button state and modal, infinite's pool selector and
+// round transitions). Audit 2026-07-29 §1.2 named this as the alternative to
+// extracting daily's countdown; both are done, since they cover different
+// renders. It only pays off while `guesses` keeps its identity, which is why
+// both callers hold it in state or a useMemo rather than mapping per render.
+export const GuessGrid = memo(function GuessGrid({
   guesses,
   maxGuesses,
   showFlags = false,
@@ -245,6 +257,12 @@ export function GuessGrid({
 
   return (
     <div className="flex flex-col gap-2">
+      {/* Lives here rather than in DailyGame/InfiniteGame so the two boards
+          can't announce differently -- and so a mode added later gets it by
+          construction, the same argument as extracting the row itself. It is a
+          leaf holding its own state, so the message doesn't re-render the
+          grid. */}
+      <GuessAnnouncer guesses={guesses} maxGuesses={maxGuesses} pending={pending} />
       <ColumnLabels />
       {guesses.map((guess, index) => (
         <GuessRow key={index} guessedDriver={guess.guessedDriver} result={guess.result} showFlags={showFlags} />
@@ -255,5 +273,5 @@ export function GuessGrid({
       ))}
     </div>
   );
-}
+});
 

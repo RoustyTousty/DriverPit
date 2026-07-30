@@ -113,6 +113,20 @@ export interface DuelChannelState {
 // direct lookup by a known id -- exactly two participants in a duel, per
 // CLAUDE.md -- rather than "whichever key isn't mine."
 //
+// `private: true` is load-bearing, not a flag (audit 2026-07-29 §3.4 + §0.2).
+// A Supabase channel is public unless it asks not to be, so until drizzle/0046
+// any signed-in user -- and AuthProvider signs everyone in on first visit --
+// could join duel:{N} for arbitrary N and post arbitrary events: a forged
+// round_end pulled the victim out of a live round onto an attacker-chosen
+// reveal, a forged round_start handed them an ends_at already in the past and
+// their own expiry effect turned it into an instant DNF. Setting it makes
+// Realtime evaluate realtime.messages' RLS at join time, and drizzle/0046's
+// two policies scope both directions to the match's own participants.
+//
+// It costs nothing per event: the authorization check runs once per join (and
+// again on a token refresh), never per broadcast, so guess/solved stay exactly
+// as fast as they were.
+//
 // broadcastRoundStart/broadcastRoundEnd/broadcastMatchEnd: sent by
 // whichever client's duel_begin_round/duel_close_round call actually
 // performed a round transition, close, or match finish, as a fast-path
@@ -167,9 +181,10 @@ export function useDuelChannel(
     const safeMyUserId = myUserId;
     const safeOpponentUserId = opponentUserId;
 
+    let cancelled = false;
     const supabase = createSupabaseBrowserClient();
     const channel = supabase.channel(duelChannelName(matchId), {
-      config: { presence: { key: safeMyUserId } },
+      config: { private: true, presence: { key: safeMyUserId } },
     });
     channelRef.current = channel;
 
@@ -224,23 +239,53 @@ export function useDuelChannel(
       })
       .on("presence", { event: "sync" }, syncOpponentPresence)
       .on("presence", { event: "join" }, syncOpponentPresence)
-      .on("presence", { event: "leave" }, syncOpponentPresence)
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          setConnected(true);
-          // Registers presence membership only -- an empty payload is
-          // enough for join/leave tracking; readiness rides on broadcast
-          // (see this hook's header comment) and never touches track()
-          // again for the rest of this subscription's lifetime.
-          void channel.track({});
-        }
+      .on("presence", { event: "leave" }, syncOpponentPresence);
+
+    // The join has to carry this user's JWT: on a private channel Realtime
+    // runs the policy check as whatever role the token names, and a join that
+    // went out before the session resolved would be evaluated as `anon` and
+    // refused. supabase-js keeps the realtime token in step with auth on its
+    // own, so this is normally already settled and resolves in the same tick --
+    // awaiting it just removes the first-subscribe-after-load race. It never
+    // rejects (setAuth falls back to its cached token), and the catch is there
+    // so a failure still attempts the join rather than silently never
+    // subscribing.
+    void supabase.realtime
+      .setAuth()
+      .catch(() => {})
+      .then(() => {
+        if (cancelled) return;
+        channel.subscribe((status, err) => {
+          if (status === "SUBSCRIBED") {
+            setConnected(true);
+            // Registers presence membership only -- an empty payload is
+            // enough for join/leave tracking; readiness rides on broadcast
+            // (see this hook's header comment) and never touches track()
+            // again for the rest of this subscription's lifetime.
+            void channel.track({});
+            return;
+          }
+          setConnected(false);
+          // Realtime retries a channel error on its own, so this is a
+          // diagnostic rather than a failure path -- but with authorization on
+          // (drizzle/0046) a *permanent* refusal now looks exactly like a
+          // flaky socket, and a duel whose channel never joins degrades
+          // silently to the safety-net polls. Say which it is.
+          if (status === "CHANNEL_ERROR") {
+            console.error(`duel channel ${duelChannelName(matchId)} errored`, err);
+          }
+        });
       });
 
     return () => {
+      cancelled = true;
       channelRef.current = null;
       void supabase.removeChannel(channel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // No suppression needed: the handlers are read through refs, so the three
+    // identities here are the whole dependency set. (It carried one until the
+    // rule was actually switched on and reported it as suppressing nothing --
+    // audit 2026-07-29 §0.5.)
   }, [matchId, myUserId, opponentUserId]);
 
   function sendReady() {

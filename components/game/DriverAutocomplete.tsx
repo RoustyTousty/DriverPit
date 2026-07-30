@@ -3,7 +3,7 @@
 import { memo, useId, useMemo, useState } from "react";
 
 import { Flag } from "@/components/ui/Flag";
-import { buildSearchIndex, fuzzyFilter } from "@/lib/game/fuzzyMatch";
+import { buildSearchIndex, fuzzyFilter, partitionSearchIndex, type SearchEntry } from "@/lib/game/fuzzyMatch";
 
 export interface DriverOption {
   id: number;
@@ -16,7 +16,19 @@ interface DriverAutocompleteProps {
   onSelect: (driver: DriverOption) => void;
   disabled?: boolean;
   placeholder?: string;
+  // Drivers this round has already had guessed. They're withheld from the
+  // suggestions and named back to the player when they type one -- a duplicate
+  // guess burnt one of six turns for a comparison the board is already showing
+  // (audit 2026-07-29 §4.7), and the server rejects it outright now
+  // (drizzle/0049), so offering it would be offering an error.
+  //
+  // A Set rather than an array so callers can memoize one stable reference per
+  // guess: this component is memo()'d, and a fresh array literal per render
+  // would defeat that on identity alone.
+  guessedDriverIds?: ReadonlySet<number>;
 }
+
+const NO_ENTRIES: SearchEntry<DriverOption>[] = [];
 
 // memo'd because two of the three modes re-render around it on a timer -- the
 // duel's round clock at 10Hz, daily's next-puzzle countdown at 1Hz -- and none
@@ -29,6 +41,7 @@ export const DriverAutocomplete = memo(function DriverAutocomplete({
   onSelect,
   disabled = false,
   placeholder = "Guess a driver…",
+  guessedDriverIds,
 }: DriverAutocompleteProps) {
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
@@ -41,10 +54,32 @@ export const DriverAutocomplete = memo(function DriverAutocomplete({
   // when the pool changes and never on typing. See lib/game/fuzzyMatch.ts.
   const searchIndex = useMemo(() => buildSearchIndex(drivers, (d) => d.fullName), [drivers]);
 
-  const matches = useMemo(() => fuzzyFilter(query, searchIndex, 8), [query, searchIndex]);
+  // Re-partitioned when a guess lands, not when a key is pressed, and it
+  // re-uses the index entries rather than rebuilding them -- so suggesting from
+  // the un-guessed drivers costs the same per keystroke as suggesting from all
+  // of them (see partitionSearchIndex).
+  const { included: availableIndex, excluded: guessedIndex } = useMemo(() => {
+    if (!guessedDriverIds || guessedDriverIds.size === 0) {
+      return { included: searchIndex, excluded: NO_ENTRIES };
+    }
+    return partitionSearchIndex(searchIndex, (driver) => guessedDriverIds.has(driver.id));
+  }, [searchIndex, guessedDriverIds]);
+
+  const matches = useMemo(() => fuzzyFilter(query, availableIndex, 8), [query, availableIndex]);
 
   const trimmedQuery = query.trim();
-  const noMatches = trimmedQuery !== "" && matches.length === 0;
+  // The best already-guessed driver the query names, if any. Withholding one
+  // silently would turn "Hamilton" into "No driver in this pool matches
+  // Hamilton" -- a false statement about the pool, at the moment the player is
+  // most likely to think the search is broken.
+  const alreadyGuessed = useMemo(
+    () =>
+      trimmedQuery === "" || guessedIndex.length === 0
+        ? null
+        : (fuzzyFilter(trimmedQuery, guessedIndex, 1)[0] ?? null),
+    [trimmedQuery, guessedIndex],
+  );
+  const noMatches = trimmedQuery !== "" && matches.length === 0 && alreadyGuessed === null;
 
   function selectDriver(driver: DriverOption) {
     onSelect(driver);
@@ -119,7 +154,7 @@ export const DriverAutocomplete = memo(function DriverAutocomplete({
           the name was misspelled or simply outside the pool (audit
           2026-07-27 §4.3). The listbox itself is always the element
           `aria-controls` names, empty or not. */}
-      {isOpen && (matches.length > 0 || noMatches) && (
+      {isOpen && (matches.length > 0 || noMatches || alreadyGuessed !== null) && (
         <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-border bg-surface shadow-lg">
           <ul
             id={listboxId}
@@ -148,6 +183,21 @@ export const DriverAutocomplete = memo(function DriverAutocomplete({
             ))}
           </ul>
 
+          {/* Sits under the remaining suggestions rather than replacing them:
+              typing "sai" with one Sainz already guessed should still offer the
+              others, and still say where the missing one went. */}
+          {alreadyGuessed && (
+            <p
+              // The separator only exists to divide it from suggestions above;
+              // with none, it would be a hairline across the top of the panel.
+              className={`line-clamp-2 px-4 py-3 text-sm wrap-break-word text-text-muted ${
+                matches.length > 0 ? "border-t border-border" : ""
+              }`}
+            >
+              <span className="text-text">{alreadyGuessed.fullName}</span> — already guessed
+            </p>
+          )}
+
           {/* line-clamp + wrap-break-word so a long paste can't stretch the
               panel down the page or push its own width past the input. */}
           {noMatches && (
@@ -160,11 +210,17 @@ export const DriverAutocomplete = memo(function DriverAutocomplete({
 
       {/* Persistent live region rather than one that mounts with the message:
           a region announces its *changes*, and screen readers routinely miss
-          the initial content of one that appears already populated. The text
-          is constant so it's announced once when the state begins, not
-          re-read on every further keystroke that also finds nothing. */}
+          the initial content of one that appears already populated. Both
+          messages are states, not events -- each is announced once when it
+          begins, not re-read on every further keystroke that lands in it. */}
       <span role="status" aria-live="polite" className="sr-only">
-        {isOpen && noMatches ? "No drivers found." : ""}
+        {!isOpen
+          ? ""
+          : alreadyGuessed
+            ? `${alreadyGuessed.fullName} is already guessed.`
+            : noMatches
+              ? "No drivers found."
+              : ""}
       </span>
     </div>
   );

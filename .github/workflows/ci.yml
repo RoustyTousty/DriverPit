@@ -8,8 +8,8 @@ name: CI
 # difference between "documented" and "enforced".
 #
 # Two tiers, deliberately:
-#   * `static`   -- typecheck + the pure suites. Needs nothing, runs everywhere,
-#                   including on pull requests from forks.
+#   * `static`   -- typecheck, lint, and the pure + component suites. Needs
+#                   nothing, runs everywhere, including on fork pull requests.
 #   * `database` -- the RPC/parity/grant suites and `next build`. Needs a real
 #                   Supabase project, so it self-skips when the secrets are absent
 #                   rather than failing red and training everyone to ignore it.
@@ -50,14 +50,22 @@ jobs:
 
       - run: npm ci
 
-      # The repo's two static checks, per CLAUDE.md. There is deliberately no
-      # ESLint config, so there is deliberately no lint step -- adding one here
-      # would be inventing a policy the codebase hasn't adopted. (`next build` is
-      # the other documented check; it needs a database, so it lives below.)
       - name: tsc --noEmit
         run: npm run typecheck
 
-      - name: Unit tests (pure suites)
+      # Adopted 2026-07-30 (audit 2026-07-29 §0.5). The repo carried 17
+      # `eslint-disable` comments suppressing rules that never ran; the config
+      # is scoped to exactly what the tree already satisfies, so this step
+      # started green and stays green only while that holds. eslint.config.mjs
+      # records which rulesets were measured and which were deliberately not
+      # adopted.
+      - name: eslint
+        run: npm run lint
+
+      # Both tiers: the pure `node` suites and the `dom` component suites
+      # (jsdom + Testing Library, added 2026-07-30 for audit §2.6). Neither
+      # needs a database.
+      - name: Unit + component tests
         run: npm test
 
   preflight:

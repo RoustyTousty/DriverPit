@@ -42,31 +42,39 @@ export type GetDuelRoundStateResult = DuelRoundState | { ok: false; error: strin
 // call and compares `serverNow` against local time once, at match/round
 // start, per CLAUDE.md's "ping server time once to estimate offset".
 export async function getDuelRoundState(matchId: number): Promise<GetDuelRoundStateResult> {
-  const userId = await getCurrentUserId();
+  // The auth hop and the match read don't feed each other -- only the
+  // participant check below needs both -- so they go out together (audit
+  // 2026-07-29 §1.5). This action is the one poll in the app that isn't a warm
+  // RPC (every DUEL_POLL_INTERVAL_MS through an intermission), so its serial
+  // hops are paid repeatedly. Nothing is returned before both checks run.
+  const [userId, [match]] = await Promise.all([
+    getCurrentUserId(),
+    db.select().from(duelMatches).where(eq(duelMatches.id, matchId)),
+  ]);
   if (!userId) return { ok: false, error: "Not signed in." };
-
-  const [match] = await db.select().from(duelMatches).where(eq(duelMatches.id, matchId));
   if (!match) return { ok: false, error: "Match not found." };
   if (match.playerA !== userId && match.playerB !== userId) {
     return { ok: false, error: "You are not part of this match." };
   }
 
-  const [round] = await db
-    .select()
-    .from(duelRounds)
-    .where(and(eq(duelRounds.matchId, matchId), eq(duelRounds.roundIndex, match.currentRound)));
-  if (!round) return { ok: false, error: "Round not found." };
-
-  const [myResult] = await db
-    .select()
-    .from(duelRoundResults)
-    .where(
-      and(
-        eq(duelRoundResults.matchId, matchId),
-        eq(duelRoundResults.roundIndex, match.currentRound),
-        eq(duelRoundResults.userId, userId),
+  // Both depend on match.currentRound but not on each other.
+  const [[round], [myResult]] = await Promise.all([
+    db
+      .select()
+      .from(duelRounds)
+      .where(and(eq(duelRounds.matchId, matchId), eq(duelRounds.roundIndex, match.currentRound))),
+    db
+      .select()
+      .from(duelRoundResults)
+      .where(
+        and(
+          eq(duelRoundResults.matchId, matchId),
+          eq(duelRoundResults.roundIndex, match.currentRound),
+          eq(duelRoundResults.userId, userId),
+        ),
       ),
-    );
+  ]);
+  if (!round) return { ok: false, error: "Round not found." };
 
   return {
     ok: true,
@@ -317,12 +325,20 @@ export async function getMyLiveMatch(): Promise<GetMyLiveMatchResult> {
     .limit(1);
   if (!match) return { ok: true, match: null, matchStatus: null };
 
-  const state = await duelState(match.id);
+  // duel_state and the opponent's W/L don't feed each other: the opponent's id
+  // is already on the match row, so the stats read doesn't have to wait for the
+  // RPC to name them (audit 2026-07-29 §1.5). This runs on every /online mount.
+  const youAre = match.playerA === userId ? "a" : "b";
+  const opponentId = youAre === "a" ? match.playerB : match.playerA;
+  const [state, [opponentStats]] = await Promise.all([
+    duelState(match.id),
+    db.select().from(userStats).where(eq(userStats.userId, opponentId)),
+  ]);
   if (!state) return { ok: true, match: null, matchStatus: null };
 
-  const youAre = match.playerA === userId ? "a" : "b";
+  // Same player as `opponentId` above -- duel_state is what carries their
+  // public profile columns (handle, avatar, rating).
   const opponent = youAre === "a" ? state.playerB : state.playerA;
-  const [opponentStats] = await db.select().from(userStats).where(eq(userStats.userId, opponent.id));
 
   return {
     ok: true,
@@ -374,10 +390,13 @@ export type GetDuelResultsResult = DuelResultsData | { ok: false; error: string 
 // server-stamped solved_at against duel_rounds' started_at, so both
 // players' times are comparable (same clock stamped both).
 export async function getDuelResults(matchId: number): Promise<GetDuelResultsResult> {
-  const userId = await getCurrentUserId();
+  // Auth and the match row are independent; the checks below still gate
+  // everything (audit 2026-07-29 §1.5).
+  const [userId, [match]] = await Promise.all([
+    getCurrentUserId(),
+    db.select().from(duelMatches).where(eq(duelMatches.id, matchId)),
+  ]);
   if (!userId) return { ok: false, error: "Not signed in." };
-
-  const [match] = await db.select().from(duelMatches).where(eq(duelMatches.id, matchId));
   if (!match) return { ok: false, error: "Match not found." };
   if (match.playerA !== userId && match.playerB !== userId) {
     return { ok: false, error: "You are not part of this match." };
@@ -388,8 +407,12 @@ export async function getDuelResults(matchId: number): Promise<GetDuelResultsRes
 
   const iAmA = match.playerA === userId;
 
-  const rounds = await db.select().from(duelRounds).where(eq(duelRounds.matchId, matchId));
-  const results = await db.select().from(duelRoundResults).where(eq(duelRoundResults.matchId, matchId));
+  // Two independent reads of the same match's rows -- they're joined in
+  // JavaScript below, not in SQL, so there is no reason to serialize them.
+  const [rounds, results] = await Promise.all([
+    db.select().from(duelRounds).where(eq(duelRounds.matchId, matchId)),
+    db.select().from(duelRoundResults).where(eq(duelRoundResults.matchId, matchId)),
+  ]);
 
   const breakdown: DuelRoundBreakdownRow[] = rounds
     .sort((a, b) => a.roundIndex - b.roundIndex)

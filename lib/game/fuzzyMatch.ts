@@ -55,6 +55,34 @@ export function buildSearchIndex<T>(
   return items.map((item) => ({ item, key: normalizeSearchText(getText(item)) }));
 }
 
+export interface SearchIndexPartition<T> {
+  readonly included: SearchEntry<T>[];
+  readonly excluded: SearchEntry<T>[];
+}
+
+// Splits a prebuilt index in two without rebuilding it -- the entries are
+// carried over by reference, so nothing is normalized a second time. That is
+// the whole point: the duplicate-guess guard has to drop already-guessed
+// drivers from the suggestions, and doing it by handing DriverAutocomplete a
+// filtered `drivers` array instead would give it a new array identity on every
+// guess and rebuild the ~800-entry index (audit §1.3's fix, undone). This runs
+// once per guess, over the index that already exists.
+//
+// Two lists rather than one: `excluded` is what lets the dropdown say "you've
+// already guessed Lewis Hamilton" instead of "no driver matches", which is the
+// difference between blocking a duplicate and looking broken.
+export function partitionSearchIndex<T>(
+  index: readonly SearchEntry<T>[],
+  isExcluded: (item: T) => boolean,
+): SearchIndexPartition<T> {
+  const included: SearchEntry<T>[] = [];
+  const excluded: SearchEntry<T>[] = [];
+  for (const entry of index) {
+    (isExcluded(entry.item) ? excluded : included).push(entry);
+  }
+  return { included, excluded };
+}
+
 // Contiguous substring matches score highest (weighted toward matches near
 // the start of the string). Falls back to an in-order subsequence match so
 // typos and skipped letters ("vrstpn" -> "Verstappen") still hit, rewarding

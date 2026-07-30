@@ -34,7 +34,8 @@ git clone <this repo> && cd DriverScrabble
 npm install
 cp .env.example .env      # then fill it in -- see below
 npm run db:migrate        # create the schema, RPCs, policies and grants
-npm run db:seed           # pull the driver roster from F1DB
+npm run db:seed           # pull the driver roster from F1DB (dry run -- see below)
+npm run db:seed:commit    # ...and keep it
 npm run dev               # http://localhost:3000
 ```
 
@@ -81,28 +82,37 @@ for plain table/column diffs.
 ### 4. Seed the driver roster
 
 ```bash
-npm run db:seed              # or: npm run db:seed -- --dry-run
+F1DB_RELEASE=v2026.11.0 npm run db:seed          # rehearse: full write, rolled back
+F1DB_RELEASE=v2026.11.0 npm run db:seed:commit   # ...and keep it
 ```
 
-Downloads the latest **[F1DB](https://github.com/f1db/f1db)** release and upserts every driver who
+Downloads a pinned **[F1DB](https://github.com/f1db/f1db)** release and upserts every driver who
 has ever started a race. This is currently the only way driver data gets in or gets updated —
-re-run it after a race weekend to refresh wins and teams.
+re-run it after a race weekend to refresh wins and teams. `F1DB_RELEASE` is required and has no
+default (`latest` is available but has to be typed).
+
+**The seed fails closed.** `npm run db:seed` performs the whole write and then rolls it back, so
+you read the reconciliation report against the real table before anything commits; keeping the
+write takes `db:seed:commit`. The default is that way round because the flag is the part a shell
+can eat — Windows PowerShell 5.1 drops the bare `--` in `npm run db:seed -- --dry-run`, npm
+swallows the flag as its own, and that once committed a 792-row refresh nobody asked for. A lost
+`--commit` costs a re-run. Either way the first line of output names the mode.
 
 It is an **idempotent upsert keyed on F1DB's own driver slug, and `drivers.id` is never
 reassigned** (other tables hold foreign keys to it). Nothing is ever deleted: drivers the release
-no longer mentions are kept and reported. `--dry-run` performs the whole write and rolls it back so
-you can read the reconciliation report first — worth doing on any database that has already served
-a day.
+no longer mentions are kept and reported.
 
 ## Everyday commands
 
 | Command | What it does |
 |---|---|
 | `npm run dev` | Dev server (Turbopack). |
-| `npm run typecheck` | `tsc --noEmit`. **There is no ESLint config in this repo** — this and `next build` are the checks. |
-| `npm test` | Vitest. Pure unit suites only; needs no database, runs offline. |
+| `npm run typecheck` | `tsc --noEmit`. |
+| `npm run lint` | ESLint. Four rules, deliberately narrow — see the header comment in `eslint.config.mjs` for what was measured and what was rejected. No style rules. |
+| `npm test` | Vitest, both projects: `node` (pure logic) and `dom` (components in jsdom). Needs no database, runs offline. |
+| `npm run test:dom` | Just the component suites — the fast loop while working on a component. |
 | `npm run build` / `npm start` | Production build. Measure performance here, never on `next dev`. |
-| `npm run db:migrate` / `db:seed` / `db:generate` | See above. |
+| `npm run db:migrate` / `db:seed` / `db:seed:commit` / `db:generate` | See above. |
 
 ### Integration tests
 

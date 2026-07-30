@@ -143,6 +143,15 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
   const isRoundOver = status === "won" || status === "lost";
   const guessesLeft = MAX_GUESSES - guesses.length;
 
+  // Same rule as daily: an already-guessed driver is withheld from the
+  // suggestions rather than allowed to burn a turn on a row the grid is already
+  // showing (audit 2026-07-29 §4.7). A new round clears `guesses`, so this
+  // empties with it.
+  const guessedDriverIds = useMemo(
+    () => new Set(guesses.map((g) => g.guessedDriver.id)),
+    [guesses],
+  );
+
   return (
     // `relative` anchors the loading overlay over the ENTIRE game window --
     // header and "New driver" included -- so a starting round is one state
@@ -202,6 +211,7 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
             drivers={poolDrivers}
             onSelect={handleSelect}
             disabled={isLoading || isPending || isRoundOver}
+            guessedDriverIds={guessedDriverIds}
           />
 
           {!isRoundOver && (

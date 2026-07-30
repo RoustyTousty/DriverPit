@@ -138,7 +138,9 @@ export function DuelIntermission({
       doneRef.current = true;
       onDoneRef.current();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // No suppression needed: everything read here is either a dependency or a
+    // ref. (It carried one until the rule was actually switched on and reported
+    // it as suppressing nothing -- audit 2026-07-29 §0.5.)
   }, [readySent, channel.ready, channel.opponentReady, readyTimedOut]);
 
   const nationalityValue =

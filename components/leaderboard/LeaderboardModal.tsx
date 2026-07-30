@@ -6,6 +6,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { Modal } from "@/components/ui/Modal";
 import { AvatarGlyph } from "@/components/ui/AvatarGlyph";
 import { getLeaderboard, type DuelLeaderboardEntry, type StreakLeaderboardEntry } from "@/lib/leaderboard/actions";
+import { LEADERBOARD_TOP_SLOTS } from "@/lib/leaderboard/constants";
 
 type Board = "duel" | "streak";
 
@@ -19,7 +20,10 @@ const BOARDS: { value: Board; label: string }[] = [
 // rows reads as broken rather than "not many people yet." Matches Row's
 // layout (rank column, sm AvatarGlyph) so a real row slotting into an empty
 // one later doesn't shift anything around it.
-const TOP_SLOTS = 10;
+//
+// Shared with getLeaderboard, which fetches exactly this many per board --
+// see lib/leaderboard/constants.ts for why they must be one number.
+const TOP_SLOTS = LEADERBOARD_TOP_SLOTS;
 
 function EmptySlotRow({ rank }: { rank: number }) {
   return (

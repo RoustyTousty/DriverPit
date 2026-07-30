@@ -1,0 +1,15 @@
+-- The last relation in `public` still holding the Supabase bootstrap's write
+-- set. drizzle/0042 swept the nine tables and did not consider the view.
+--
+-- It was inert for one reason only: Postgres auto-updates a view over a
+-- single relation, and this one JOINs profiles to user_stats. That made "do
+-- not flatten the leaderboard view" a load-bearing security constraint held
+-- by a test comment -- because a view is owner-privileged and is NOT checked
+-- against RLS (drizzle/0009: that bypass is exactly what lets it read every
+-- full account's row), so the day it became auto-updatable these standing
+-- grants would have become real writes to user_stats AS THE OWNER, past the
+-- only thing protecting duel_rating and the streak columns the board ranks on.
+--
+-- SELECT stays for both roles: the view exposes public columns of full
+-- accounts only, which is the entire point of it. Audit 2026-07-29 §3.11.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.leaderboard FROM anon, authenticated;

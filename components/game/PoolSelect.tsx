@@ -209,7 +209,7 @@ export function PoolSelect({ value, options, onChange, disabled = false }: PoolS
                     : isActive
                       ? "bg-surface-2 text-text"
                       : "text-text hover:bg-surface-2"
-                } ${isActive ? "ring-2 ring-inset ring-accent" : ""}`}
+                }`}
               >
                 <span className="flex items-baseline gap-2">
                   <span className="font-semibold">{option.tier}</span>

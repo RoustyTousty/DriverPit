@@ -122,3 +122,33 @@ export function guessTileLabels(driver: GuessTileValues, result: GuessResult): R
     careerWins: tileAriaLabel("careerWins", driver.careerWins, result.careerWins, result.careerWinsCloseness),
   };
 }
+
+// Left-to-right, so what's spoken is in the order the row is read.
+const ANNOUNCED_COLUMNS: readonly TileColumn[] = [
+  "nationality",
+  "team",
+  "age",
+  "debutYear",
+  "careerWins",
+];
+
+// The whole submitted guess as one sentence-run, for the polite live region
+// components/game/GuessAnnouncer.tsx renders (audit 2026-07-29 §4.1). Labelling
+// the tiles made the board *readable*; it left the EVENT silent, so a screen
+// reader user submitted a guess, heard nothing, and had to navigate back into
+// the grid to find out what happened.
+//
+// It re-uses guessTileLabels rather than paraphrasing it, which is the point:
+// the spoken row and the spoken tiles can't drift, and a rule change in
+// compare.ts moves both. The leading count is what the sighted board gets from
+// position in the grid ("N guesses left" is right above it).
+export function guessAnnouncement(
+  driverName: string,
+  driver: GuessTileValues,
+  result: GuessResult,
+  position: { guessNumber: number; maxGuesses: number },
+): string {
+  const labels = guessTileLabels(driver, result);
+  const head = `Guess ${position.guessNumber} of ${position.maxGuesses}: ${driverName}.`;
+  return [head, ...ANNOUNCED_COLUMNS.map((column) => labels[column])].join(" ");
+}

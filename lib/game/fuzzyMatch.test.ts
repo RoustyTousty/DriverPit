@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSearchIndex, fuzzyFilter, normalizeSearchText } from "./fuzzyMatch";
+import { buildSearchIndex, fuzzyFilter, normalizeSearchText, partitionSearchIndex } from "./fuzzyMatch";
 
 const DRIVERS = [
   "Max Verstappen",
@@ -131,5 +131,42 @@ describe("buildSearchIndex", () => {
     const index = buildSearchIndex(ACCENTED, (d) => d);
     expect(index.map((entry) => entry.item)).toEqual(ACCENTED);
     expect(index[0].key).toBe("nico hulkenberg");
+  });
+});
+
+// Backs the duplicate-guess guard (audit 2026-07-29 §4.7): already-guessed
+// drivers come out of the suggestions, and stay available as the reason the
+// dropdown can then give.
+describe("partitionSearchIndex", () => {
+  const index = buildSearchIndex(DRIVERS, (d) => d);
+  const guessed = new Set(["Lewis Hamilton", "Lando Norris"]);
+
+  it("splits on the predicate and preserves index order in both halves", () => {
+    const { included, excluded } = partitionSearchIndex(index, (name) => guessed.has(name));
+    expect(included.map((entry) => entry.item)).toEqual(
+      DRIVERS.filter((name) => !guessed.has(name)),
+    );
+    expect(excluded.map((entry) => entry.item)).toEqual(["Lewis Hamilton", "Lando Norris"]);
+  });
+
+  it("carries entries over by reference, so nothing is normalized twice", () => {
+    // The point of partitioning the *index* rather than filtering the driver
+    // list: this runs once per guess, and re-folding ~800 names there would
+    // undo audit §1.3's fix.
+    const { included } = partitionSearchIndex(index, () => false);
+    expect(included).toHaveLength(index.length);
+    included.forEach((entry, i) => expect(entry).toBe(index[i]));
+  });
+
+  it("hides an excluded driver from suggestions while still naming it", () => {
+    const { included, excluded } = partitionSearchIndex(index, (name) => guessed.has(name));
+    expect(fuzzyFilter("hamilton", included)).toEqual([]);
+    expect(fuzzyFilter("hamilton", excluded, 1)).toEqual(["Lewis Hamilton"]);
+  });
+
+  it("puts everything in `included` when nothing is excluded", () => {
+    const { included, excluded } = partitionSearchIndex(index, () => false);
+    expect(included.map((entry) => entry.item)).toEqual(DRIVERS);
+    expect(excluded).toEqual([]);
   });
 });

@@ -1,12 +1,13 @@
 "use server";
 
-import { count, desc, eq, gt } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { leaderboard } from "@/lib/db/schema";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-const BOARD_SIZE = 50;
+import { LEADERBOARD_TOP_SLOTS } from "./constants";
+import { duelRankSql, streakRankSql } from "./rank";
 
 interface LeaderboardPerson {
   id: string;
@@ -51,11 +52,13 @@ async function getCurrentUserId(): Promise<string | null> {
 // than profiles/user_stats directly, so this can never accidentally select
 // a column that shouldn't be shown to every visitor.
 export async function getLeaderboard(): Promise<Leaderboard> {
-  const userId = await getCurrentUserId();
-
-  const [duelRows, streakRows] = await Promise.all([
-    db.select().from(leaderboard).orderBy(desc(leaderboard.duelRating)).limit(BOARD_SIZE),
-    db.select().from(leaderboard).orderBy(desc(leaderboard.currentStreak)).limit(BOARD_SIZE),
+  // The two boards are public and don't depend on who is asking -- only the
+  // "you're #N" row below does -- so the auth hop goes out alongside them
+  // rather than in front of them (audit 2026-07-29 §1.6).
+  const [userId, duelRows, streakRows] = await Promise.all([
+    getCurrentUserId(),
+    db.select().from(leaderboard).orderBy(desc(leaderboard.duelRating)).limit(LEADERBOARD_TOP_SLOTS),
+    db.select().from(leaderboard).orderBy(desc(leaderboard.currentStreak)).limit(LEADERBOARD_TOP_SLOTS),
   ]);
 
   const duelBoard: DuelLeaderboardEntry[] = duelRows.map((row) => ({
@@ -80,59 +83,74 @@ export async function getLeaderboard(): Promise<Leaderboard> {
     return { duelBoard, streakBoard };
   }
 
-  const [myDuelRank, myStreakRank] = await Promise.all([
-    duelBoard.some((entry) => entry.id === userId) ? undefined : getMyDuelRank(userId),
-    streakBoard.some((entry) => entry.id === userId) ? undefined : getMyStreakRank(userId),
-  ]);
+  // Already shown up top on both boards: there is no rank row to add, so the
+  // rank query is skipped entirely rather than run and discarded.
+  const inDuelBoard = duelBoard.some((entry) => entry.id === userId);
+  const inStreakBoard = streakBoard.some((entry) => entry.id === userId);
+  if (inDuelBoard && inStreakBoard) {
+    return { duelBoard, streakBoard };
+  }
 
-  return { duelBoard, streakBoard, myDuelRank, myStreakRank };
-}
-
-// Not just "position within the fetched BOARD_SIZE rows" -- a plain count
-// of everyone with a strictly higher metric, so a caller far outside the
-// top BOARD_SIZE (which this app doesn't have yet, but will) still gets
-// their real rank rather than an undefined one.
-async function getMyDuelRank(userId: string): Promise<{ rank: number; entry: DuelLeaderboardEntry } | undefined> {
-  const [me] = await db.select().from(leaderboard).where(eq(leaderboard.id, userId));
-  if (!me) return undefined;
-
-  const [{ value: higherCount }] = await db
-    .select({ value: count() })
-    .from(leaderboard)
-    .where(gt(leaderboard.duelRating, me.duelRating));
+  const me = await getMyRanks(userId);
+  if (!me) return { duelBoard, streakBoard };
 
   return {
-    rank: higherCount + 1,
-    entry: {
-      id: me.id,
-      username: me.username,
-      displayName: me.displayName,
-      avatarUrl: me.avatarUrl,
-      duelRating: me.duelRating,
-      duelWins: me.duelWins,
-      duelLosses: me.duelLosses,
-    },
+    duelBoard,
+    streakBoard,
+    myDuelRank: inDuelBoard
+      ? undefined
+      : {
+          rank: me.duelRank,
+          entry: {
+            id: me.id,
+            username: me.username,
+            displayName: me.displayName,
+            avatarUrl: me.avatarUrl,
+            duelRating: me.duelRating,
+            duelWins: me.duelWins,
+            duelLosses: me.duelLosses,
+          },
+        },
+    myStreakRank: inStreakBoard
+      ? undefined
+      : {
+          rank: me.streakRank,
+          entry: {
+            id: me.id,
+            username: me.username,
+            displayName: me.displayName,
+            avatarUrl: me.avatarUrl,
+            currentStreak: me.currentStreak,
+            maxStreak: me.maxStreak,
+          },
+        },
   };
 }
 
-async function getMyStreakRank(userId: string): Promise<{ rank: number; entry: StreakLeaderboardEntry } | undefined> {
-  const [me] = await db.select().from(leaderboard).where(eq(leaderboard.id, userId));
-  if (!me) return undefined;
-
-  const [{ value: higherCount }] = await db
-    .select({ value: count() })
+// The viewer's row and BOTH of their ranks in one query.
+//
+// The ranks themselves mean what they always did; what changed is that saying
+// so took four queries, two of which fetched the identical `me` row (audit
+// 2026-07-29 §1.6). As correlated subqueries over that same row, the database
+// does the counting it was already doing -- once, in one round trip. See
+// ./rank.ts for the expressions and why they're written out there.
+async function getMyRanks(userId: string) {
+  const [me] = await db
+    .select({
+      id: leaderboard.id,
+      username: leaderboard.username,
+      displayName: leaderboard.displayName,
+      avatarUrl: leaderboard.avatarUrl,
+      duelRating: leaderboard.duelRating,
+      duelWins: leaderboard.duelWins,
+      duelLosses: leaderboard.duelLosses,
+      currentStreak: leaderboard.currentStreak,
+      maxStreak: leaderboard.maxStreak,
+      duelRank: duelRankSql,
+      streakRank: streakRankSql,
+    })
     .from(leaderboard)
-    .where(gt(leaderboard.currentStreak, me.currentStreak));
+    .where(eq(leaderboard.id, userId));
 
-  return {
-    rank: higherCount + 1,
-    entry: {
-      id: me.id,
-      username: me.username,
-      displayName: me.displayName,
-      avatarUrl: me.avatarUrl,
-      currentStreak: me.currentStreak,
-      maxStreak: me.maxStreak,
-    },
-  };
+  return me;
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { compare, type Driver } from "./compare";
-import { guessTileLabels, tileAriaLabel, tileValueLabel } from "./tileLabel";
+import { guessAnnouncement, guessTileLabels, tileAriaLabel, tileValueLabel } from "./tileLabel";
 
 const TODAY = new Date("2026-07-17T00:00:00Z");
 
@@ -109,5 +109,59 @@ describe("guessTileLabels", () => {
     );
 
     expect(Object.values(labels).every((label) => label.endsWith("Correct."))).toBe(true);
+  });
+});
+
+describe("guessAnnouncement", () => {
+  const target: Driver = {
+    nationality: "Netherlands",
+    team: "Red Bull",
+    previousTeams: ["Red Bull", "Toro Rosso"],
+    dateOfBirth: "1997-09-30",
+    dateOfDeath: null,
+    debutYear: 2015,
+    careerWins: 60,
+  };
+
+  const guess: Driver = {
+    nationality: "United Kingdom",
+    team: "Toro Rosso",
+    previousTeams: ["Toro Rosso"],
+    dateOfBirth: "1985-01-07",
+    dateOfDeath: null,
+    debutYear: 2007,
+    careerWins: 105,
+  };
+
+  const values = {
+    nationality: guess.nationality,
+    team: guess.team,
+    age: 41,
+    debutYear: guess.debutYear,
+    careerWins: guess.careerWins,
+  };
+
+  it("names the driver, the position in the board, and every column in row order", () => {
+    expect(guessAnnouncement("Lewis Hamilton", values, compare(guess, target, TODAY), {
+      guessNumber: 2,
+      maxGuesses: 6,
+    })).toBe(
+      "Guess 2 of 6: Lewis Hamilton. " +
+        "Nationality: United Kingdom. Not the target's nationality. " +
+        "Team: Toro Rosso. Not the target's current team, but they raced for it in the past. " +
+        "Age: 41. The target is younger, close. " +
+        "Debut year: 2007. The target debuted later, close. " +
+        "Career wins: 105. The target has fewer wins, far off.",
+    );
+  });
+
+  it("says exactly what the tiles say, so the two can never drift", () => {
+    // The whole reason it composes guessTileLabels instead of paraphrasing it:
+    // a compare.ts rule change has to move both or neither.
+    const result = compare(guess, target, TODAY);
+    const labels = guessTileLabels(values, result);
+    const spoken = guessAnnouncement("Lewis Hamilton", values, result, { guessNumber: 1, maxGuesses: 6 });
+
+    for (const label of Object.values(labels)) expect(spoken).toContain(label);
   });
 });

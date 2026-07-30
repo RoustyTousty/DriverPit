@@ -190,21 +190,44 @@ export function useDuelLifecycle({
       // duel_begin_round -- the round has genuinely started server-side, so
       // catch up immediately instead of insisting on finishing my own gate
       // (which would just leave me drifting behind the timer).
+      //
+      // The broadcast says *that* it started, never *when*: the clock comes
+      // back from the same idempotent RPC my own gate would have called, not
+      // off the payload (audit 2026-07-29 §0.2). It used to be taken on trust,
+      // and either half of it was a stolen round -- an endsAt already in the
+      // past expires the moment it lands and the expiry effect below DNFs me
+      // on a round I never saw, a startedAt far in the future leaves isPreRound
+      // stuck true while the real server clock runs down. drizzle/0046 shut
+      // third parties out of the channel; this is the same forgery from the one
+      // party still on it, my opponent. Confirming costs one warm PostgREST hop
+      // on a beat where I'm between rounds anyway -- and beginRound is the call
+      // this path was always going to make, just triggered by their gate
+      // instead of mine.
       if (
         phase === "intermission" &&
         intermission &&
         !intermission.isLastRound &&
         payload.roundIndex === intermission.nextRoundIndex
       ) {
-        adoptRound({
-          roundIndex: payload.roundIndex,
-          startedAt: payload.startedAt,
-          endsAt: payload.endsAt,
-          scoreA: intermission.scoreA,
-          scoreB: intermission.scoreB,
-        });
-        setIntermission(null);
-        setPhase("playing");
+        const { nextRoundIndex, scoreA, scoreB } = intermission;
+        void (async () => {
+          const begin = await beginRound(activeMatch.matchId, nextRoundIndex!);
+          if (!begin.ok) {
+            // Not a dead end: the intermission safety-net poll below re-checks
+            // the round state on DUEL_POLL_INTERVAL_MS, and my own ready-gate
+            // is still running.
+            return;
+          }
+          adoptRound({
+            roundIndex: begin.roundIndex,
+            startedAt: begin.startedAt,
+            endsAt: begin.endsAt,
+            scoreA,
+            scoreB,
+          });
+          setIntermission(null);
+          setPhase("playing");
+        })();
         return;
       }
 

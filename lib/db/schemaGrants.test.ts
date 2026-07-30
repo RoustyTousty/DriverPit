@@ -94,6 +94,8 @@ const FUNCTION_POLICY: Record<string, { grantees: Grantee[]; open?: boolean; why
     { grantees: ["authenticated"], why: "the daily guess hop; auth.uid() inside" },
   "duel_heartbeat(p_match_id integer)":
     { grantees: ["authenticated"], why: "refreshes the CALLER'S OWN last_seen column; auth.uid() inside" },
+  "duel_topic_participant(p_topic text)":
+    { grantees: ["authenticated"], why: "realtime.messages' RLS predicate (drizzle/0046); Realtime evaluates it as the JWT's role, so `authenticated` is the one grantee it needs" },
 
   // -- Client-callable, still carrying a named `anon` grant from the bootstrap.
   //    Hygiene rather than exposure, and the reason is uniform: each one reads
@@ -215,14 +217,8 @@ const RELATION_POLICY: Record<string, { anon: string[]; authenticated: string[];
   matchmaking_queue: { anon: ["SELECT"], authenticated: ["SELECT"], rls: true,
     why: "a writable queue row is the rating-farming vector all of drizzle/0032 exists to close" },
 
-  // KNOWN OPEN -- see the dedicated test below. Not covered by drizzle/0042,
-  // which swept the nine tables and did not consider the view.
-  leaderboard: {
-    anon: ["DELETE", "INSERT", "REFERENCES", "SELECT", "TRIGGER", "TRUNCATE", "UPDATE"],
-    authenticated: ["DELETE", "INSERT", "REFERENCES", "SELECT", "TRIGGER", "TRUNCATE", "UPDATE"],
-    rls: false,
-    why: "KNOWN OPEN: full bootstrap write set, never revoked. Inert only because a JOIN view is not auto-updatable",
-  },
+  leaderboard: { anon: ["SELECT"], authenticated: ["SELECT"], rls: false,
+    why: "owner-privileged read of public columns (drizzle/0009), so it is NOT checked against RLS -- which is why drizzle/0048 finally took the bootstrap's write set off it, the sweep drizzle/0042 missed" },
 };
 
 const WRITE_PRIVILEGES = ["INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"];
@@ -353,11 +349,12 @@ describe.skipIf(!RUN)("client grants match the declared policy (integration)", (
       // guarantee rather than a bet on one flag per table.
       const rows = await db.execute<RelationGrantRow>(RELATION_GRANTS);
       //
-      // No exception for profiles any more: drizzle/0045 took its table-wide
-      // UPDATE and gave back two named columns, so the only client write
-      // grant left in the schema is not a TABLE grant at all.
+      // No exceptions left. profiles lost its table-wide UPDATE to two named
+      // columns (drizzle/0045), and the `leaderboard` view -- the one relation
+      // this test used to have to skip -- lost the bootstrap's write set in
+      // drizzle/0048. So the only client write grant anywhere in the schema is
+      // not a TABLE grant at all.
       const offenders = rows
-        .filter((r) => r.table_name !== "leaderboard") // its own test, below
         .flatMap((r) =>
           r.privs
             .split(",")
@@ -387,27 +384,30 @@ describe.skipIf(!RUN)("client grants match the declared policy (integration)", (
       expect(actual).toEqual(expected);
     });
 
-    it("the leaderboard view stays non-auto-updatable while it holds write grants", async () => {
-      // The one relation whose grants and RLS do NOT have to fail together, and
-      // the reason this file reports it rather than merely recording it.
+    it("the leaderboard view stays non-auto-updatable", async () => {
+      // Kept after drizzle/0048, and now genuinely defence in depth rather than
+      // the only defence.
       //
-      // The view holds the bootstrap's full write set for both client roles and
-      // is owner-privileged (the standard Supabase stand-in for a SECURITY
-      // DEFINER read), so it is *not* checked against RLS. Today every write is
-      // still rejected, because Postgres only auto-updates a view over a single
-      // relation -- and this one joins profiles to user_stats.
+      // The view is owner-privileged (the standard Supabase stand-in for a
+      // SECURITY DEFINER read), so it is *not* checked against RLS. Until
+      // drizzle/0048 it also held the bootstrap's full write set for both
+      // client roles, and the single thing rejecting a write was that Postgres
+      // only auto-updates a view over ONE relation -- this one joins profiles
+      // to user_stats. "Don't simplify the view" was therefore a load-bearing
+      // security constraint nobody would think to write down: flattening it, or
+      // adding an INSTEAD OF trigger, would have turned those standing grants
+      // into real writes to user_stats AS THE OWNER, past the RLS that is the
+      // only thing protecting duel_rating and the streak columns the board
+      // ranks on.
       //
-      // That makes "don't simplify the view" a load-bearing security constraint
-      // nobody would think to write down. Flattening it to one table, or adding
-      // an INSTEAD OF trigger, would silently turn these standing grants into
-      // real writes to user_stats AS THE OWNER, past the RLS that is the only
-      // thing protecting duel_rating and the streak columns the board ranks on.
+      // The grants are gone, so that specific trap is closed by RELATION_POLICY
+      // above. This stays because the two should have to fail together, exactly
+      // as grants and RLS do everywhere else in this file: re-granting a write
+      // set here is only dangerous on a view that is also updatable.
       //
       // Assert the property rather than the shape: is_updatable/is_insertable_into
       // is Postgres' own answer to "would a write succeed here", so this passes
-      // for any future definition that stays non-updatable and fails the moment
-      // one doesn't -- at which point the fix is to revoke the grants, which is
-      // what should have happened in drizzle/0042.
+      // for any future definition that stays non-updatable.
       const [view] = await db.execute<{ is_updatable: string; is_insertable_into: string }>(sql`
         SELECT is_updatable, is_insertable_into
         FROM information_schema.views
