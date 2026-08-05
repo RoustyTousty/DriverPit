@@ -79,6 +79,10 @@ export function DuelResults({
   const iWon = effectiveWinnerId === me.id;
   const myHandle = me.displayName || me.username;
   const ratingDelta = details?.myRatingDelta ?? null;
+  // Only ever false once the fetch has landed: `details === null` is "we don't
+  // know yet", and guessing "unranked" there would flash the line on every
+  // rated match before correcting itself.
+  const isUnranked = details ? !details.ranked : false;
   const wasForfeit = endReason !== "completed" || details?.status === "abandoned";
   // A rematch needs both players still on their results screen AND a match that
   // actually played out -- after a forfeit the pairing is over because someone
@@ -121,15 +125,23 @@ export function DuelResults({
         <p className="font-mono text-xl tabular-nums text-text-muted">
           {effectiveMyScore} — {effectiveTheirScore}
         </p>
-        {ratingDelta !== null && (
-          <p
-            className={`font-mono text-sm font-semibold tabular-nums ${
-              ratingDelta > 0 ? "text-correct" : ratingDelta < 0 ? "text-red-400" : "text-text-muted"
-            }`}
-          >
-            {ratingDelta > 0 ? `+${ratingDelta}` : `${ratingDelta}`}{" "}
-            <span className="text-xs font-normal text-text-muted">rating</span>
-          </p>
+        {/* An unranked match has no delta to show and never will -- say so,
+            rather than leaving the gap where the number goes, which reads as
+            "the rating write is still in flight". Never a fabricated "+0":
+            that claims a rated match that happened to be a wash. */}
+        {isUnranked ? (
+          <p className="text-sm text-text-muted">Unranked · rating unaffected</p>
+        ) : (
+          ratingDelta !== null && (
+            <p
+              className={`font-mono text-sm font-semibold tabular-nums ${
+                ratingDelta > 0 ? "text-correct" : ratingDelta < 0 ? "text-red-400" : "text-text-muted"
+              }`}
+            >
+              {ratingDelta > 0 ? `+${ratingDelta}` : `${ratingDelta}`}{" "}
+              <span className="text-xs font-normal text-text-muted">rating</span>
+            </p>
+          )
         )}
       </div>
 
@@ -200,7 +212,10 @@ export function DuelResults({
         )}
       </div>
 
-      {me.isGuest && iWon && (
+      {/* Not on an unranked win: "keep your duel rating and record" is a false
+          promise there -- this match moved neither, so the prompt would be
+          selling an account on something the player just didn't earn. */}
+      {me.isGuest && iWon && !isUnranked && (
         <div className="flex w-full items-center justify-between gap-3 rounded-lg border border-accent-weak bg-accent-weak/40 p-3 text-left">
           <div>
             <p className="text-sm font-semibold text-accent">Save your progress</p>
@@ -260,7 +275,11 @@ export function DuelResults({
               : "bg-accent text-bg hover:brightness-110 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-safe:active:scale-[0.98]"
           }`}
         >
-          Find new opponent
+          {/* A custom match's opponent is someone you know, so "find new
+              opponent" would drop the player into public matchmaking -- a mode
+              switch nobody asked for. DuelRoot routes this button back to the
+              custom flow for the same reason. */}
+          {isUnranked ? "New custom game" : "Find new opponent"}
         </button>
         <button
           type="button"

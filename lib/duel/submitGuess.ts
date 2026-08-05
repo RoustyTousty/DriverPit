@@ -65,6 +65,25 @@ interface DuelSubmitGuessRow {
 // NOTE: `next dev` compiles routes/pages on first hit, which has nothing to
 // do with this RPC's actual round-trip time -- always sanity-check latency
 // against a production build (`next build && next start`), never dev.
+//
+// DUEL GUESS VALIDATION IS EXISTENCE-ONLY, ON PURPOSE -- DO NOT "FIX" IT.
+// `duel_submit_guess` checks that the guessed driver exists and stops there. It
+// does NOT check that the driver is inside the match's pool, and once a custom
+// lobby can hand a match an arbitrary filter (drizzle/0056) that will look like
+// an oversight. It isn't, for three reasons that all still hold:
+//
+//   1. A win is driver identity, not tile equality (drizzle/0044), so an
+//      out-of-pool guess can never win. There is nothing to gain by typing one.
+//   2. Duel guesses are unlimited, so a bad guess costs the player *seconds* --
+//      the scarce resource here is the clock, and it already charges them.
+//   3. Adding the check means a second copy of the whole five-column filter
+//      predicate on the hot path, in the one RPC whose latency the player feels
+//      on every keystroke-to-tile.
+//
+// Contrast daily, which DOES validate against its pool (drizzle/0051): there a
+// guess costs one of six turns and the stored guess list is the shareable
+// record of the day, so an out-of-pool row corrupts something permanent. A duel
+// guess is neither. Same reasoning as CLAUDE.md's "Driver pools".
 export async function submitDuelGuessRpc(
   matchId: number,
   roundIndex: number,

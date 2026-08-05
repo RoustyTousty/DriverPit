@@ -1,6 +1,8 @@
 import { boolean, check, date, index, integer, jsonb, numeric, pgTable, pgView, primaryKey, serial, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
+import type { DriverFilter } from "../game/driverFilter";
+
 // The one table with RLS disabled, so its grants ARE its access control
 // (drizzle/0043). Its `check()`s are the per-column half of the seed's defence
 // against a mis-parsed F1DB release: scripts/releaseGuards.ts catches a renamed
@@ -41,6 +43,15 @@ export const drivers = pgTable(
     // see lib/game/poolWindow.ts. Every driver in this table has raced at
     // least once, so this is always set.
     lastActiveYear: integer("last_active_year").notNull(),
+    // The three achievement tiers Infinite's filter offers beyond `careerWins`
+    // (drizzle/0053). Straight from F1DB's totalChampionshipWins /
+    // totalPodiums / totalPolePositions -- unlike `careerWins`, which the seed
+    // computes itself from race results, these are the feed's own totals.
+    // Default 0, so they read as "no achievements" between the migration
+    // landing and the next seed run rather than as NULL.
+    championshipWins: integer("championship_wins").notNull().default(0),
+    podiums: integer("podiums").notNull().default(0),
+    polePositions: integer("pole_positions").notNull().default(0),
   },
   // Write-time only -- `drivers` is written by scripts/seed.ts and nothing
   // else, so none of this is on a guess or board-load path. See drizzle/0047
@@ -63,6 +74,9 @@ export const drivers = pgTable(
       "drivers_born_before_debut_check",
       sql`${table.dateOfBirth} < make_date(${table.debutYear}, 1, 1)`,
     ),
+    check("drivers_championship_wins_check", sql`${table.championshipWins} >= 0`),
+    check("drivers_podiums_check", sql`${table.podiums} >= 0`),
+    check("drivers_pole_positions_check", sql`${table.polePositions} >= 0`),
   ],
 );
 
@@ -242,6 +256,61 @@ export const matchmakingQueue = pgTable("matchmaking_queue", {
   deviceId: text("device_id").notNull(),
 });
 
+// A custom-lobby invitation: a short-lived row holding a match config and the
+// code a friend types to join it (drizzle/0057). Joining creates an ordinary
+// duel_matches row with ranked = false plus this config, and from that instant
+// every existing duel component, RPC and channel runs unchanged.
+//
+// NO STATUS COLUMN, deliberately. The three states are derivable -- open
+// (`matchId` null), consumed (`matchId` set), gone (row deleted) -- and a
+// fourth thing to keep in agreement with those three is exactly how a row ends
+// up claiming to be open while holding a match id.
+//
+// No client grants and no RLS policy at all: every access goes through a
+// SECURITY DEFINER + auth.uid() RPC, the matchmaking_queue shape. A readable
+// duel_lobbies would be every open code behind one anon-key query.
+export const duelLobbies = pgTable(
+  "duel_lobbies",
+  {
+    // Server-generated, 6 characters from a 31-character unambiguous alphabet
+    // (no 0/O/1/I/L). Never client-supplied -- that would let someone squat
+    // AAAAAA and intercept whoever typed it.
+    code: text("code").primaryKey(),
+    hostId: uuid("host_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    // The self-join guard, and why it is separate from hostId: signing out
+    // mints a fresh anonymous identity, so the user ids genuinely differ and
+    // only the device can tell "someone else" from "the same person, again".
+    // Same layer, same reason, as matchmakingQueue.deviceId.
+    hostDeviceId: text("host_device_id").notNull(),
+    // Knockout's seam. Disabled in the UI; the CHECK is what stops a second
+    // mode arriving before it is built.
+    mode: text("mode").notNull().default("duel"),
+    rounds: integer("rounds").notNull(),
+    roundSeconds: integer("round_seconds").notNull(),
+    // NOT NULL here, unlike duelMatches.filter -- a custom lobby always
+    // composes one, and null on the match row means the daily 20-year pool.
+    filter: jsonb("filter").$type<DriverFilter>().notNull(),
+    // ON DELETE CASCADE rather than SET NULL: a deleted match must not
+    // resurrect its lobby as joinable.
+    matchId: integer("match_id").references(() => duelMatches.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Refreshed every CUSTOM_LOBBY_HEARTBEAT_MS by the waiting host. Only OPEN
+    // lobbies go stale on it -- a consumed one stops beating the moment its
+    // match starts, and is aged out by createdAt instead.
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("duel_lobbies_code_shape_check", sql`${table.code} ~ '^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$'`),
+    check("duel_lobbies_mode_check", sql`${table.mode} IN ('duel')`),
+    // The same bounds duelMatches carries, because these are copied onto a
+    // match at join time and would otherwise fail there instead of here.
+    check("duel_lobbies_rounds_check", sql`${table.rounds} BETWEEN 1 AND 5`),
+    check("duel_lobbies_round_seconds_check", sql`${table.roundSeconds} BETWEEN 15 AND 180`),
+  ],
+);
+
 // One row per user with an in-progress Infinite round -- replaces the
 // signed httpOnly cookie (lib/game/session.ts) that used to hold this,
 // which PostgREST can't see. Moving it server-side like this is what lets
@@ -257,7 +326,11 @@ export const infiniteRounds = pgTable("infinite_rounds", {
   driverId: integer("driver_id")
     .notNull()
     .references(() => drivers.id),
-  poolWindow: text("pool_window").notNull(),
+  // The filter that produced this round (drizzle/0053), replacing the single
+  // `pool_window` string Infinite used to pick from. Written by
+  // infinite_start_round and read by nobody -- it records a round's provenance,
+  // exactly as pool_window did.
+  filter: jsonb("filter").notNull().default({}),
   guessCount: integer("guess_count").notNull().default(0),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -308,11 +381,52 @@ export const duelMatches = pgTable(
     // matching request finds it set to the *other* player's id and creates
     // the new match). Mutual-consent gate -- a lone request just waits.
     rematchRequestedBy: uuid("rematch_requested_by").references(() => profiles.id),
+
+    // --- per-match config (drizzle/0054, custom lobbies phase 1) -----------
+    //
+    // Does this match move duel_rating / duel_wins / duel_losses? False only
+    // for a custom-lobby match, which is a friendly game between two people
+    // who swapped a code. applyMatchResult (lib/duel/applyMatchResult.ts) is
+    // the single writer of all three columns and reads this flag OFF THE ROW
+    // IT ALREADY LOCKED -- never as a parameter, per CLAUDE.md's "Server
+    // Actions never accept an outcome": which matches count is not something
+    // a client gets to say. Defaults true, so every existing row and every
+    // matchmade row is rated exactly as before.
+    ranked: boolean("ranked").notNull().default(true),
+    // How many rounds this match plays, and how long each one lasts. Written
+    // at match creation and read by the round lifecycle where it already holds
+    // the row (phase 2 -- duel_begin_round stamps ends_at from round_seconds,
+    // duel_close_round's last-round test reads rounds). Nothing reads them
+    // yet; the defaults are the constants those functions currently hardcode
+    // (MAX_ROUNDS 3, ROUND_MS 60000 in lib/game/duelTiming.ts).
+    rounds: integer("rounds").notNull().default(3),
+    roundSeconds: integer("round_seconds").notNull().default(60),
+    // The composed driver filter this match's targets are drawn from, in
+    // lib/game/driverFilter.ts's shape. NULL means the daily 20-year pool --
+    // i.e. every ranked duel, which is why this is nullable rather than
+    // defaulting to an empty object like infinite_rounds.filter does: "no
+    // filter" and "an empty filter" pick from different pools here.
+    filter: jsonb("filter").$type<DriverFilter>(),
   },
   (table) => [
     check(
       "duel_matches_status_check",
       sql`${table.status} IN ('lobby', 'countdown', 'active', 'intermission', 'finished', 'abandoned')`,
+    ),
+    // Bounds, not the exact 1/3/5 and 30/60/90 the create screen will offer --
+    // see drizzle/0054 for why duplicating that list into SQL would cost more
+    // than it buys.
+    check("duel_matches_rounds_check", sql`${table.rounds} BETWEEN 1 AND 5`),
+    check("duel_matches_round_seconds_check", sql`${table.roundSeconds} BETWEEN 15 AND 180`),
+    // Makes "an unranked match recorded a rating change" unrepresentable, the
+    // same way duel_matches_distinct_players_check (drizzle/0032) does for a
+    // self-match. The short-circuit in applyMatchResult is the mechanism; this
+    // is what notices if someone reorders it, because a silent non-write is
+    // invisible when it breaks -- the leaderboard just quietly starts
+    // absorbing friendly games.
+    check(
+      "duel_matches_unranked_no_rating_check",
+      sql`${table.ranked} OR (${table.ratingDeltaA} IS NULL AND ${table.ratingDeltaB} IS NULL)`,
     ),
   ],
 );
@@ -342,7 +456,7 @@ export const duelRounds = pgTable(
 
 // One row per (match, round, player) -- the scored outcome of that player's
 // round, win or DNF. `bestProximity` is only meaningful on a DNF (null
-// otherwise); `points` is the final speedPoints/proximityPoints result (see
+// otherwise); `points` is the final solvePoints/dnfPoints result (see
 // lib/game/duelScoring.ts).
 export const duelRoundResults = pgTable(
   "duel_round_results",
@@ -355,9 +469,16 @@ export const duelRoundResults = pgTable(
       .notNull()
       .references(() => profiles.id),
     solvedAt: timestamp("solved_at", { withTimezone: true }),
+    // Not just a stat: guess_count is what decays this round's payout on both
+    // paths (drizzle/0058) -- duel_submit_guess reads it to scale a solve's
+    // speed bonus, duel_close_round to scale a DNF's proximity.
     guessCount: integer("guess_count").notNull().default(0),
     bestProximity: numeric("best_proximity"),
     points: integer("points").notNull().default(0),
+    // What the guess cooldown spaces against (drizzle/0058) -- the previous
+    // guess's server timestamp, refreshed by every duel_submit_guess. Null
+    // until this player's first guess of the round.
+    lastGuessAt: timestamp("last_guess_at", { withTimezone: true }),
   },
   (table) => [primaryKey({ columns: [table.matchId, table.roundIndex, table.userId] })],
 );

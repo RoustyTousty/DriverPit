@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import { DriverAutocomplete, type DriverOption } from "@/components/game/DriverAutocomplete";
-import { MAX_ROUNDS } from "@/lib/duel/liveMatch";
-import { DUEL_BASELINE, liveScore, proximityPoints } from "@/lib/game/duelScoring";
+import { accuracyFactor, DUEL_BASELINE, dnfPoints, liveScore, weightedProximity } from "@/lib/game/duelScoring";
+import { GUESS_COOLDOWN_MS } from "@/lib/game/duelTiming";
 import { useSettings } from "@/lib/settings/useSettings";
 
 import { ClosestGuessesBoard, type RankedGuess } from "./ClosestGuessesBoard";
 import { OpponentPanel } from "./OpponentPanel";
 import { RoundResultCards, type RoundResult } from "./RoundResultCards";
+import { SolvePotential } from "./SolvePotential";
 import { TugOfWarBar } from "./TugOfWarBar";
 
 function formatSeconds(ms: number): string {
@@ -28,7 +29,10 @@ export function RoundPlay({
   me,
   opponent,
   roundIndex,
+  totalRounds,
   remainingMs,
+  roundMs,
+  guessCooldownUntil,
   confirmedScoreA,
   confirmedScoreB,
   isPlayerA,
@@ -49,7 +53,24 @@ export function RoundPlay({
   };
   opponent: { handle: string; avatarUrl: string; progress: OpponentProgress };
   roundIndex: number;
+  // The match's own round count (duel_matches.rounds), for the "Round N / M"
+  // label and nothing else. This is the ONE remaining client-side consumer of a
+  // round count, and it is purely cosmetic by design -- when the match actually
+  // ends is duel_close_round's decision, which useDuelLifecycle reads out of
+  // match_status rather than deriving. See lib/duel/liveMatch.ts.
+  totalRounds: number;
   remainingMs: number;
+  // This round's full length (ends_at - started_at, so the match's own
+  // round_seconds), not the ROUND_MS default -- the solve-now readout needs the
+  // same denominator the server scores against, and a custom lobby can set it
+  // to 30 or 90.
+  roundMs: number;
+  // Local Date.now() deadline the input stays disabled until, from
+  // useDuelLifecycle. Compared against the clock during render rather than
+  // watched with a timer: this component already re-renders on the round
+  // clock's 10Hz tick, so the input re-enables within a tick of the deadline
+  // for free.
+  guessCooldownUntil: number;
   // Confirmed score as of the *start* of this round -- deliberately not the
   // match's live running total. The moment either side solves, the RPC
   // writes that round's points into duel_matches.score_a/b immediately
@@ -66,6 +87,11 @@ export function RoundPlay({
 }) {
   const { showFlags } = useSettings();
   const timeUp = remainingMs <= 0;
+  // Read straight off the clock during render, with no timer of its own: the
+  // round countdown re-renders this component every COUNTDOWN_TICK_MS, so the
+  // input re-enables within 100ms of the deadline. The one case where those
+  // ticks stop is the round expiring, and the input is disabled then anyway.
+  const cooling = guessCooldownUntil > Date.now();
 
   // Live standing (CLAUDE.md's Duel "Live standing"): baseline + confirmed
   // round points (already closed rounds) + this round's provisional --
@@ -81,8 +107,13 @@ export function RoundPlay({
   // only changes when a guess lands (audit 2026-07-27 §1.0).
   const myConfirmed = isPlayerA ? confirmedScoreA : confirmedScoreB;
   const opponentConfirmed = isPlayerA ? confirmedScoreB : confirmedScoreA;
+  // Guesses that were not the answer -- what decays this round's payout on both
+  // paths (drizzle/0058). On a solve the last guess is the right one and is
+  // excluded, exactly as duel_submit_guess excludes it; in a DNF every guess
+  // counts, as duel_close_round counts them.
+  const wrongGuesses = me.solved ? Math.max(0, me.guesses.length - 1) : me.guesses.length;
   const bestProximity = useMemo(
-    () => Math.max(0, ...me.guesses.map((g) => proximityPoints(g.result))),
+    () => Math.max(0, ...me.guesses.map((g) => weightedProximity(g.result))),
     [me.guesses],
   );
 
@@ -99,7 +130,11 @@ export function RoundPlay({
     () => new Set(me.guesses.map((g) => g.guessedDriver.id)),
     [me.guesses],
   );
-  const myProvisional = me.solved ? (me.roundPoints ?? 0) : bestProximity;
+  // Decayed, so the tug bar shows what duel_close_round would actually pay if
+  // the round ended now -- an undecayed best-guess value would climb on every
+  // wasted guess and then drop at the close.
+  const myProvisional = me.solved ? (me.roundPoints ?? 0) : dnfPoints(bestProximity, wrongGuesses);
+  const accuracy = accuracyFactor(wrongGuesses);
   const opponentProvisional = opponent.progress.solved
     ? (opponent.progress.solvedPoints ?? 0)
     : opponent.progress.provisionalPoints;
@@ -132,6 +167,29 @@ export function RoundPlay({
   // Same shape and same guard as PoolSelect's restore (§4.5): only claim focus
   // if it was genuinely lost. If the player has opened the exit modal or tabbed
   // to something deliberately, taking it back would be the worse bug.
+  // The other half of the same rule, for the other direction. Every guess
+  // disables the input twice over -- once while the RPC is in flight, then for
+  // the cooldown -- and disabling a focused element drops focus to <body>, so
+  // without this a keyboard player would lose the input after EVERY guess and
+  // have to Tab back through the page to reach it, mid-round. The disable is
+  // temporary and self-clearing, so the focus has to be too.
+  //
+  // Same guard as the solved panel below: only reclaim focus if it was
+  // genuinely lost. If the player has opened the exit modal or tabbed somewhere
+  // deliberately during the wait, taking it back is the worse bug.
+  const guessInputRef = useRef<HTMLInputElement>(null);
+  const inputWasBlockedRef = useRef(false);
+  const inputBlocked = pendingGuess || cooling;
+  useEffect(() => {
+    const justFreed = inputWasBlockedRef.current && !inputBlocked;
+    inputWasBlockedRef.current = inputBlocked;
+    // Not when the round is over or already solved -- the input is gone or
+    // permanently disabled then, and there is nothing to return to.
+    if (!justFreed || timeUp || me.solved) return;
+    const active = document.activeElement;
+    if (!active || active === document.body) guessInputRef.current?.focus();
+  }, [inputBlocked, timeUp, me.solved]);
+
   const solvedPanelRef = useRef<HTMLDivElement>(null);
   const wasSolvedRef = useRef(me.solved);
   useEffect(() => {
@@ -148,16 +206,26 @@ export function RoundPlay({
     <div className="flex flex-col gap-4 px-4 py-6">
       <TugOfWarBar liveMine={liveMine} liveOpponent={liveOpponent} />
 
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-text-muted">
-          Round {roundIndex + 1} / {MAX_ROUNDS}
-        </span>
-        <span
-          className={`font-mono text-2xl font-bold tabular-nums ${timeUp ? "text-red-400" : "text-text"}`}
-          aria-live="polite"
-        >
-          0:{formatSeconds(remainingMs)}
-        </span>
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-text-muted">
+            Round {roundIndex + 1} / {totalRounds}
+          </span>
+          <span
+            className={`font-mono text-2xl font-bold tabular-nums ${timeUp ? "text-red-400" : "text-text"}`}
+            aria-live="polite"
+          >
+            0:{formatSeconds(remainingMs)}
+          </span>
+        </div>
+
+        {/* Hidden once solved: the solved panel below replaces it with the real
+            earned points, and two competing "+N"s on one screen is one too
+            many. Also hidden at time-up, when there is nothing left to solve
+            for. */}
+        {!me.solved && !timeUp && (
+          <SolvePotential roundMs={roundMs} remainingMs={remainingMs} wrongGuesses={wrongGuesses} />
+        )}
       </div>
 
       <OpponentPanel
@@ -209,16 +277,55 @@ export function RoundPlay({
           </p>
         </div>
       ) : (
-        <DriverAutocomplete
-          drivers={eligibleDrivers}
-          onSelect={onGuess}
-          disabled={pendingGuess || timeUp}
-          placeholder="Guess a driver…"
-          guessedDriverIds={guessedDriverIds}
-        />
+        <div className="flex flex-col">
+          <DriverAutocomplete
+            drivers={eligibleDrivers}
+            onSelect={onGuess}
+            disabled={pendingGuess || timeUp || cooling}
+            placeholder="Guess a driver…"
+            guessedDriverIds={guessedDriverIds}
+            inputRef={guessInputRef}
+          />
+
+          {/* The cooldown, drawn rather than explained. A 2px line under the
+              input draining left-to-right for exactly as long as the input is
+              disabled -- no toast, no error, no copy: a wait the player can
+              see the end of doesn't need a sentence. Keyed on the deadline so
+              each guess restarts it, and unmounted the moment it lapses so
+              nothing is left half-drawn.
+
+              Deliberately below the input rather than replacing its
+              placeholder: the placeholder is where the *action* is named, and
+              swapping it for a countdown makes the control look broken for a
+              second every guess. */}
+          <div className="h-0.5 w-full overflow-hidden" aria-hidden="true">
+            {cooling && (
+              <div
+                key={guessCooldownUntil}
+                className="animate-guess-cooldown h-full w-full origin-left rounded-full bg-accent/60 motion-reduce:animate-none"
+                style={{ animationDuration: `${GUESS_COOLDOWN_MS}ms` }}
+              />
+            )}
+          </div>
+        </div>
       )}
 
       {!me.solved && timeUp && <p className="text-center text-sm text-text-muted">Time's up for this round.</p>}
+
+      {/* Parts left, count right, mono and muted -- DriverFilterSummary's
+          idiom, and the same job: a caption that annotates the thing under it
+          without competing with it. The multiplier appears only once a guess
+          has actually cost something (accuracyFactor is exactly 1 until then),
+          so the row reads as a guess counter right up to the moment it starts
+          reading as a price. */}
+      {me.guesses.length > 0 && (
+        <div className="flex items-baseline justify-between gap-3 font-mono text-xs tabular-nums text-text-muted">
+          <span>
+            {me.guesses.length} {me.guesses.length === 1 ? "guess" : "guesses"}
+          </span>
+          {accuracy < 1 && <span>×{accuracy.toFixed(2)} on a solve</span>}
+        </div>
+      )}
 
       <ClosestGuessesBoard guesses={me.guesses} pending={pendingGuess} showFlags={showFlags} />
     </div>

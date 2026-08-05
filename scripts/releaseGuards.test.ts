@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertColumns,
   assertLookupsResolved,
+  assertNoLookupMisses,
   assertRosterSanity,
   describeLookupMisses,
   describeWriteMode,
@@ -24,14 +25,27 @@ function driver(over: Partial<SanityDriver> = {}): SanityDriver {
     careerWins: 0,
     debutYear: 2010,
     lastActiveYear: 2015,
+    championshipWins: 0,
+    podiums: 0,
+    polePositions: 0,
     ...over,
   };
 }
 
-/** A roster that passes both canaries, for tests that break one of them. */
+/** The canary values a healthy release produces, so a test can break one. */
+const HAMILTON: Partial<SanityDriver> = {
+  f1dbId: "lewis-hamilton",
+  fullName: "Lewis Hamilton",
+  careerWins: 105,
+  championshipWins: 7,
+  podiums: 207,
+  polePositions: 104,
+};
+
+/** A roster that passes every canary, for tests that break one of them. */
 function healthyRoster(currentYear: number): SanityDriver[] {
   return [
-    driver({ f1dbId: "lewis-hamilton", fullName: "Lewis Hamilton", careerWins: 105 }),
+    driver(HAMILTON),
     driver({ f1dbId: "max-verstappen", fullName: "Max Verstappen", lastActiveYear: currentYear }),
   ];
 }
@@ -41,7 +55,7 @@ describe("resolveWriteMode", () => {
   // accidental production seed happened because the flag that meant "be safe"
   // was the one the shell dropped. An empty argv now means the safe thing.
   it("does not write when told nothing at all", () => {
-    expect(resolveWriteMode([])).toEqual({ commit: false });
+    expect(resolveWriteMode([])).toEqual({ commit: false, strict: false });
   });
 
   // The exact shape of the accident, replayed: PowerShell drops the bare `--`,
@@ -53,11 +67,20 @@ describe("resolveWriteMode", () => {
   });
 
   it("writes only when --commit is present", () => {
-    expect(resolveWriteMode(["--commit"])).toEqual({ commit: true });
+    expect(resolveWriteMode(["--commit"])).toEqual({ commit: true, strict: false });
   });
 
   it("accepts --dry-run as an explicit spelling of the default", () => {
-    expect(resolveWriteMode(["--dry-run"])).toEqual({ commit: false });
+    expect(resolveWriteMode(["--dry-run"])).toEqual({ commit: false, strict: false });
+  });
+
+  // The unattended weekly refresh (.github/workflows/roster-refresh.yml) runs
+  // `npm run db:seed:auto`, which is these two together. Strict is orthogonal to
+  // writing on purpose: a dry run is exactly how you reproduce a strict failure
+  // locally without touching the roster.
+  it("carries --strict independently of whether it writes", () => {
+    expect(resolveWriteMode(["--commit", "--strict"])).toEqual({ commit: true, strict: true });
+    expect(resolveWriteMode(["--strict"])).toEqual({ commit: false, strict: true });
   });
 
   // Failing closed already makes a typo harmless; being loud about it is what
@@ -74,8 +97,11 @@ describe("resolveWriteMode", () => {
   });
 
   it("names the mode unambiguously in the banner", () => {
-    expect(describeWriteMode({ commit: false })).toMatch(/^Mode: DRY RUN/);
-    expect(describeWriteMode({ commit: true })).toMatch(/^Mode: REAL WRITE/);
+    expect(describeWriteMode({ commit: false, strict: false })).toMatch(/^Mode: DRY RUN/);
+    expect(describeWriteMode({ commit: true, strict: false })).toMatch(/^Mode: REAL WRITE/);
+    // Strict is worth saying out loud too: it is the difference between a run
+    // that reports a duplicate driver and one that refuses to create it.
+    expect(describeWriteMode({ commit: true, strict: true })).toMatch(/strict/);
   });
 });
 
@@ -184,6 +210,24 @@ describe("assertRosterSanity", () => {
     expect(() => assertRosterSanity([], currentYear)).toThrow(
       /no such driver in the release/,
     );
+  });
+
+  // The achievement columns' own silent mode (drizzle/0053). Same shape as the
+  // wins one: the row count is unchanged, the headers are intact, and the only
+  // symptom is Infinite's "World champions" filter matching nobody.
+  it("catches a roster where nobody has any titles, podiums or poles", () => {
+    for (const broken of [
+      { championshipWins: 0 },
+      { podiums: 0 },
+      { polePositions: 0 },
+    ]) {
+      const roster = healthyRoster(currentYear).map((d) =>
+        d.f1dbId === "lewis-hamilton" ? { ...d, ...broken } : d,
+      );
+      expect(() => assertRosterSanity(roster, currentYear)).toThrow(
+        /titles, >= 190 podiums and >= 100 poles/,
+      );
+    }
   });
 
   // The seed legitimately runs in January, before the new season has started.
@@ -307,6 +351,42 @@ describe("reference-table lookups", () => {
 
     it("ignores a lookup that was never used", () => {
       expect(() => assertLookupsResolved([tally()])).not.toThrow();
+    });
+  });
+
+  // Strict mode's half of the same pair. The two are deliberately different
+  // checks, not one with a knob: interactively a partial miss must NOT cost the
+  // other 791 drivers their refreshed wins, and unattended it must, because the
+  // report that made it survivable is the thing nobody is reading.
+  describe("assertNoLookupMisses", () => {
+    it("passes when every id resolved", () => {
+      const t = tally();
+      resolveName(t, countries, "italy");
+      expect(() => assertNoLookupMisses([t])).not.toThrow();
+    });
+
+    it("throws on a SINGLE miss, where assertLookupsResolved would not", () => {
+      const t = tally();
+      resolveName(t, countries, "italy");
+      resolveName(t, countries, "atlantis");
+
+      expect(() => assertLookupsResolved([t])).not.toThrow();
+      expect(() => assertNoLookupMisses([t])).toThrow(/atlantis/);
+    });
+
+    it("names every failing join, so one run reports both columns", () => {
+      const nationality = tally();
+      const team = newLookupTally("team", "f1db-constructors.csv");
+      resolveName(nationality, countries, "atlantis");
+      resolveName(team, new Map(), "brabham-bt");
+
+      expect(() => assertNoLookupMisses([nationality, team])).toThrow(
+        /nationality: atlantis[\s\S]*team: brabham-bt/,
+      );
+    });
+
+    it("ignores a lookup that was never used", () => {
+      expect(() => assertNoLookupMisses([tally()])).not.toThrow();
     });
   });
 });

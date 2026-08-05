@@ -20,6 +20,19 @@ import { infiniteRounds } from "./schema";
 // (drizzle/0030); their coverage lives in lib/db/dailyRpc.test.ts.
 const RUN = process.env.RUN_DB_INTEGRATION_TESTS === "1";
 
+// infinite_start_round takes the whole composed filter since drizzle/0053 (the
+// five fixed pool windows are gone from this mode). These two stand in for the
+// old "10-years" / "legacy" arguments: a recent span, and everything.
+const CURRENT_YEAR = new Date().getUTCFullYear();
+const RECENT_FILTER = {
+  p_from_year: CURRENT_YEAR - 10,
+  p_to_year: CURRENT_YEAR,
+  p_nationality: null,
+  p_team: null,
+  p_achievement: "any",
+};
+const ALL_TIME_FILTER = { ...RECENT_FILTER, p_from_year: 1950 };
+
 async function makeGuestClient(): Promise<SupabaseClient> {
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
   const { error } = await supabase.auth.signInAnonymously();
@@ -47,13 +60,44 @@ describe.skipIf(!RUN)("infinite_start_round / infinite_submit_guess (integration
     expect(error).not.toBeNull();
   });
 
-  it("rejects an invalid pool window", async () => {
-    const { error } = await supabase.rpc("infinite_start_round", { p_pool_window: "not-a-real-window" });
+  it("rejects an unknown achievement tier", async () => {
+    const { error } = await supabase.rpc("infinite_start_round", {
+      ...RECENT_FILTER,
+      p_achievement: "not-a-real-tier",
+    });
+    expect(error).not.toBeNull();
+  });
+
+  // The filter arrives over PostgREST, so the UI's own clamping proves nothing.
+  // A crossed pair must be ordered rather than selecting nobody, and an
+  // out-of-range year must be pulled in rather than raising.
+  it("clamps a crossed or out-of-range span instead of failing", async () => {
+    const { error } = await supabase.rpc("infinite_start_round", {
+      ...RECENT_FILTER,
+      p_from_year: 3000,
+      p_to_year: 1800,
+    });
+    expect(error).toBeNull();
+
+    const [round] = await db.select().from(infiniteRounds).where(eq(infiniteRounds.userId, userId));
+    expect(round.filter).toMatchObject({ fromYear: 1950, toYear: CURRENT_YEAR });
+  });
+
+  it("refuses a filter no driver can satisfy", async () => {
+    // A one-season span before the championship existed cannot match anyone,
+    // and the RPC must say so rather than silently starting a round with no
+    // target -- the client disables Apply on this, but PostgREST is reachable.
+    const { error } = await supabase.rpc("infinite_start_round", {
+      ...RECENT_FILTER,
+      p_from_year: CURRENT_YEAR,
+      p_to_year: CURRENT_YEAR,
+      p_nationality: "Atlantis",
+    });
     expect(error).not.toBeNull();
   });
 
   it("start_round then a correct guess wins and reveals the target; row is cleared", async () => {
-    const { error: startError } = await supabase.rpc("infinite_start_round", { p_pool_window: "10-years" });
+    const { error: startError } = await supabase.rpc("infinite_start_round", RECENT_FILTER);
     expect(startError).toBeNull();
 
     const [round] = await db.select().from(infiniteRounds).where(eq(infiniteRounds.userId, userId));
@@ -72,7 +116,7 @@ describe.skipIf(!RUN)("infinite_start_round / infinite_submit_guess (integration
   });
 
   it("a wrong guess continues and never leaks the target", async () => {
-    await supabase.rpc("infinite_start_round", { p_pool_window: "10-years" });
+    await supabase.rpc("infinite_start_round", RECENT_FILTER);
     const [round] = await db.select().from(infiniteRounds).where(eq(infiniteRounds.userId, userId));
 
     const [wrongDriver] = await db.query.drivers.findMany({
@@ -94,7 +138,7 @@ describe.skipIf(!RUN)("infinite_start_round / infinite_submit_guess (integration
   });
 
   it("enforces the guess cap server-side and can't be pushed past it", async () => {
-    await supabase.rpc("infinite_start_round", { p_pool_window: "10-years" });
+    await supabase.rpc("infinite_start_round", RECENT_FILTER);
     const [round] = await db.select().from(infiniteRounds).where(eq(infiniteRounds.userId, userId));
 
     const [wrongDriver] = await db.query.drivers.findMany({
@@ -135,13 +179,15 @@ describe.skipIf(!RUN)("infinite_start_round / infinite_submit_guess (integration
   });
 
   it("starting a new round always overwrites the old one", async () => {
-    await supabase.rpc("infinite_start_round", { p_pool_window: "10-years" });
+    await supabase.rpc("infinite_start_round", RECENT_FILTER);
     await supabase.rpc("infinite_submit_guess", { p_guess_driver_id: 1 }).single();
-    await supabase.rpc("infinite_start_round", { p_pool_window: "legacy" });
+    await supabase.rpc("infinite_start_round", ALL_TIME_FILTER);
 
     const rows = await db.select().from(infiniteRounds).where(eq(infiniteRounds.userId, userId));
     expect(rows).toHaveLength(1);
     expect(rows[0].guessCount).toBe(0);
-    expect(rows[0].poolWindow).toBe("legacy");
+    // The round records the filter that produced it (drizzle/0053 replaced
+    // pool_window with this), so the overwrite is visible in the row itself.
+    expect(rows[0].filter).toMatchObject({ fromYear: 1950, achievement: "any" });
   });
 });

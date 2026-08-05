@@ -4,6 +4,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { DAILY_POOL_WINDOW, poolCutoffYear } from "../game/poolWindow";
 import { db } from "./index";
 import { dailyProgress, drivers, duelMatches, duelRoundResults, duelRounds, infiniteRounds } from "./schema";
 
@@ -23,14 +24,21 @@ import { dailyProgress, drivers, duelMatches, duelRoundResults, duelRounds, infi
 // win rule ever goes back to reading tiles, the tile assertions keep passing
 // and the outcome assertions fail, which is exactly the signal wanted.
 //
+// Infinite and duel build theirs out of two inserted fixture rows; daily's has
+// to be a rewritten EXISTING pool driver instead, for the reason spelled out at
+// that describe block.
+//
 // Needs a real Postgres + Supabase project. Opt in, same convention as the
 // other DB suites (never against production):
 //   RUN_DB_INTEGRATION_TESTS=1 npx vitest run lib/db/winByIdentity.test.ts
 const RUN = process.env.RUN_DB_INTEGRATION_TESTS === "1";
 
-// 1960 keeps every fixture driver out of all but the legacy pool, so none of
-// them can be picked as a daily target or by infinite_start_round('10-years')
-// while the suite runs.
+// 1960 keeps every INSERTED fixture driver out of all but the legacy pool, so
+// none of them can be picked as a daily target or by
+// infinite_start_round('10-years') while the suite runs -- which also means a
+// parallel suite can never take a reference to one and block the cleanup DELETE.
+// The daily block cannot use a row like this at all (drizzle/0051: a daily guess
+// must be inside the pool); see the comment there.
 const FIXTURE_LAST_ACTIVE_YEAR = 1960;
 
 async function makeGuestClient(): Promise<{ supabase: SupabaseClient; userId: string }> {
@@ -84,7 +92,12 @@ describe.skipIf(!RUN)("a win is driver identity, not attribute equality (integra
           nationality: "Doppelganger Republic",
           dateOfBirth: "1940-03-11",
           dateOfDeath: null,
-          debutYear: 1961,
+          // Must be <= FIXTURE_LAST_ACTIVE_YEAR: drizzle/0047's
+          // drivers_season_order_check rejected the 1961 this used to carry, so
+          // the whole suite failed in beforeAll and every case in it went
+          // unrun. Both twins share the value either way, which is all the
+          // debut-year tile here needs.
+          debutYear: 1959,
           careerWins: 0,
           lastTeam: "Doppelganger Racing",
           previousTeams: ["Doppelganger Racing"],
@@ -109,7 +122,6 @@ describe.skipIf(!RUN)("a win is driver identity, not attribute equality (integra
       await db.insert(infiniteRounds).values({
         userId: playerId,
         driverId: twinA,
-        poolWindow: "legacy",
         guessCount: 0,
       });
     });
@@ -144,7 +156,19 @@ describe.skipIf(!RUN)("a win is driver identity, not attribute equality (integra
 
   describe("daily_submit_guess", () => {
     let targetId: number;
+    // Daily's doppelgänger is an EXISTING pool driver temporarily rewritten to
+    // match the target, not a new row like the other two blocks use -- and that
+    // difference is forced by drizzle/0051, which made a daily guess valid only
+    // INSIDE the daily pool. A fixture row in that pool is one
+    // daily_target_id, infinite_start_round or duel_begin_round can pick at
+    // random in a suite running beside this one (vitest runs test files in
+    // parallel), and the resulting daily_targets/infinite_rounds/duel_rounds
+    // reference would then block this suite's DELETE on a foreign key. Rewriting
+    // a driver ALREADY in the pool changes no pool membership at all: nothing is
+    // added, nothing is removed, every random pick stays valid, and the undo is
+    // an UPDATE, which no reference can block.
     let cloneId: number;
+    let cloneBefore: typeof drivers.$inferSelect | undefined;
 
     beforeAll(async () => {
       // The day's driver is random and pinned by whoever calls first
@@ -158,21 +182,64 @@ describe.skipIf(!RUN)("a win is driver identity, not attribute equality (integra
         WHERE date = (now() AT TIME ZONE 'UTC')::date`);
       targetId = pinned[0].driver_id;
 
-      const cloned = await db.execute<{ id: number }>(sql`
-        INSERT INTO public.drivers
-          (full_name, driver_code, nationality, date_of_birth, date_of_death,
-           debut_year, career_wins, last_team, previous_teams, last_active_year)
-        SELECT 'Win-rule clone of ' || full_name, driver_code, nationality, date_of_birth,
-               date_of_death, debut_year, career_wins, last_team, previous_teams,
-               ${FIXTURE_LAST_ACTIVE_YEAR}
-        FROM public.drivers WHERE id = ${targetId}
-        RETURNING id`);
-      cloneId = cloned[0].id;
-      fixtureDriverIds.push(cloneId);
+      // The pool's HIGHEST id, deliberately the opposite end of the roster from
+      // the low ids dailyRpc.test.ts guesses, so the two suites can't pick the
+      // same driver in a parallel run. Cutoff from the TypeScript constant; the
+      // plpgsql copies of it are pinned by lib/game/poolWindow.sqlParity.test.ts.
+      const [{ today }] = await db.execute<{ today: string }>(
+        sql`SELECT (now() AT TIME ZONE 'UTC')::date::text AS today`,
+      );
+      const cutoff = poolCutoffYear(DAILY_POOL_WINDOW, Number(today.slice(0, 4)));
+      const [victim] = await db.execute<{ id: number }>(sql`
+        SELECT id FROM public.drivers
+        WHERE id <> ${targetId}
+          AND ${cutoff === null ? sql`true` : sql`last_active_year >= ${cutoff}`}
+        ORDER BY id DESC LIMIT 1`);
+      if (!victim) {
+        throw new Error(
+          `the ${DAILY_POOL_WINDOW} pool holds no driver besides the day's target, so there is ` +
+            `nothing to make a guessable doppelgänger out of -- run \`npm run db:seed\`.`,
+        );
+      }
+      cloneId = victim.id;
+
+      // last_active_year is copied along with the five compared attributes for
+      // two reasons: the `debut_year <= last_active_year` check (drizzle/0047)
+      // would otherwise reject a target that debuted after this driver last
+      // raced, and copying it from a driver who IS in the pool keeps this one in
+      // the pool, which is the whole premise above.
+      [cloneBefore] = await db.select().from(drivers).where(eq(drivers.id, cloneId));
+      await db.execute(sql`
+        UPDATE public.drivers d
+        SET nationality = t.nationality,
+            date_of_birth = t.date_of_birth,
+            date_of_death = t.date_of_death,
+            debut_year = t.debut_year,
+            career_wins = t.career_wins,
+            last_team = t.last_team,
+            previous_teams = t.previous_teams,
+            last_active_year = t.last_active_year
+        FROM public.drivers t
+        WHERE d.id = ${cloneId} AND t.id = ${targetId}`);
     });
 
     afterAll(async () => {
       await db.delete(dailyProgress).where(eq(dailyProgress.userId, playerId));
+      if (cloneBefore) {
+        await db
+          .update(drivers)
+          .set({
+            nationality: cloneBefore.nationality,
+            dateOfBirth: cloneBefore.dateOfBirth,
+            dateOfDeath: cloneBefore.dateOfDeath,
+            debutYear: cloneBefore.debutYear,
+            careerWins: cloneBefore.careerWins,
+            lastTeam: cloneBefore.lastTeam,
+            previousTeams: cloneBefore.previousTeams,
+            lastActiveYear: cloneBefore.lastActiveYear,
+          })
+          .where(eq(drivers.id, cloneId));
+      }
     });
 
     it("does not complete the day on a clone of the day's driver", async () => {

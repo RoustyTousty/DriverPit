@@ -2,7 +2,7 @@
 
 A daily Wordle-style web game presented as a full website. Players guess a Formula 1 driver in 6 guesses. Each guess reveals how the guessed driver compares to the target across five attributes.
 
-**Built and working:** daily, infinite and duel modes; anonymous + email + Google accounts with guest upgrade; the sectioned settings modal and the global leaderboard; server-side daily progress that follows an account across devices; the warm one-hop RPC guess path in every mode; the real-time duel end to end (staging, lights-out countdown, live tug-of-war, intermission, results, rematch, forfeit/disconnect handling); RSS news; AdSense scaffolding behind consent. All of it sits in the full site shell (top bar, mode tabs, modals, marketing sections, ad slot, footer).
+**Built and working:** daily, infinite and duel modes; anonymous + email + Google accounts with guest upgrade; the sectioned settings modal and the global leaderboard; server-side daily progress that follows an account across devices; the warm one-hop RPC guess path in every mode; the real-time duel end to end (staging, lights-out countdown, live tug-of-war, intermission, results, rematch, forfeit/disconnect handling); custom lobbies (code + shareable link, per-match rounds/clock/driver filter, unranked); RSS news; AdSense scaffolding behind consent. All of it sits in the full site shell (top bar, mode tabs, modals, marketing sections, ad slot, footer).
 
 A fourth mode, **Knockout**, is planned but not yet built — it's documented here so the duel engine keeps the right seams. Do not change the comparison engine or the daily/infinite game logic unless a task explicitly says to.
 
@@ -26,9 +26,10 @@ The comparison engine (`lib/game/compare.ts`) is pure and unit-tested — don't 
 
 ## Modes
 
-- **Infinite** — random driver from a player-selectable pool, unlimited plays, no persistence beyond the current round. Round state lives server-side (`infinite_rounds`, keyed on the Supabase identity) so guesses evaluate over the same warm one-hop RPC path as daily/duel — see "Fast guess evaluation".
-- **Daily** — one driver per day, same for everyone, resets at UTC midnight. Progress is **stored server-side per account and follows the user across devices** — the guesses themselves are persisted, not just the outcome. One playthrough per account per day, enforced by the server. See "Daily persistence & sync". Always the 10-year pool.
-- **Duel** — real-time 1v1 race, matchmade against a random opponent. 3 rounds, tug-of-war scoring. See the Duel section.
+- **Infinite** — random driver from a pool the player *composes*, unlimited plays, no persistence beyond the current round. Round state lives server-side (`infinite_rounds`, keyed on the Supabase identity) so guesses evaluate over the same warm one-hop RPC path as daily/duel — see "Fast guess evaluation". The pool is a filter, not one of the five windows — see "Infinite's driver filter".
+- **Daily** — one driver per day, same for everyone, resets at UTC midnight. Progress is **stored server-side per account and follows the user across devices** — the guesses themselves are persisted, not just the outcome. One playthrough per account per day, enforced by the server. See "Daily persistence & sync". Always the 20-year pool.
+- **Duel** — real-time 1v1 race, matchmade against a random opponent. 3 rounds, tug-of-war scoring. Always the 20-year pool. See the Duel section.
+- **Custom** — the same duel engine, hosted by code instead of matchmade: the host picks the rounds, the round length and the driver pool, and **nothing counts toward rating, W/L or the leaderboard**. See "Custom lobbies".
 - **Knockout** *(planned, not built)* — 20-player F1-qualifying-format elimination game, lives under `/online`. See the Knockout section.
 
 ## Driver pools
@@ -43,11 +44,35 @@ The `drivers` table holds every driver who has ever started a race. Which are of
 | `30-years` | Veteran | `last_active_year >= this year - 30` |
 | `legacy` | Legend | everyone, no cutoff |
 
-Defined in `lib/game/poolWindow.ts` (pure, shared by server queries and client filtering). Daily and Duel always use `10-years`. Infinite defaults to `10-years`; the player can switch, persisted in localStorage. Autocomplete suggestions are scoped to the active pool; guess *validation* only checks the driver exists, not pool membership.
+Defined in `lib/game/poolWindow.ts` (pure, shared by server queries and client filtering). Daily always uses `DAILY_POOL_WINDOW`, and so does a duel with no filter of its own — which is every matchmade one. It is `20-years` (drizzle/0052 widened it from `10-years`; the two modes move together — one constant, and `duel_begin_round` mirrors the same cutoff in its unfiltered branch). **These windows are now daily's and the RANKED duel's alone** — Infinite composes its pool instead (drizzle/0053, see "Infinite's driver filter"), and a custom lobby composes one too (drizzle/0054/0056, see "Custom lobbies"), so `POOL_WINDOWS` survives for the seed's report and the parity suite rather than for a picker. A duel falls back to this window exactly when `duel_matches.filter IS NULL`, which is every matchmade one. Autocomplete suggestions are scoped to the active pool. **Daily guess *validation* is scoped to it too** (drizzle/0051) — `daily_submit_guess` refuses a driver below the daily cutoff instead of merely checking they exist, because "pick a driver from the suggestions list" was otherwise a promise the function didn't keep and the day's stored guess list could hold rows the board would never have offered. Not a security fix (win-by-identity means an out-of-pool guess can never win, and it costs the caller their own turn) — it protects the *record* of the day, the guess history and the shareable emoji grid. Infinite and duel still validate existence only: infinite's pool is per-round and player-composed, so the check would need a second copy of the whole filter predicate, and a duel guess is unlimited, so an out-of-pool one costs the player seconds and nothing else.
 
 **A driver already guessed this round isn't offered again — and in daily isn't accepted again.** A repeat guess returns the row the board is already showing and, in daily/infinite, burns one of six turns for it. `DriverAutocomplete` takes a `guessedDriverIds` set and withholds those drivers from the suggestions in all three modes, naming the one the query matched ("Lewis Hamilton — already guessed") rather than removing it silently — otherwise the dropdown says "no driver in this pool matches Hamilton", which is false and reads as a broken search. It withholds without rebuilding the search index (`partitionSearchIndex`, `lib/game/fuzzyMatch.ts`): filtering the `drivers` array instead would hand the component a new array identity per guess and re-fold ~800 names, undoing the fix that made typing instant. `daily_submit_guess` rejects the repeat outright (drizzle/0049), under the same row lock as the append — the suggestions are a *list*, and PostgREST is reachable without one, plus a second device's board can be stale. Not extended to the other two: `infinite_rounds` stores `guess_count`, not the guesses, so there is nothing server-side to compare against; duel guesses are unlimited, so a duplicate there costs seconds rather than a turn.
 
-**The cutoff is mirrored in plpgsql and pinned to the TypeScript by a parity suite.** A Postgres function can't import `DAILY_POOL_WINDOW`, so three live functions carry their own copy: `daily_target_id` (drizzle/0038) picks the day's answer, `duel_begin_round` (drizzle/0036) picks each duel round's, and `infinite_start_round` (drizzle/0028) mirrors the whole `poolCutoffYear` ladder. Change the constant alone and **only the autocomplete moves** — the target keeps coming from the old window, so `/daily` can serve a driver the player cannot type, with nothing erroring and nothing looking broken. `lib/game/poolWindow.sqlParity.test.ts` (database CI tier) closes that, and pins `MAX_GUESSES`'s three plpgsql copies in the same pass (audit 2026-07-29 §2.5). The daily cutoff is checked **behaviourally** — `daily_target_id` takes the date as a parameter, so a far-future probe day brackets its cutoff year from both sides with no string matching; the other sites are extracted from `pg_get_functiondef()` and executed, same as the scoring suite. Both probe days must be in the future, and the suite refuses to run rather than pin-and-delete a live day's answer.
+### Infinite's driver filter
+
+**Infinite's pool is composed, not chosen from a list** (drizzle/0053). `PoolSelect`'s five-window dropdown is gone; a **Filter** button opens a `Modal` (same primitive as Settings/Leaderboard) holding four criteria, ANDed:
+
+- **Seasons** — a two-thumb range over 1950…current year (`YearRangeSlider`: two native `<input type="range">` stacked over one drawn track, so keyboard operation, value announcement and touch AT come free — the input is `pointer-events: none` and only its *thumb* takes pointers, or the upper input swallows every click meant for the lower). The test is an **overlap** (`debut_year <= to AND last_active_year >= from`), not `last_active_year BETWEEN`: "the 1990s" means everyone who raced in them, so a career that began in 1984 or ran on to 2012 belongs. Getting this wrong drops most of the grid from every historical span and looks plausible.
+- **Achievement** — one tier of Any / podium finishers / race winners / pole sitters / world champions, as a wrapping chip row. A radio group, not checkboxes: the tiers are alternatives, and ANDing "champion" with "pole sitter" empties easily for no gain.
+- **Nationality** and **Team** (`components/ui/SearchableSelect.tsx`). Team matches `previous_teams` — anyone who *ever* drove for them, which is what "Ferrari drivers" means and what `last_team` cannot answer. A native `<select>` was the first cut and was wrong twice: it renders in the OS's own chrome, which reads as a foreign control on this UI, and it can't show the per-option counts. The replacement is the same ARIA 1.2 combobox pattern `DriverAutocomplete` implements (focus stays in the search box, `aria-activedescendant` is the cursor, options aren't focusable), with the same `stopPropagation` on Escape — the panel lives inside a `Modal` that closes from a `document` listener, so one Escape would otherwise dismiss both.
+
+**Every option is counted against the rest of the draft, and unreachable ones are not offered.** With 1994 selected there is no Aston Martin to pick; with Germany selected the team list is the teams Germans actually drove for, and vice versa. `optionsExcludingSelf` blanks the criterion being listed before counting — so an option's number is what you'd get by choosing it, never zero-because-of-itself — and it does **one pass over the roster per list**, not one per option: a 170-entry team list re-counted per option would be 170 scans on every slider tick. The current selection stays in its list even at 0, because a control whose value its own menu denies is worse than a visible zero, and that zero is the explanation for the "No drivers match" line. The alternative — letting the pickers offer every value and reporting the emptiness afterwards — is a menu that lies, across 40-odd nationalities × 170-odd teams × 5 tiers × any span.
+
+**An active filter is displayed exactly one way, everywhere it appears.** `driverFilterParts` (pure) returns the criteria one string each — the span always, then each narrowing that is on — and `describeDriverFilter` is that, joined. `DriverFilterSummary` renders it as a caption: parts on the left, the count on the right, both mono/muted/tabular so the two halves read as one annotation rather than a label and a value. Deliberately **unboxed** — it sits above Infinite's guess input, and a border would make it compete with the input it describes. Used by Infinite, the custom lobby's create screen, the host's waiting screen and the joiner's preview; `DriverFilterButton` (icon only — sliders, not a funnel, because it opens adjustable criteria rather than applying a preset) is the trigger in both modes.
+
+Two richer treatments were tried for the custom create screen and both were worse, for one reason worth recording: **they invented surfaces the site does not have.** A `bg-surface-2` card holding `bg-surface` chips and a `bg-surface` icon well puts *darker* panels inside a *lighter* one, inverting the depth model where `--surface` is the window and `--surface-2` is what is raised and interactive on it; and a large mono driver count is a type size nothing else on the site uses. The control is now built as a **settings row** — label, one-line description, control on the right — which is the shape `components/settings/GeneralSection.tsx` already established for exactly this. The only elevated element is the button, as in Infinite. Reach for an existing idiom before designing a new panel.
+
+Three things hold it together:
+
+- **`lib/game/driverFilter.ts` is the pure half of a TS↔SQL pair**, like the compare ladder. `matchesDriverFilter` scopes the autocomplete; the same predicate lives once in SQL as `pick_filtered_driver` (drizzle/0056), which `infinite_start_round` calls to pick the round's target — and which `duel_begin_round` now calls too, so there is one copy and two callers rather than two copies. Drift means a target outside the player's own filter — untypeable, unwinnable, silent. Pinned by `lib/db/infiniteFilter.sqlParity.test.ts` — through **both** callers — and pinned **behaviourally**: this is a predicate over five columns, not a constant, and the two sides spell it with `= ANY(previous_teams)` vs `.includes()`, so the suite runs the real RPC a dozen times per probe filter and asserts every pick is one the TypeScript admits — plus a coupon-collector pass in the other direction, because a too-*strict* SQL predicate keeps every draw legal while quietly shrinking the pool. This replaced the two `infinite's pool ladder` assertions in `poolWindow.sqlParity.test.ts`.
+- **The RPC re-clamps and re-validates everything.** `infinite_start_round(from, to, nationality, team, achievement)` orders a crossed pair, bounds both years, and rejects an unknown achievement — the modal's own clamping is UX, and PostgREST is reachable without it.
+- **Applying starts the round.** The panel edits a *draft* and commits on Apply, because applying picks a new target and clears the board; there is no coherent state where the filter has changed but the board is still playing the old pool's driver. Apply is disabled on a filter nothing matches (the RPC refuses it too, but by then the board has already cleared).
+
+The three achievement counts are columns on `drivers` (`championship_wins`, `podiums`, `pole_positions`), straight from F1DB's own totals — unlike `career_wins`, which the seed computes from race results. **They are 0 until the seed next runs**, which is what the migration's defaults mean; `scripts/releaseGuards.ts` carries a Hamilton canary (≥7 titles, ≥190 podiums, ≥100 poles) because a renamed column would zero all three across the roster while preserving the row count, and the only symptom would be "World champions" matching nobody.
+
+**With nothing typed, the dropdown offers a random eight rather than the head of the pool.** An empty query isn't a search, so it isn't answered like one: `fuzzyFilter` hands back the first N in pool order, and the pool arrives alphabetical, so every player in every mode opened the box on the same eight A-names. `sampleSearchIndex` (`lib/game/fuzzyMatch.ts`) draws them instead — a partial Fisher-Yates over a sparse map, so it stays O(8) on an ~800-driver pool and reuses the same prebuilt index as everything else. It is **seeded**, and that is the load-bearing part: the draw happens during render, and `DriverAutocomplete` re-renders on things that have nothing to do with it (the duel's 10Hz round clock, daily's 1Hz countdown), so a `Math.random()` in that path would reshuffle the list under the player's cursor ten times a second. The seed is state, re-rolled *only* when the list opens — so the eight change between guesses but never while they're being read, and deleting a query back to empty returns the same eight rather than silently swapping them. A typed query goes back to the fuzzy ranking untouched.
+
+**The cutoff is mirrored in plpgsql and pinned to the TypeScript by a parity suite.** A Postgres function can't import `DAILY_POOL_WINDOW`, so three live functions carry their own copy: `daily_target_id` picks the day's answer, `duel_begin_round` picks each unfiltered duel round's, and `daily_submit_guess` is the one that uses it to *reject* rather than to pick — all three last carried the same cutoff into **drizzle/0052**, which is what moving the window means in practice (the constant and every plpgsql copy in one migration, never a TypeScript-only edit). `duel_begin_round` has been replaced twice since, by drizzle/0055 and drizzle/0056, each reproducing that cutoff verbatim — which is exactly why the parity suite reads the LIVE definition rather than trusting the newest migration that happens to mention the function. `infinite_start_round` used to be a fourth site mirroring the whole `poolCutoffYear` ladder; drizzle/0053 replaced that mode's window with a composed filter, so it no longer carries a copy of this constant at all (its own TS↔SQL pair is pinned separately — see "Infinite's driver filter"). Change the constant alone and **only the autocomplete moves** — the target keeps coming from the old window, so `/daily` can serve a driver the player cannot type, and the guess check refuses one it does offer, with nothing erroring and nothing looking broken. `lib/game/poolWindow.sqlParity.test.ts` (database CI tier) closes that, and pins `MAX_GUESSES`'s three plpgsql copies in the same pass (audit 2026-07-29 §2.5). The daily cutoff is checked **behaviourally** — `daily_target_id` takes the date as a parameter, so a far-future probe day brackets its cutoff year from both sides with no string matching; the other sites are extracted from `pg_get_functiondef()` and executed, same as the scoring suite. Both probe days must be in the future, and the suite refuses to run rather than pin-and-delete a live day's answer. The guess check needs **both tiers to be complete**, and deliberately: the parity suite pins the *cutoff*, `lib/db/dailyRpc.test.ts` pins the *predicate* behaviourally (an out-of-pool driver is refused, an in-pool one is not), and an extraction alone would never notice a `<` becoming a `>`.
 
 ## Accounts & auth
 
@@ -75,6 +100,7 @@ The rule: **a parameter is for something the server genuinely cannot know.** An 
 
 - `recordDailyResult()` — took `(won, guessCount)`. `(true, 1)` from a console wrote a win, a 1-guess distribution bucket and an extended streak for a day never finished; worse, the `daily_results` PK guard is first-write-wins, so the forged row also **suppressed** that day's honest result. Now derived from `daily_progress`, with the UTC day resolved by the **database** clock — which also closes the three-clock split-brain (§3.10) that could reset a live streak.
 - `forfeitMatch(matchId, forfeitedPlayerId)` — still takes the target, because the disconnect path genuinely is the remaining player acting on the absent one's behalf. What it no longer takes on trust is the *absence*: forfeiting someone else now requires their `duel_matches.last_seen_a/b` heartbeat to be stale (see "Exit, forfeit & disconnect"). Forfeiting yourself stays unconditional.
+- `applyMatchResult(...)` — never a `"use server"` export at all, which is the same rule one step earlier. It takes `winnerId` and two player ids, so exporting it from `lib/duel/actions.ts` would be a client-callable "tell the server who won this match, and which two players to pay". It lives in a plain module; the only ways in are the two cookie-resolved actions above, which read every argument off a match row they have already authorized the caller against. Same split, same reason, as `lib/stats/recordDailyResult.ts`.
 - `migrateLocalStats(local)` — the one action that legitimately must take client data, since pre-accounts stats exist nowhere but the player's browser. That is exactly why it carries all three of: validation (`lib/stats/localStatsMerge.ts`, pure + unit-tested), a **server-side** once-marker (`user_stats.local_stats_merged_at`, taken under a row lock), and an `is_guest = false` check read server-side.
 
 A PK guard stops a **replay**, not a **forgery** — they are different threats and neither defence substitutes for the other. And a derived-server-side value is only as trustworthy as the table it comes from, which is why drizzle/0042 removed the client write *grants* from every server-authoritative table (they were denied by RLS alone until then — see "Schema").
@@ -83,6 +109,8 @@ A PK guard stops a **replay**, not a **forgery** — they are different threats 
 
 `AuthProvider` subscribes to `supabase.auth.onAuthStateChange` and exposes `{ userId, isGuest, identityStatus, status }`, each `loading | ready`. **Every game window is a function of `userId`** — no leftover board from a previous identity, ever. Nothing may key persistent game state off anything but the current `userId`.
 
+**It publishes two contexts, and `identityStatus`/`status` is the seam** (audit 2026-07-30 §1.1). `useAuthIdentity()` gives `{ userId, isGuest, identityStatus, refresh, signOutAndReset }` — **primitives and stable callbacks only**; `useAuth()` gives that merged with `{ user, session, profile, stats, status, loading }`. Because the provider wraps the whole app, one context value made `userId` and `stats` a single subscription: `refresh()` after a completed daily, whose only job is to pull the new `user_stats` into Settings, re-rendered the board that had just finished — for data it doesn't display. Memoizing the value can't fix that; profile/stats genuinely changed. Two rules keep it working: **the identity value must stay free of object-valued fields** (`user`/`session` are re-materialized by every `supabase-js` `getSession()`, so they belong on the account side, where all three of their readers want profile/stats anyway), and a component that only destructures identity fields uses `useAuthIdentity()` — `DailyGame`/`DailyBoard` and `GeneralSection` do. There is no stale-half hazard: both values are computed in the same render of the same provider from the same state, so the split is about *who subscribes*, never about *when*. `AuthProvider.test.tsx` (`dom` tier) pins the pair — an identity consumer must not re-render on a stats change, and must re-render on an identity change.
+
 Sign-in and sign-out are **deliberately asymmetric**:
 
 - **Sign-in re-resolves in place, with no refresh.** The common case (guest → full account) is a *link*: `userId` is preserved, so reloading would interrupt an in-progress daily for nothing. A sign-in can still land on a *different* id — `OAuthErrorHandler`'s `identity_already_exists` path signs you into your other account instead of linking — and that is handled reactively too: game windows are keyed on `userId` so they remount clean.
@@ -90,11 +118,11 @@ Sign-in and sign-out are **deliberately asymmetric**:
 
 The ordering inside `signOutAndReset()` is load-bearing and must not be rearranged:
 
-1. **Release every server commitment while still authenticated** — `duel_forfeit(match_id)` if a match is live, `duel_leave_queue()` if queued, and await any in-flight guess RPC (`daily_submit_guess` appends server-side; abandoning one mid-write leaves the rendered board disagreeing with what was stored). After step 2 this identity can no longer authenticate anything.
+1. **Release every server commitment while still authenticated** — `duel_forfeit(match_id)` if a match is live, `duel_leave_queue()` if queued, `duel_lobby_cancel(code)` if hosting an open custom lobby, and await any in-flight guess RPC (`daily_submit_guess` appends server-side; abandoning one mid-write leaves the rendered board disagreeing with what was stored). After step 2 this identity can no longer authenticate anything.
 2. `supabase.auth.signOut()`.
 3. `window.location.assign('/')`. The fresh load bootstraps a new anonymous identity through the ordinary first-visit path — there is **no** in-place `signInAnonymously()` on the sign-out path.
 
-**It fails closed.** If step 1 can't complete (offline, request error) it throws and does *not* sign out or reload; the caller surfaces the error. Reloading anyway would strand a live match or a matchable queue row — the exact rating-farming vector "Matchmaking queue integrity" closes — while destroying the only client still holding the session needed to clean it up. And when a match is live or the player is queued, **confirm first** ("Signing out will forfeit your match"); a plain sign-out with nothing in flight needs no confirmation.
+**It fails closed.** If step 1 can't complete (offline, request error) it throws and does *not* sign out or reload; the caller surfaces the error. Reloading anyway would strand a live match or a matchable queue row — the exact rating-farming vector "Matchmaking queue integrity" closes — while destroying the only client still holding the session needed to clean it up. And when a match is live, the player is queued, or a lobby is open, **confirm first** ("Signing out will forfeit your match" / "Anyone you sent the code to won't be able to join"); a plain sign-out with nothing in flight needs no confirmation.
 
 ## Daily persistence & sync
 
@@ -178,13 +206,13 @@ Two site sections share one root layout but have different chrome, split via App
 
   `app/(game)/layout.tsx` holds the top bar, ad slot, marketing teasers and footer; `GameChrome` (client) holds the mode tabs. `/daily`, `/infinite`, `/online` render only their game window into `{children}`. Layouts persist across route changes, so switching modes swaps just the game window. `/` redirects to `/daily`. Mode tabs are `next/link`s highlighting the active route.
 
-  **The shell collapses during a live match.** `ActiveMatchContext` (a root-level provider) carries one `active` flag that `DuelMatch` raises when a round starts. `GameChrome` and `AdSlotGate` read it and hide the mode tabs, divider, marketing sections, footer and ad slot — leaving only the top bar and the match. A live race is the wrong moment for any of it, not just the banner. Two constraints if you touch `GameChrome`: `{children}` must stay at a **stable index** across the active/inactive branches (React otherwise remounts the whole game window and resets duel state mid-match), and `marketing`/`footer` are passed in as already-rendered elements rather than imported, because a `"use client"` module can't import the async Server Component inside `NewsSection`.
+  **The shell collapses during a live match — and only then.** `ActiveMatchContext` (a root-level provider) carries one `active` flag, raised for `DuelRoot`'s `MATCH_PHASES` (`found` | `countdown` | `in-match`) and by `DuelMatch` itself once a round starts. **Matchmaking and the custom-lobby screens are not in that set**: waiting for an opponent and composing a lobby are ordinary browsing, and a host pasting a code into Discord wants the rest of the page. It used to be `phase !== "landing"`, which collapsed the shell the moment someone pressed Duel. `MATCH_PHASES` is now the single predicate behind all three things keyed on it — the shell, `setLiveMatchId`, and the `duel_heartbeat` beat — which were previously spelled two different ways. `GameChrome` and `AdSlotGate` read it and hide the mode tabs, divider, marketing sections, footer and ad slot — leaving only the top bar and the match. A live race is the wrong moment for any of it, not just the banner. Two constraints if you touch `GameChrome`: `{children}` must stay at a **stable index** across the active/inactive branches (React otherwise remounts the whole game window and resets duel state mid-match), and `marketing`/`footer` are passed in as already-rendered elements rather than imported, because a `"use client"` module can't import the async Server Component inside `NewsSection`.
 
 - **`app/(info)/`** — `/about`, `/faq`, `/game-modes`, `/how-to-play`, `/privacy-policy`, `/terms-of-service`. Standalone full-detail pages, same footer, but `InfoTopBar` instead of `TopBar`/mode tabs: logo, nav links to the other info pages, and a "Play now" CTA back into the game shell. No ad slot, no marketing teasers here — these pages *are* the detail the home teasers link out to. Each teaser component (e.g. `FaqTeaser`) and its full counterpart (`Faq`) are separate components sharing content style but not JSX, so the home page can stay short without truncating the real page. The two legal pages have no teaser — they're linked from the footer only.
 
 `(game)` and `(info)` are route groups — the parens are stripped from the URL, so paths stay flat (`/faq`, not `/info/faq`).
 
-`/online` is a **landing** that offers a match type: **Duel** (live now) and **Knockout** (rendered but disabled / "coming soon" until built). Guests see a "save your progress" upgrade prompt above the mode options, same copy as Settings. Selecting Duel enters the lobby/matchmaking flow.
+`/online` is a **landing** that offers a match type: **Duel** and **Custom** (both live), plus **Knockout** (rendered but disabled / "coming soon" until built) between them. Guests see a "save your progress" upgrade prompt above the mode options, same copy as Settings. Selecting Duel enters the lobby/matchmaking flow; selecting Custom enters the code flow (see "Custom lobbies").
 
 ## Design system
 
@@ -229,14 +257,14 @@ Intentional scale (e.g. 12 / 14 / 16 / 20 / 28 / 40).
 - Motion minimal and purposeful: tile reveal, button press, modal enter/exit. Respect `prefers-reduced-motion`. No ambient loops — **except** the duel tug-of-war bar and countdown, which are live and must animate smoothly (still honor reduced-motion by snapping instead of easing).
 - Mobile-first (most players on phones). Visible `--accent` focus rings. Modals trap focus, close on Escape + backdrop.
 - **A tile's meaning must exist in text, not only in colour.** Colour, opacity and the ↑/↓ glyph are the *visual* encoding; the spoken one is `lib/game/tileLabel.ts` (pure, unit-tested), applied by `Tile` as `role="img"` + `aria-label` — `role="img"` both because a bare `aria-label` on a `<div>` may be ignored and because it makes the tile atomic, so the value isn't announced twice. A comparison tile gets `guessTileLabels`; a reveal tile gets `tileValueLabel` (no verdict). The label is optional only where visible prose already states the rule (the marketing legend). Same reason `DriverCodeBadge` announces the driver's *name*, not "V E R".
-- **A readable board still isn't an audible game — the *event* has to be announced too.** Labelling the tiles made the grid navigable; submitting a guess was still silent, so a screen-reader user had to go back into the grid after every guess to find out what happened. `GuessAnnouncer` (`components/game/`) is one polite `role="status"` region rendered by `GuessGrid`, so daily and infinite get it identically and a later mode gets it by construction. Two rules it must keep: it composes `guessAnnouncement` from the same `guessTileLabels` the tiles use (so spoken row and spoken tile can't drift), and it announces **only guesses that passed through the pending row** — a resumable daily board hydrates a whole day of guesses at once, and reading the last one aloud on every page load is not an event the player caused. Focus works the same way: when a control disappears under the player (a disabled `PoolSelect`, the duel input on solve) the thing that replaces it takes focus, and only if focus was genuinely lost (`document.activeElement` is `body`).
+- **A readable board still isn't an audible game — the *event* has to be announced too.** Labelling the tiles made the grid navigable; submitting a guess was still silent, so a screen-reader user had to go back into the grid after every guess to find out what happened. `GuessAnnouncer` (`components/game/`) is one polite `role="status"` region rendered by `GuessGrid`, so daily and infinite get it identically and a later mode gets it by construction. Two rules it must keep: it composes `guessAnnouncement` from the same `guessTileLabels` the tiles use (so spoken row and spoken tile can't drift), and it announces **only guesses that passed through the pending row** — a resumable daily board hydrates a whole day of guesses at once, and reading the last one aloud on every page load is not an event the player caused. Focus works the same way: when a control disappears under the player (the duel input on solve) the thing that replaces it takes focus, and only if focus was genuinely lost (`document.activeElement` is `body`).
 - Themed scrollbar; `html` has `scrollbar-gutter: stable` so modal scroll-lock doesn't shift content. Don't remove without an equivalent fix.
 
 ### Duel visual consistency (important)
 
 The duel **guess board looks and behaves exactly like the daily/infinite board** — the same guess-row component, the same driver-code badge on the side, the same tiles, the same input + autocomplete. The duel is *daily's board plus duel chrome* (tug-of-war, opponent panel, round/timer header), never a bespoke second board.
 
-This is enforced by extraction, not by discipline: `components/game/` owns `Tile`, `DriverCodeBadge`, `ColumnLabels`, `GuessRow`, `PendingGuessRow`, `GuessGrid`, `DriverAutocomplete`, `ResultCard` and `PoolSelect`, and all three modes consume them — duel through `ClosestGuessesBoard`, which is only a *sorting* wrapper (best guess on top, since guesses are unlimited) around the same `GuessRow`. Adding a mode-specific copy of any of these is the thing to refuse. Anything genuinely net-new in duel (tug-of-war, opponent panel, round result cards, results panel) uses the same tokens, radii, fonts and motion rules as the rest of the site.
+This is enforced by extraction, not by discipline: `components/game/` owns `Tile`, `DriverCodeBadge`, `ColumnLabels`, `GuessRow`, `PendingGuessRow`, `GuessGrid`, `DriverAutocomplete` and `ResultCard`, and all three modes consume them — duel through `ClosestGuessesBoard`, which is only a *sorting* wrapper (best guess on top, since guesses are unlimited) around the same `GuessRow`. Adding a mode-specific copy of any of these is the thing to refuse. Anything genuinely net-new in duel (tug-of-war, opponent panel, round result cards, results panel) uses the same tokens, radii, fonts and motion rules as the rest of the site.
 
 ## Modals
 
@@ -261,7 +289,7 @@ The settings modal has **three tabbed sections**, each its own component in `com
 
 - **General** (`GeneralSection`) — exactly two toggles, **show flags** and **colorblind mode** (with a live three-swatch preview of the tile colors it changes), plus **reset stats**, a two-click confirm that calls `resetUserStats` server-side. That is the whole section, and it's deliberately short: **no filler toggles.** Two things that sound like they belong here don't:
   - **No reduced-motion override.** Motion follows the OS `prefers-reduced-motion` setting alone (`motion-reduce:` for CSS, `usePrefersReducedMotion()` for JS-driven animation). A second switch for something the OS already exposes globally is exactly the filler this section avoids.
-  - **No infinite-pool default.** The pool picker (`PoolSelect`) lives in the Infinite game window where it's actually used, and the choice persists itself (`lib/settings/poolWindow.ts`). A duplicate control in Settings would be a second source of truth for one value.
+  - **No infinite-pool default.** The driver filter lives in the Infinite game window where it's actually used, and persists itself (`lib/settings/driverFilter.ts`). A duplicate control in Settings would be a second source of truth for one value.
 
   There is **no hard mode** anywhere in the app, and never has been. If a doc, comment or page mentions one, that's stale prose to delete — not a feature to go build.
 - **Profile** (`ProfileSection`) — avatar picker, display name (editable for full accounts), a Guest/Account state badge, and the auth controls: email + Google upgrade for guests, sign out for full accounts. This is the *only* login UI in the app.
@@ -279,7 +307,7 @@ The rank expressions live in `lib/leaderboard/rank.ts` rather than inline, becau
 
 ## Duel (real-time race)
 
-A fast 1v1 where two matchmade players race across **3 rounds (3 different drivers)**, scoring on speed, visualized as a **tug-of-war**. The whole point is *presence*: it has to feel like a live human is trying to beat you, right now. The engine works; this section defines the experience it must deliver.
+A fast 1v1 where two matchmade players race across **3 rounds (3 different drivers)**, scoring on speed, visualized as a **tug-of-war**. (A custom lobby plays the same engine over a configurable 1-5 rounds — see "Custom lobbies"; everything below describes the matchmade default.) The whole point is *presence*: it has to feel like a live human is trying to beat you, right now. The engine works; this section defines the experience it must deliver.
 
 ### The core problem the lifecycle solves
 
@@ -302,7 +330,7 @@ any state ─▶ abandoned   (forfeit / disconnect)
 
 ### Timing constants (`lib/game/duelTiming.ts`, tunable)
 
-**Every duel duration lives in this one file** — nothing in `components/duel` or `lib/duel` hardcodes one. The single documented exception is the SQL literals inside drizzle/0021's functions (`COUNTDOWN_MS` / `ROUND_MS` / `INTERMISSION_MS`) and drizzle/0032's `QUEUE_STALE_MS`, which plpgsql can't import; each carries a keep-in-sync comment pointing back here.
+**Every duel duration lives in this one file** — nothing in `components/duel` or `lib/duel` hardcodes one. The single documented exception is the SQL literals plpgsql can't import: `COUNTDOWN_MS` / `INTERMISSION_MS` in drizzle/0021's functions, `QUEUE_STALE_MS` in drizzle/0032, and `CUSTOM_LOBBY_STALE_MS` / `CUSTOM_LOBBY_MAX_AGE_MS` in drizzle/0057. Each carries a keep-in-sync comment pointing back here. `ROUND_MS` **stopped being one of them** in drizzle/0054: it is now `duel_matches.round_seconds`' column default, so the constant documents the default rather than mirroring a literal.
 
 ```
 LOBBY_MIN_SEARCH_MS          1000   min time the "searching" UI shows before a match resolves
@@ -312,9 +340,15 @@ COUNTDOWN_GO_HOLD_MS          700   lights-out -> "GO!" beat, inside the countdo
 LIGHTS_ALL_LIT_HOLD_MS        400   all-five-lit dwell; the sweep is sized to end exactly here
 MIN/MAX_LIGHT_ON_INTERVAL_MS 150/900  bounds on the DERIVED light interval (no strobe, no crawl)
 COUNTDOWN_TICK_MS             100   countdown re-render cadence; BOTH hooks stop at their deadline
-ROUND_MS                    60000   per-round guessing window (server-stamped)
+ROUND_MS                    60000   DEFAULT per-round guessing window; per-match round_seconds
+                                    overrides it (drizzle/0054), server-stamped either way
 INTERMISSION_MS              6000   reveal + points animation + mini-countdown between rounds
 POINTS_COUNT_UP_MS           1000   the intermission's "+N" count-up
+GUESS_COOLDOWN_MS / _SERVER_MS 1000/850  min gap between one player's guesses;
+                                    client waits the longer one, so an honest
+                                    player never meets the server's rejection
+MIN_SOLVE_MS                 2000   floor under ms-to-solve -- a sub-2s solve is
+                                    a script, and scores what a human would
 READY_TIMEOUT_MS             4000   fallback if a client never reports ready
 DISCONNECT_GRACE_MS         10000   reconnect window; ALSO the server's staleness bar
 DUEL_HEARTBEAT_MS            5000   in-match liveness beat (duel_heartbeat), 3:1 vs the window
@@ -323,29 +357,54 @@ QUEUE_HEARTBEAT_MS / _STALE_MS  5000/15000  queue liveness; survives 2 missed be
 DUEL_POLL_INTERVAL_MS        5000   in-match safety net for a missed broadcast (idempotent)
 RESUME_RETRY_MS              2000   retry cadence when a reload lands between rounds
 RESUME_RETRIES_BEFORE_FORCE_BEGIN  4  before concluding BOTH clients reloaded and stamping it
+CUSTOM_LOBBY_HEARTBEAT_MS / _STALE_MS  20000/120000  open-lobby liveness -- NOT the queue's 5/15
+CUSTOM_LOBBY_POLL_MS         2500   the waiting host's safety-net poll of duel_lobby_state
+CUSTOM_LOBBY_MAX_AGE_MS   1800000   hard cap; also what clears CONSUMED lobbies, which stop beating
 ```
 
 These fix the "everything's too fast to see" complaints: the intermission is a real, unrushed beat and the between-round countdown gates on readiness.
 
 ### Flow
 
-1. **Mode select.** `/online` landing shows Duel / Knockout (plus a guest upgrade prompt above them, same as Settings).
+1. **Mode select.** `/online` landing shows Duel / Knockout / Custom (plus a guest upgrade prompt above them, same as Settings).
 2. **Lobby / matchmaking.** Selecting Duel renders the lobby UI *first* (searching animation) and enforces `LOBBY_MIN_SEARCH_MS` before resolving, so the player always sees the lobby load in. A Postgres RPC pairs atomically: `SELECT ... FOR UPDATE SKIP LOCKED` finds a waiting opponent (create match, mark both matched) or enqueues. No background worker. Match by rating when possible; widen the window the longer someone waits; fall back to anyone after a timeout.
 3. **Match found (staging).** Both avatars slide in from opposite sides (grid-start), with handles and ratings. Held `MATCH_FOUND_HOLD_MS`. Both clients report `ready`.
 4. **Lights-out countdown.** On both-ready (or timeout), `duel_begin_round` stamps the round's `started_at = now() + COUNTDOWN_MS`, `ends_at = started_at + ROUND_MS`. Every round gets the identical ceremony — same component, same length. The light **interval is derived, not fixed**: `useLightsCountdown` divides the budget actually remaining when the round lands by the four intervals between five lights, so the fifth light always arrives exactly `LIGHTS_ALL_LIT_HOLD_MS` before lights-out. A fixed interval left the leftover budget as dead air with all five lights on, and since that leftover shrank as latency grew, identical constants produced visibly different pauses per round. Five red lights fill one at a time — the number under them names the light that just lit (L1 = "5" … L5 = "1") — then out = GO. Clients count to the absolute `started_at`, corrected for clock offset.
 
    **`started_at` means "the board is on screen and this player can act", not "the lights went out."** Lights-out is `COUNTDOWN_GO_HOLD_MS` *earlier*; clients run the lights to that moment and hold GO until `started_at`. This is load-bearing for fairness, not presentation: `ends_at` and `duel_submit_guess`'s ms-to-solve are both measured from `started_at`, so defining it as the instant play begins is what stops the ceremony being charged to the player's round time and to their speed points. Every constant in the countdown budget follows from it — the lights must complete within `countdown - COUNTDOWN_GO_HOLD_MS`.
-5. **Rounds (×3).** Each round targets one 10-year-pool driver.
-   - **Guessing:** unlimited guesses within the timer, each returning the normal 5-attribute comparison (reuse `compare()`). Submission must feel **instant** — see "Instant guesses".
-   - **Live standing:** every guess updates the tug-of-war live (not just at round end). Each player's **live score** = `100 (baseline) + confirmed round points + current-round provisional`. Provisional = locked speed points once solved, else the proximity value of the best guess so far. Both start at 100 so the bar opens centered and never snaps to an end.
-   - **Success:** speed points — solving at 5s worth far more than at 40s. Pure `speedPoints(msToSolve, roundMs)`. The solving client shows the real earned points (e.g. `+140`), not `+0`.
-   - **DNF (timer expires unsolved):** minor **proximity points** from the best incorrect guess. Pure `proximityPoints(bestResult)`.
+5. **Rounds (×3).** Each round targets one driver from the daily pool (20 years) — or from the match's own filter when it has one (custom lobbies).
+   - **Guessing:** unlimited guesses within the timer, each returning the normal 5-attribute comparison (reuse `compare()`). Submission must feel **instant** — see "Instant guesses". Unlimited, but **not free, and not unpaced** — see "Guess discipline".
+   - **Live standing:** every guess updates the tug-of-war live (not just at round end). Each player's **live score** = `100 (baseline) + confirmed round points + current-round provisional`. Provisional = locked speed points once solved, else the *decayed* proximity value of the best guess so far (`dnfPoints`, so the bar shows what the round would actually pay rather than climbing on every wasted guess and dropping at the close). Both start at 100 so the bar opens centered and never snaps to an end.
+   - **Success:** speed points, scaled by efficiency — solving at 5s worth far more than at 40s, and solving in 4 guesses worth far more than in 40. Pure `solvePoints(msToSolve, roundMs, wrongGuesses)`. The solving client shows the real earned points (e.g. `+140`), not `+0`.
+   - **DNF (timer expires unsolved):** minor **proximity points** from the best incorrect guess, decayed the same way. Pure `dnfPoints(bestProximity, guessCount)`.
 6. **Intermission.** Reveal the correct driver (card: initials/photo, name, the five stats), count-up both players' round points, settle the tug-of-war, mini-countdown. Ready-gate into the next round.
 7. **Match end.** Higher aggregate (excluding the equal 100 baseline) wins; update both ratings + records. Clients leave the immersive view and return to the **site shell**, which renders a results panel: WIN/LOSE, final score, rating delta (±), per-round breakdown, and CTAs (**Rematch**, **Find new opponent**, **Back to modes**). Guests get an upgrade prompt on a win.
 
+### Guess discipline — unlimited guesses that cost something
+
+Duel guesses were unlimited **and free**: nothing paced them, and points depended only on solve time. The ranked pool is **103 drivers**, so enumerating it was not theoretical — a devtools loop over `duel_submit_guess` solved every round in seconds, guaranteed, knowing nothing about the game. No script was needed either: spraying the autocomplete beat deducing, 845 points to 541 on the old curve. Speed was the only currency, so the mode rewarded typing and automation rather than thinking.
+
+Three mechanisms (drizzle/0058), aimed at three different things. All three are enforced in `duel_submit_guess` / `duel_close_round`; the client only *displays* them.
+
+- **A cooldown between one player's guesses** (the *capability*). `GUESS_COOLDOWN_SERVER_MS` = 850 in SQL, `GUESS_COOLDOWN_MS` = 1000 on the client. Caps a 60s round at ~70 guesses against a 103-driver pool, so enumeration stops being a guaranteed solve. **Two values on purpose:** the client's wait starts when the response *lands*, the server measures from when the previous guess was *written*, and the difference is one response leg — so the client is always the binding one and an honest player never sees the rejection. Same tolerance reasoning as drizzle/0025's clock grace. It spaces against `duel_round_results.last_guess_at`, under the row lock the RPC already takes. Deriving the rule from `guess_count` and `started_at` instead needs no column and is **wrong**: that is a *budget*, so a script idles 30s, banks 30 guesses and bursts them.
+- **Wrong guesses decay the reward** (the *incentive*). `accuracyFactor(wrongGuesses) = GUESS_DECAY ^ max(0, wrong - FREE_GUESSES)` — 0.88 and 3. Applied to the DNF payout too, or spraying just becomes the way to farm proximity (best-of-N rises with N for free, and the 75 ceiling is most of a round's floor). **The solving guess is never counted as wrong**, so a 4-guess solve pays in full; a DNF passes its whole `guess_count`, since every guess in it was wrong. That off-by-one is pinned on both sides.
+- **A floor under ms-to-solve** (the *ceiling*). `MIN_SOLVE_MS` = 2000. Nobody submits in under two seconds; without it the curve pays a script ~982 of a possible 1000. Costs a lucky-first-guess human ~45 points.
+
+**Only the 900-point bonus decays — never the 100 floor.** That floor is what makes "any solve beats any DNF" true (proximity ceilings at 75), and decaying it would put a lucky near miss above someone who actually found the driver. The parity suite tests this with the *worst possible* solve (slowest **and** maximally penalised), not merely the slowest.
+
+Net effect: a considered solve is unchanged (4 guesses at 18s is still 541), a sprayed one collapses to the floor (~100), and an enumerator usually DNFs instead of winning. **What this does not do is beat a purpose-built solver** — a script that reimplements `compare()` still lands ~904 to a human's 541, because the pool ships to the client with all five attributes and must, for autocomplete to be instant. Closing that gap means either reweighting the bonus off raw speed and onto efficiency, or detection; both were deliberately left for later.
+
+The player-facing half is the point, not decoration — a rule that bites invisibly reads as a bug:
+
+- **"Solve now +487"** beside the round clock (`SolvePotential`), folding the time falloff and the decay into the one number the game already speaks in. It steps in **fives**, because it ticks at 10Hz and a number sliding 487→486 is noise. On a penalised guess a **`−52`** falls away from it, through a persistently-mounted `role="status"` so the cost is announced as well as drawn.
+- **`×0.88 on a solve`** in the guess-board caption, in `DriverFilterSummary`'s idiom (parts left, count right, mono/muted). Shown **only once a guess has actually cost something** — a permanent `×1.00` reads as a warning about a rule the player has not broken.
+- **The cooldown is drawn, not explained**: a 2px accent line draining under the input for exactly `GUESS_COOLDOWN_MS`. No toast, no copy, and deliberately not a placeholder swap — the placeholder is where the action is named, and replacing it makes the control look broken every guess.
+- **And it hands focus back.** Disabling a focused element drops focus to `<body>`, so a temporary disable costs a keyboard player the input *every guess* and makes Tab restart from the top of the page mid-round — §4.7's bug, reintroduced by a different route. `DriverAutocomplete` takes an optional `inputRef` for exactly this, and the restore lives in `RoundPlay` because only the caller knows whether a disable is temporary (cooldown: restore) or terminal (time up, solved: leave it), with the same "only if focus was genuinely lost" guard the solved panel uses. It covers the in-flight `pendingGuess` window too, which had the same hole and no restore.
+- **The intermission shows both players' guess counts** under their `+N`. This is where you find out you were beaten by someone slower who guessed better, which is otherwise invisible. Both counts were already on screen live, so nothing new is disclosed — and neither is *acted* on.
+
 ### Rematch is mutual consent, not a re-queue
 
-A rematch pairs the *same two players* directly — it never goes back through `matchmaking_queue`. `duel_matches.rematch_requested_by` is the whole mechanism: `requestRematch(oldMatchId)` records the caller's intent if the column is empty, or — finding it already set to the **other** participant — creates the new match and returns its id. A lone request just waits.
+A rematch pairs the *same two players* directly — it never goes back through `matchmaking_queue`. It also **copies the match's config forward** (`ranked`, `rounds`, `round_seconds`, `filter`); see "Custom lobbies" for why that is the sharpest edge in the whole feature. `duel_matches.rematch_requested_by` is the whole mechanism: `requestRematch(oldMatchId)` records the caller's intent if the column is empty, or — finding it already set to the **other** participant — creates the new match and returns its id. A lone request just waits.
 
 Three distinct broadcasts on the old match's channel, and conflating them is the bug to avoid:
 
@@ -361,13 +420,13 @@ Three distinct broadcasts on the old match's channel, and conflating them is the
 
 ### Board (consistent with daily)
 
-The guess board is the **shared daily/infinite board** (same row, tiles, driver initials on the side, input, autocomplete). Because guesses are unlimited, the list may be sorted by closeness (best on top) — but it is the same row component, not a bespoke grid. Round indicator (1/2/3) and the countdown in mono tabular figures sit in the duel header above the board.
+The guess board is the **shared daily/infinite board** (same row, tiles, driver initials on the side, input, autocomplete). Because guesses are unlimited, the list may be sorted by closeness (best on top) — but it is the same row component, not a bespoke grid. Round indicator ("Round N / M", from the match's own `rounds`) and the countdown in mono tabular figures sit in the duel header above the board.
 
 ### Instant guesses (perceived latency ~0)
 
 Duel guessing uses the shared one-warm-hop path — see "Fast guess evaluation (all modes)". Duel-specific notes:
 - `duel_submit_guess(match, round, guess_driver_id)` returns `{ tiles, solved, points, bestHeat }` in one round trip.
-- Preload the 10-year pool on match start so autocomplete is local and instant.
+- The roster is already on the client: `/online` ships the full one (see "Custom lobbies"), and each mode narrows it with a pure predicate — `poolCutoffYear` for a ranked duel, `matchesDriverFilter` for a custom one. No per-match fetch, so autocomplete is local and instant.
 
 ### Server authority (fairness)
 
@@ -387,7 +446,7 @@ Duel guessing uses the shared one-warm-hop path — see "Fast guess evaluation (
   - `duel_submit_guess` deliberately does **not** carry the beat. That's the hot path, and a `duel_matches` write there would sit behind a row lock `duel_close_round` also takes.
   - The grace timer is an **interval**, not a one-shot: a player who dies the instant after a beat is stale by a hair less than the window when the first attempt lands, and a single refusal used to leave the survivor in a dead match.
 - A finished/abandoned match can't be re-entered; `duel_state` reflects the terminal result for a late-loading client.
-- **Signing out mid-match forfeits it.** `AuthProvider.signOutAndReset()` calls `duel_forfeit` before tearing down the session, so the opponent gets an immediate clean win instead of waiting out `DISCONNECT_GRACE_MS`. The player is asked to confirm first, and if the forfeit can't be delivered the sign-out is aborted rather than silently abandoning them.
+- **Signing out mid-match forfeits it**, and signing out while hosting an open lobby cancels it. `AuthProvider.signOutAndReset()` calls `duel_forfeit` (and `duel_lobby_cancel`) before tearing down the session, so the opponent gets an immediate clean win instead of waiting out `DISCONNECT_GRACE_MS`. The player is asked to confirm first, and if the forfeit can't be delivered the sign-out is aborted rather than silently abandoning them.
 
 ### Matchmaking queue integrity
 
@@ -399,6 +458,89 @@ A stale queue row is a **rating-farming vector**, not a cosmetic leak: if a play
 4. **Self-match guard.** `device_id` — stable per browser profile, persisted in localStorage so it **survives an identity swap**, which is the one thing signing out cannot change. The scan refuses any row sharing the caller's `device_id`, and separately any sharing their `user_id`. Searching also deletes this device's rows under other identities, so a leaked row converges instead of lingering. *Accepted side effect: two people on one browser profile can't duel each other.*
 
 Both guards live **inside** the single locked `SELECT … FOR UPDATE SKIP LOCKED` that claims the opponent — never a read-then-check afterwards, which would trade the bug for a race. Backing all four, a `CHECK (player_a <> player_b)` on `duel_matches` makes a self-match row unrepresentable regardless of what any future code path does.
+
+## Custom lobbies
+
+A third entry under `/online`, below Duel and Knockout: a host composes a match (rounds, round length, and behind an "Advanced" button the full Infinite-style driver filter), gets a six-character code and a shareable link, and a friend joins with it. The two play an ordinary duel that **does not touch ratings, duel W/L, or the leaderboard**.
+
+**One sentence carries the whole safety argument:** a custom lobby is a short-lived `duel_lobbies` row holding a config and a code; joining it creates an ordinary `duel_matches` row with `ranked = false` plus that config, and from that instant **every existing duel component, RPC and realtime channel runs unchanged**. There is no second lifecycle, no second scoring path and no second channel — only a flag and three config columns the existing lifecycle reads off the row it already holds. The duel engine has had four separate audit findings about one value living in two places (§0.1's match id, §3.3's absence claim, §3.4's trusted payloads, §0.2's round clock); a parallel "custom match" code path would have invited a fifth.
+
+### Stats isolation, and the rematch trap
+
+Every duel write to `user_stats` goes through exactly one function: `applyMatchResult` (`lib/duel/applyMatchResult.ts`). Both callers reach it — `applyMatchRatings` on a normal finish, `forfeitMatch` on a forfeit/disconnect/sign-out — and there is no second writer of `duel_rating`/`duel_wins`/`duel_losses` anywhere in the repo. It already takes the match row `FOR UPDATE` for its idempotency guard, so the flag is free where it is needed: **after the lock, before the `user_stats` reads**, so the unranked branch writes nothing at all and is trivially re-entrant.
+
+**`ranked` is read off the locked row, never accepted as a parameter** — CLAUDE.md's "Server Actions never accept an outcome" applied to a question rather than an answer: which matches count is not something a client gets to say.
+
+It lives in a plain module rather than in `lib/duel/actions.ts` for the reason `recordDailyResultForUser` does: it takes `winnerId`, so a `"use server"` export of it would be a client-callable "tell the server who won and which two players to pay". The move is also what makes it reachable from `lib/db/customMatchUnranked.test.ts`, since a `"use server"` export resolves its caller through `next/headers` and has no meaning outside a request.
+
+Four layers, because **a silent non-write is invisible when it breaks** — nothing a player sees changes if `ranked` stops being read; the leaderboard just quietly starts absorbing friendly games:
+
+| Layer | What it buys |
+|---|---|
+| `ranked bool NOT NULL DEFAULT true` | Every existing and matchmade row stays rated. No backfill, no migration risk. |
+| `CHECK (ranked OR (rating_delta_a IS NULL AND rating_delta_b IS NULL))` | Makes the wrong outcome **unrepresentable**, the way `duel_matches_distinct_players_check` does for a self-match. Catches the realistic regression: someone reorders `applyMatchResult`. |
+| `lib/db/customMatchUnranked.test.ts` (database tier) | The only thing that will ever notice. Its **ranked control case is not optional**: every other assertion is "this number did not change", which is equally what a writer that stopped working entirely would produce. |
+| `getDuelResults` returns `ranked`; `DuelResults` renders it | "Unranked · rating unaffected" instead of a fabricated `+0`, and no guest upgrade prompt on an unranked win — "keep your duel rating and record" is false there. |
+
+**THE SHARP EDGE IS `requestRematch`.** A rematch is a brand-new `duel_matches` row, so every column it doesn't name takes its DEFAULT — `ranked = true`, 3 rounds, 60 seconds, the 20-year pool. Miss the carry-forward and pressing Rematch on a friendly game silently produces a rated, differently-shaped duel neither player asked for, off a **primary results-screen CTA**. That is exactly the shape of audit 2026-07-29 §0.1, where the same button silently re-armed nothing. `ranked`, `rounds`, `round_seconds` and `filter` are copied forward explicitly, and the test asserts both the columns and the consequence (finishing the rematch still writes nothing).
+
+### Per-match rounds and round length
+
+`rounds` and `round_seconds` are columns, read where the round lifecycle already holds the match row (drizzle/0055): `duel_begin_round` stamps `ends_at = started_at + make_interval(secs => round_seconds)`, and `duel_close_round`'s last-round test is `p_round_index >= v_match.rounds - 1`. Two lines; the defaults are the values those functions used to hardcode, so a matchmade duel is bit-identical.
+
+This is cheap for one finding: **`duel_submit_guess` needed no change at all**, because it already derives `v_round_ms` from `ends_at - started_at` on the round row rather than carrying its own copy. The whole speed-points path follows a per-match round length for free, and `duelScoring.sqlParity.test.ts` is untouched.
+
+**`isLastRound` comes from the server, and this is the load-bearing half.** `useDuelLifecycle` used to derive it as `roundIndex >= MAX_ROUNDS - 1`, which required a client constant and `duel_close_round`'s own test to agree about how long a match is. With rounds per-match they cannot: one is a number, the other is per-row, so the intermission would offer a fourth round of a three-round match or cut a five-round one short. Both callers already hold the authoritative answer — `closeRound`'s `matchFinished` (`match_status = 'finished'`) and `duel_round_reveal`'s `matchStatus` — so they pass it in. Strictly more correct today too, for the same reason drizzle/0050 made `round_end` a trigger rather than data: the client rendering the outcome may never have made the call that produced it.
+
+With that done, `MAX_ROUNDS` became **`DEFAULT_ROUNDS`** (`lib/duel/liveMatch.ts`) and the rename is the point — with `CHECK (rounds BETWEEN 1 AND 5)` a constant called "MAX" that equals 3 is a lie. **The invariant that replaced it: the only remaining client-side consumer of a round count is the cosmetic "Round N / M" label.** A wrong value there misprints a label and cannot desync a match. Anything that would make a client-side round count load-bearing again belongs on the match row instead.
+
+The offered options (1/3/5 rounds, 30/60/90 seconds) live in `lib/game/customMatchConfig.ts`, pure and unit-tested, and are **deliberately looser than the CHECK constraints rather than identical to them**. Pinning the exact triple in SQL would duplicate a list TS↔SQL and drag in a parity suite for a value with nothing at stake — an unranked game the host configured for themselves.
+
+### `pick_filtered_driver` — one SQL copy of the predicate
+
+`matchesDriverFilter` (`lib/game/driverFilter.ts`) was already mirrored in plpgsql inside `infinite_start_round`. Teaching `duel_begin_round` to draw from a lobby's filter naively meant a **third** copy of a five-column predicate whose failure mode is silent: a target outside the player's own filter cannot be typed, so the round is unwinnable with nothing erroring. In a timed 1v1 that is worse than in Infinite, where the player can just start another round.
+
+So the predicate is extracted once (drizzle/0056) and both callers point at it — `infinite_start_round` repointed, `duel_begin_round` using it when `filter IS NOT NULL` and falling through to the unchanged 20-year `last_active_year` pick otherwise. Same reasoning as the `duel_*_client` wrappers: one definition of the logic. `lib/db/infiniteFilter.sqlParity.test.ts` pins it **through both callers**, since the two pass different things — Infinite a filter it just built with no exclusions, duel a filter stored on a row plus the drivers this match has used.
+
+**`p_exclude` is an `ORDER BY`, never a `WHERE`,** and that is the whole of the degrade-don't-error requirement. `duel_begin_round` passes the drivers already used in this match, so a 3-round game on a 6-driver filter stops repeating targets — invisible in a 250-driver pool, glaring in a small one. But a 5-round game on a 2-driver filter must still deal round 3, and a `WHERE` returns NULL and aborts the match mid-play, with two people watching. Sorting used drivers last prefers a fresh one whenever one exists and silently allows a repeat when none does. Same shape, same reason, as `daily_target_id`'s recent-repeat cooldown.
+
+**`duel_submit_guess` stays existence-only.** The reasoning is unchanged by custom filters and there is a comment at `lib/duel/submitGuess.ts` saying so: win-by-identity means an out-of-filter guess can never win, duel guesses are unlimited so a bad one costs seconds rather than a turn, and adding the check would put a second copy of the whole predicate on the hot path. Contrast daily, which *does* validate against its pool (drizzle/0051), because there a guess costs one of six turns and the stored list is the shareable record of the day.
+
+### The lobby row, and its liveness window
+
+`duel_lobbies` has **no `status` column** — open (`match_id IS NULL`), consumed (`match_id IS NOT NULL`) and gone (row deleted) are derivable, and a status column would be a fourth thing to keep in agreement with the other three. Codes are generated **server-side** in a retry loop on `unique_violation`, from a 31-character alphabet with no `0/O/1/I/L`; a client-supplied code would let someone squat `AAAAAA` and intercept whoever typed it. `duel_lobby_join` takes the row `FOR UPDATE` and decides **everything** under that lock — consumed, stale, `host_id = auth.uid()`, `host_device_id = p_device_id` — so there is no read-then-check window, and it is idempotent for a participant (a double-click or reload gets the same match back).
+
+**The liveness window is 120s against a 20s beat, and is deliberately NOT the queue's 15s/5s.** A backgrounded tab throttles `setInterval` to roughly one call per minute in Chrome, and hosts **will** alt-tab — pasting the code into Discord is the entire point of the feature. At the queue's window the host's own lobby dies while they are doing the thing it exists for, and the friend following the link is told the code expired. Do not "tidy" these toward `QUEUE_STALE_MS`: the two windows measure different things, because a searching player is staring at a spinner and a hosting player is somewhere else on purpose.
+
+The staleness rule applies to **open lobbies only**. A consumed one stops beating the moment its match starts, so sweeping it on `last_seen_at` would break the joiner's idempotent re-join; consumed rows age out on `created_at` against `CUSTOM_LOBBY_MAX_AGE_MS` instead.
+
+An open lobby is a **live server commitment** exactly like a queue row, registered in `lib/duel/duelCommitments.ts` and cancelled in `signOutAndReset()` **step 1c**, while the outgoing identity can still authenticate the call. Higher stakes than the queue's: a stranded lobby has a second person pointed at it, who joins a match whose host no longer exists and eats a `DISCONNECT_GRACE_MS` forfeit for nothing.
+
+### Realtime — no new policy needed, and why
+
+**The live match uses `duel:{matchId}` unchanged.** It is a real `duel_matches` row, so `duel_topic_participant` (drizzle/0046) already scopes the private channel to its two participants. Nothing to add.
+
+**The host's wait reuses the existing public `lobby` channel and `MATCHED_EVENT`** — the joiner broadcasts to the host exactly as `DuelSearching`'s joiner already does. That channel is deliberately public and deliberately non-authoritative, so this needs zero new RLS.
+
+One improvement over the matchmaking path, and it is the rule the rest of the duel already follows: **the broadcast is a doorbell, not data.** On receiving it the host calls `duel_lobby_state(code)` and `getMyLiveMatch()` and renders those, rather than the payload — so the host never renders profile data a stranger typed into a public channel. It is a between-phases beat where a round trip is free. A `CUSTOM_LOBBY_POLL_MS` poll backs it up, the same belt-and-braces as matchmaking's poll beside its own broadcast.
+
+### Client shape
+
+`DuelRoot` gains exactly **one** phase, `"custom"`. `CustomLobby` owns `compose | waiting` with a **Host/Join tablist** inside `compose`, and reports a `MatchResult` upward — the same contract `DuelSearching` has — so a custom match reaches staging, the ready-gate, the countdown, the match and the results by the identical path a matchmade one does. `DriverFilterModal` is reused **unmodified**, so the lobby gets Infinite's cascading per-option counts for free; if it ever seems to need a variant, that is the signal to change the shared one, not to fork it.
+
+Host and Join are **tabs, not a menu screen**. A two-card "create or join?" step cost a click and hid half the feature behind it — someone arriving with a code in hand had to first answer a question they already knew the answer to. The tablist is `SettingsModal`'s, so a tab looks like a tab everywhere. `waiting` deliberately leaves the tabs behind and takes the whole screen: a code is out in the world by then, and a Join tab beside it invites the host to abandon their own lobby by accident. **The code itself is the button** — copying it is the only thing anyone wants from that screen, so the largest target on it does that rather than sitting inert beside a smaller control that does. It stays real text (`select-all`, readable aloud over a call), and both it and Copy link confirm with `toast.success("… copied to clipboard")`, the same way the daily share does — a clipboard write is invisible, and on the code there is no button label to flip, so without the toast a click looks like it did nothing. One level of elevation throughout, for the reason above.
+
+**The create screen asks which game first, and `lib/game/onlineModes.ts` is why.** A duel is rounds and a clock; a knockout will be a player count and a hint interval — so the mode decides what the rest of the screen asks, and the controls render from the selected mode's own `settings` list rather than being hardcoded. Adding Knockout is a spec entry plus its controls, not a restructure. **`available: false` is not a UI preference**: `duel_lobbies.mode` is `CHECK (mode IN ('duel'))` and `duel_lobby_create` takes no mode parameter at all, so a knockout lobby is unrepresentable until a migration widens that CHECK — flipping the flag alone would host a duel wearing a Knockout label, which is worse than a disabled button because it looks like it worked. `onlineModes.test.ts` pins the available set to exactly `["duel"]` so the migration is what ships the mode.
+
+**The pool opens on the last 20 seasons** (`defaultDriverFilter`), the same span daily, a ranked duel and Infinite all use. It opened on all-time, which made "Custom" quietly mean "and also a pool you did not ask for" — a friendly game's first round could be a driver from 1953 with nothing erroring. `CustomLobbyCreate.test.tsx` (`dom` tier) pins the span, the count and the disabled Knockout control.
+
+**The filter persists, under its own key.** `lib/settings/driverFilter.ts` is scoped — `readDriverFilterPreference("custom" | "infinite", year)` — because the two are different things: Infinite's is a practice preference, a lobby's is the shape of a game you are about to host for someone else. One shared key would mean narrowing Infinite to Ferrari silently re-pooling the next game you invite a friend to, a change nobody made and nobody would connect to what they did. Same storage behaviour otherwise, including the re-clamp on **read** so a filter stored last year does not outlive its ceiling. `lib/settings/driverFilter.test.ts` pins the independence (it carries a `@vitest-environment jsdom` docblock — the one file under `lib/` that needs a DOM, since what is under test is storage rather than a component).
+
+`/online?join=CODE` is read in a **mount effect from `window.location.search`** and stripped with `history.replaceState` so a refresh cannot re-fire it. Deliberately not `searchParams` on the page (that opts `/online` out of ISR entirely) and deliberately not `useSearchParams()` (which drags a Suspense boundary into a client-only concern). A deep link **pre-fills and previews but never auto-joins** — joining consumes the lobby, so a forwarded link would otherwise burn someone else's game on open.
+
+The join box normalizes case, spaces and dashes on every keystroke, and **unwraps a pasted share link first**: "Copy link" is the host's primary button, so the whole URL is the likeliest paste, and stripping punctuation from it yields `HTTPSD` — a plausible-looking code that is not the one in the link. For the same ordering reason the input carries **no `maxLength`**: it bounds the raw value before stripping, so a seven-character `ABC-234` truncates to `ABC-23` and normalizes to five characters, silently losing the end of a valid code. `normalizeLobbyCode` slices *after* stripping. `components/duel/CustomLobbyJoin.test.tsx` (`dom` tier) pins all of it.
+
+`/online` fetches the **full roster** (`listAllDriverOptionsWithActivity`, the same query `/infinite` serves under the same ISR) rather than the 20-year pool, because the filter panel needs every driver for its counts. The ranked-duel list is then derived from it client-side via `poolCutoffYear`, so there is one source and no "which list am I on" bug.
 
 ## Knockout (planned — do not build yet)
 
@@ -425,7 +567,7 @@ Single responsive banner in the fixed-height slot under the game window.
 - AdSense script via `next/script` `strategy="afterInteractive"`, gated behind consent.
 - **EU audience → consent required:** Google Consent Mode v2 + a Google-certified CMP (built-in Google consent messages are the free default). Ad cookies must not load until consent; default all signals to denied.
 - **Two** env vars, both required before a real ad renders, both read only through `components/ads/adsenseConfig.ts` and never hardcoded: `NEXT_PUBLIC_ADSENSE_CLIENT` (account-level, `ca-pub-…`) and `NEXT_PUBLIC_ADSENSE_SLOT` (the specific unit, which only exists *after* approval). `getAdsenseUnit()` is the single "are real ads on?" check — it returns the `{ clientId, slotId }` pair or `null` rather than a boolean, so the caller that asks is also the caller that gets the ids to render with. (It replaced a boolean `isAdsenseConfigured()` that ended up with no callers precisely because it didn't narrow — audit §2.1.) Funding Choices (the CMP loader) wants the bare `pub-…` form — hence `getPublisherId()`, which strips the `ca-` prefix. Approval is external and needs the deployed site with real content; until then `AdSlot` renders its neutral placeholder. All ad logic stays isolated in `components/ads/`.
-- **Hide the ad slot during an active duel/knockout match** — a live race is the wrong moment for a banner; show it on daily/infinite and the /online landing, and again on the duel **results** screen (which is back in the shell), not during lobby/countdown/active/intermission. `AdSlotGate` does this by reading `ActiveMatchContext` — the same flag `GameChrome` uses to hide the rest of the shell (see "Site architecture").
+- **Hide the ad slot during an active duel/knockout match** — a live race is the wrong moment for a banner; show it on daily/infinite, on the /online landing, **while matchmaking and while composing or hosting a custom lobby** (all ordinary browsing — see "Site architecture"), and again on the duel **results** screen, not from staging through intermission. `AdSlotGate` does this by reading `ActiveMatchContext` — the same flag `GameChrome` uses to hide the rest of the shell (see "Site architecture").
 
 ## Stack
 
@@ -437,11 +579,19 @@ Single responsive banner in the fixed-height slot under the game window.
 - Avatars are **DiceBear** glyphs generated from a seed string (`lib/avatars.tsx`) — `profiles.avatar_url` stores the seed, not a URL. There is no upload or Storage path.
 - Deployed on Vercel. The checks are `tsc --noEmit` (`npm run typecheck`), `npm run lint`, `npm test` and `next build`.
 - **ESLint is adopted, and deliberately narrow** (`eslint.config.mjs`, 2026-07-30 — audit §0.5). Four rules and nothing else: `react-hooks/rules-of-hooks`, `react-hooks/exhaustive-deps`, `@typescript-eslint/no-explicit-any` (the "No `any`" convention below, enforced) and `@next/next`'s recommended set minus one Pages-Router rule that can only false-positive here. **No style or formatting rules** — `tsc` is the type authority and a house style invented inside a lint adoption is how a lint step becomes one people skip. The scope was chosen by *measuring* each candidate ruleset against the tree first; `eslint.config.mjs` records those numbers and names what was rejected (react-hooks v7's React Compiler preset, 30 violations on patterns this codebase chose on purpose). `reportUnusedDisableDirectives` is an **error**, so a suppression that stops being needed fails the build — the count of `eslint-disable` comments can now only fall unless someone writes one deliberately. Adding a rule means measuring it the same way; a new suppression means a reason at the call site.
-- **CI: `.github/workflows/ci.yml`**, two tiers. `static` (typecheck + lint + `npm test`, both vitest projects) needs nothing and runs everywhere, including fork PRs. `database` + `build` need three repository secrets (`DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, see `.env.example`) and **self-skip when they're absent** rather than failing red; point them at a **scratch** project, since those suites write real rows. The database tier is what actually runs the opt-in suites — the TS↔SQL parity tests, the RPC and matchmaking suites, and the grant policy — so it's the difference between those rules being documented and being enforced. `static`'s lint step runs the narrow adopted scope described above and nothing wider; widening it means measuring the candidate ruleset against the tree first, in `eslint.config.mjs`, not adding a rule in CI.
+- **CI: `.github/workflows/ci.yml`**, two tiers. `static` (typecheck + lint + `npm test`, both vitest projects) needs nothing and runs everywhere, including fork PRs. `database` + `build` need three repository secrets (`DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, see `.env.example`) and **self-skip when they're absent** rather than failing red; point them at a **scratch** project, since those suites write real rows. The database tier is what actually runs the opt-in suites — the TS↔SQL parity tests, the RPC and matchmaking suites, the custom-lobby and unranked-stats suites, and the grant policy — so it's the difference between those rules being documented and being enforced. `static`'s lint step runs the narrow adopted scope described above and nothing wider; widening it means measuring the candidate ruleset against the tree first, in `eslint.config.mjs`, not adding a rule in CI.
 
 ## Data
 
-Seeded from **F1DB** (https://github.com/f1db/f1db) — the full historical roster, pulled as `f1db-csv.zip` by `scripts/seed.ts` (`npm run db:seed` to rehearse, `npm run db:seed:commit` to write). This is currently the **only** way driver data gets in or gets updated: re-run the seed after a race weekend to refresh wins and teams.
+Seeded from **F1DB** (https://github.com/f1db/f1db) — the full historical roster, pulled as `f1db-csv.zip` by `scripts/seed.ts` (`npm run db:seed` to rehearse, `npm run db:seed:commit` to write). The seed is the **only** way driver data gets in or gets updated; there is no other writer to `drivers`.
+
+**It runs itself, weekly.** `.github/workflows/roster-refresh.yml` (2026-08-01) runs `npm run db:seed:auto` — `--commit --strict`, `F1DB_RELEASE=latest` — at 06:00 UTC on Mondays, so wins, teams, `last_active_year` and new drivers land without anyone remembering. It needs one repository secret, **`PRODUCTION_DATABASE_URL`** (the Supabase *pooler* URL), deliberately not the scratch `DATABASE_URL` the CI database tier writes into — this job writes the live roster and must not be able to inherit the wrong connection. Three consequences worth knowing:
+
+- **It fails loudly on a missing secret**, where `ci.yml` self-skips on one. The opposite rule applies here: a silent skip *is* the failure mode — the roster quietly stopping being updated looks exactly like everything being fine, until a comparison is wrong.
+- **`--strict` exists because nobody reads the log.** Two things the seed only *reported* become hard failures unattended: an ambiguous natural key (`scripts/rosterPlan.ts#assertPlanUnambiguous`), which would insert a second row for a driver who may already be in the table while the original keeps every `daily_targets`/`duel_rounds`/`daily_progress.guesses` reference; and any unresolved reference id (`scripts/releaseGuards.ts#assertNoLookupMisses`), which puts a raw slug in `nationality`/`last_team` — columns `compare_drivers` compares by string equality, so the affected drivers mis-compare and their flag stops rendering. Both stay non-fatal interactively, where the report is being read and refusing the whole refresh would cost the other 791 drivers their updated wins. `unmatched` rows are deliberately **not** fatal in either mode: they're expected, never deleted, and failing on them would make the schedule permanently red.
+- **A manual run is a dry run** unless you tick `commit` in the workflow dispatch form — same fail-closed shape as the script itself. The reconciliation report is written to the run's summary page either way, since that's the part a human would have read locally.
+
+GitHub disables `schedule` triggers after 60 days of repository inactivity (it emails first); any push, or one manual run, re-arms it.
 
 **Which release is an env var, and there is no default.** `F1DB_RELEASE=v2026.11.0` pins a tag; `F1DB_RELEASE=latest` follows upstream and says so in the log. Unset, the seed refuses to run. That is not ceremony — see the next bullet list.
 
@@ -455,11 +605,16 @@ Seeded from **F1DB** (https://github.com/f1db/f1db) — the full historical rost
 - The seed's writes go through **scalar parameters in batched `VALUES` lists, never one big array or jsonb parameter** — a single large parameter kills the Supabase transaction pooler connection (`write CONNECTION_CLOSED`) where thousands of small ones are fine. There's a measured note on this in `seed.ts`.
 - `drivers` is the one table with **RLS disabled**, so its grants *are* its access control. drizzle/0043 revoked the client write set from `anon`/`authenticated`; before that any visitor could `UPDATE`/`DELETE` the whole roster with the public anon key. Reads stay open (the pool is public by design). Same rule as drizzle/0042: **grants and RLS should have to fail together.**
 
-**Not built yet:** the **Jolpica-F1** (https://api.jolpi.ca/ergast/f1/) weekly cron that was planned to refresh current wins/teams automatically and double as a Supabase keepalive. There is no cron route, no `vercel.json`, and no Jolpica code anywhere in the repo. When it is built: cache hard, never call it from a request handler.
+**Not built, and no longer needed:** the **Jolpica-F1** (https://api.jolpi.ca/ergast/f1/) weekly cron that was planned to refresh current wins/teams automatically and double as a Supabase keepalive. The weekly F1DB refresh above does both jobs — it updates the same columns from a source the seed already parses, guards and tests, and its off-season no-op run is the keepalive. Jolpica would be a *second* data source to map onto `drivers` for the same result. There is still no cron route, no `vercel.json`, and no Jolpica code anywhere in the repo; if it is ever built: cache hard, never call it from a request handler.
 
 Attribute definitions: age = current age (age at death if deceased); team = most recently raced constructor; wins = all-time race wins; debut = first race-start year; nationality = country string; driver_code = F1DB 3-letter abbreviation (unique only within what's shown together); previous_teams = every distinct constructor raced for; last_active_year = most recent race-start year, drives pool membership.
 
 **Whether `lib/game/flags.ts` still covers the roster is asked of the roster, not of a copy of the map** (audit 2026-07-29 §5.2c). `flags.test.ts` used to hold a hand-transcribed duplicate of `COUNTRY_CODES`' 40 keys and assert each one resolved — true by construction, and blind to a nationality entering, leaving or being renamed. That question moved to the database tier: `lib/db/driversRosterIntegrity.test.ts` → *"nationality coverage"* runs `SELECT DISTINCT nationality FROM drivers` and asserts every value resolves, that **no two values map to the same country code**, and that none is blank. The second is the sharp one: the seed keeps rows a release no longer mentions, so an upstream country rename leaves the old spelling on the un-refreshed drivers and writes the new one on the rest — one country under two strings, which by string-equality compare is a nationality **miss** between two drivers of the same country. What stays in the static tier is only what needs no database: the map's shape (ISO-shaped codes, no aliases, no untrimmed keys) and `countryCode`'s contract. Same rule as the plpgsql constants — **a claim about the data belongs in the tier that can see the data.**
+
+**`COUNTRY_CODES` is also the cut list for the flag stylesheet, which is generated** (audit 2026-07-30 §1.4 residual). `app/globals.css` used to `@import "flag-icons/css/flag-icons.min.css"` — the whole ~250-country package, in two aspect ratios, on **every** route including `/about` and the legal pages, for a setting that is off by default. Measured against a dev build: 542 country rules, 36,486 of the globals chunk's 91,717 bytes, and 542 SVGs / 5.1 MB emitted. `scripts/generateFlagSubset.ts` now writes `app/flag-icons.subset.css` from the 40 codes the map actually holds — the only classes `components/ui/Flag.tsx` can ever emit, since `countryCode` returns null for everything else — and 4x3 only, because nothing here uses flag-icons' square (`fis`) or box (`fib`) variants. Measured after: 40 rules / 2,600 bytes, chunk 57,790 (gzip 15,247 → 8,958), **40 SVGs / 211 KB**. Two consequences to keep in mind:
+
+- **Adding a nationality to `COUNTRY_CODES` means running `npm run flags:subset`**, and CI says so: `scripts/flagSubset.test.ts` regenerates and diffs the checked-in file, so a stale subset (or a bumped `flag-icons`) fails the static tier. That diff is the whole drift story — the failure mode is a flag that silently doesn't render, which is precisely what the "show flags" setting exists to produce.
+- **`Flag`'s class and the stylesheet's selector are a contract nothing type-checks** — `` `fi-${code}` `` is a template string. `components/ui/Flag.test.tsx` renders every mapped nationality and asserts each emitted class is one the subset defines. The base rules are extracted from upstream **verbatim** (minus the two variant selectors) rather than retyped, so an upstream restructure shows up as a diff instead of being quietly preserved.
 
 ## Schema
 
@@ -467,14 +622,18 @@ Existing:
 ```
 drivers(id, f1db_id text unique null, full_name, driver_code, nationality, date_of_birth,
         date_of_death, debut_year, career_wins, last_team, previous_teams text[],
-        last_active_year)
+        last_active_year,
+        championship_wins, podiums, pole_positions)   -- drizzle/0053, Infinite's filter
 ```
 `f1db_id` (drizzle/0043) is F1DB's own driver slug and the seed's upsert key — the reason `id`
 survives a re-seed. Nullable only for rows imported before it existed; the seed adopts those by
 `(full_name, date_of_birth)` on its next run. No client write grants (see "Data"). Five value
 `check()`s (drizzle/0047) reject what can't be true of a real driver, so a mis-parsed release
 rolls the seed's transaction back instead of committing — the per-column half of the release
-guards in `scripts/releaseGuards.ts`.
+guards in `scripts/releaseGuards.ts`. The three achievement counts (drizzle/0053) carry
+non-negative checks of their own and come straight from F1DB's `totalChampionshipWins` /
+`totalPodiums` / `totalPolePositions`, unlike `career_wins`, which the seed computes from race
+results — two methodologies, deliberately not cross-checked against each other.
 
 Accounts:
 ```
@@ -493,8 +652,10 @@ daily_progress(user_id FK, date,                    -- date is the UTC day, reso
 daily_targets(date date PK, driver_id int FK)        -- the day's driver: RANDOM, pinned once by the
                                                      -- first caller. Indexed on driver_id for the
                                                      -- recent-repeat cooldown.
-infinite_rounds(user_id uuid PK FK, driver_id int FK, pool_window text,
-                guess_count int, started_at)         -- server-side infinite round state (replaces the signed cookie)
+infinite_rounds(user_id uuid PK FK, driver_id int FK, filter jsonb,
+                guess_count int, started_at)         -- server-side infinite round state (replaces the signed cookie).
+                                                     -- `filter` (drizzle/0053, was `pool_window`) records the
+                                                     -- composed filter the round was drawn from.
 ```
 `daily_progress` is what makes a day's board follow the account across devices; `daily_results`
 keeps its separate job as the stats idempotency guard (don't merge them — one is live board state,
@@ -516,20 +677,27 @@ is live.
 daily_state()                  -> { guesses[{driverId, name, code, tiles}], completed, won,
                                     guessesRemaining, target|null }   -- target only when completed
 daily_submit_guess(driver_id)  -> same shape; appends to daily_progress, resolves UTC date + guess
-                                  index itself, rejects a complete/exhausted day and a driver already
-                                  in guesses[] (drizzle/0049); SQL compare_drivers
-infinite_start_round(pool_window)   -> upserts infinite_rounds with a fresh random pool driver
+                                  index itself, rejects a complete/exhausted day, a driver already
+                                  in guesses[] (drizzle/0049) and a driver outside the daily pool
+                                  (drizzle/0051, before any row is locked); SQL compare_drivers
+infinite_start_round(from_year, to_year, nationality, team, achievement)
+                                    -> upserts infinite_rounds with a fresh random driver from the
+                                       composed filter; re-clamps the span and re-validates the tier
+                                       server-side (drizzle/0053)
 infinite_submit_guess(driver_id)    -> { tiles, status: won|lost|continue, target? }; enforces the
                                        6-guess cap; target only when status ≠ continue
 ```
 
-Their two internal helpers are **not** client-callable and must stay that way — `EXECUTE` is
-revoked from `PUBLIC`/`anon`/`authenticated` (drizzle/0038), so a browser holding the anon key
-cannot reach them; the `SECURITY DEFINER` RPCs above call them as the table owner:
+Their three internal helpers are **not** client-callable and must stay that way — `EXECUTE` is
+revoked from `PUBLIC`/`anon`/`authenticated` (drizzle/0038, drizzle/0056), so a browser holding the
+anon key cannot reach them; the `SECURITY DEFINER` RPCs above call them as the table owner:
 ```
 daily_target_id(date)              -- get-or-pin the day's answer. Reachable over PostgREST, it
                                    -- simply RETURNS the answer, past daily_targets' deny-all RLS.
 compare_drivers(guess, target, at) -- the comparison rules; the guess-evaluation core
+pick_filtered_driver(filter, exclude)  -- THE only SQL copy of lib/game/driverFilter.ts's
+                                   -- predicate (drizzle/0056). Called by infinite_start_round and
+                                   -- duel_begin_round; see "Custom lobbies".
 ```
 Postgres default-grants `EXECUTE` on a new function to `PUBLIC`, and `public` is the schema
 PostgREST exposes — so **every new function needs an explicit grant decision written next to it.**
@@ -628,16 +796,45 @@ duel_matches(id PK, player_a FK, player_b FK,
                                             -- server's ONLY evidence a player is present, and what
                                             -- forfeitMatch checks before forfeiting the OTHER
                                             -- player. Defaults to now() at insert.
+             ranked bool not null default true,      -- drizzle/0054. False = custom lobby: no Elo,
+                                            -- no W/L, no leaderboard. Defaults true, so every
+                                            -- pre-existing and matchmade row is rated as before.
+             rounds int not null default 3,          -- drizzle/0054, read by duel_close_round's
+             round_seconds int not null default 60,  -- last-round test and duel_begin_round's
+                                            -- ends_at stamp (drizzle/0055). The defaults are the
+                                            -- values those functions used to hardcode.
+             filter jsonb null,             -- drizzle/0054. The composed pool this match's targets
+                                            -- are drawn from; NULL = the daily 20-year pool, i.e.
+                                            -- every ranked duel. Nullable (unlike duel_lobbies'),
+                                            -- because "no filter" and "empty filter" differ here.
              created_at, finished_at)
+duel_lobbies(code PK,                       -- drizzle/0057. Server-generated, 6 chars from a
+                                            -- 31-character unambiguous alphabet. Never client-
+                                            -- supplied -- that would let someone squat AAAAAA.
+             host_id FK, host_device_id,    -- device id survives an identity swap; the self-join
+                                            -- guard, same layer as matchmaking_queue.device_id
+             mode text default 'duel',      -- CHECK (mode IN ('duel')) -- the Knockout seam
+             rounds, round_seconds, filter jsonb not null,   -- copied onto the match at join
+             match_id FK null ON DELETE CASCADE,   -- NULL = open, set = consumed, row gone = gone.
+                                            -- No status column: three derivable states, not four
+                                            -- that have to agree. CASCADE not SET NULL, so a
+                                            -- deleted match can't resurrect its lobby as joinable.
+             created_at, last_seen_at)      -- only OPEN lobbies go stale on last_seen_at
 duel_rounds(match_id FK, round_index, driver_id FK,
             started_at, ends_at,            -- server timestamps, stamped at ready-gate
             intermission_ends_at null,      -- server-stamped when the round closes
             PRIMARY KEY (match_id, round_index))
 duel_round_results(match_id FK, round_index, user_id FK, solved_at null,
-                   guess_count, best_proximity numeric, points int,
+                   guess_count,       -- NOT just a stat since drizzle/0058: it
+                                      -- decays this round's payout on both the
+                                      -- solve and the DNF path
+                   best_proximity numeric, points int,
+                   last_guess_at null, -- what the guess cooldown spaces against
                    PRIMARY KEY (match_id, round_index, user_id))
 ```
 `score_a`/`score_b` cache confirmed round points for the tug-of-war and winner check; derivable from `duel_round_results`. The 100-point tug-of-war baseline and the live *provisional* score are display/realtime concerns — not persisted per guess (avoid write storms). Player **readiness** is realtime-only (presence/broadcast), never a DB column.
+
+`duel_matches` also carries `CHECK (ranked OR (rating_delta_a IS NULL AND rating_delta_b IS NULL))`, which makes "an unranked match recorded a rating change" unrepresentable the same way `duel_matches_distinct_players_check` does for a self-match — see "Custom lobbies". `duel_lobbies` has **RLS on, no policies and no client grants at all, `SELECT` included** — the only table here where the read is revoked too, because a readable `duel_lobbies` is every open lobby's code behind one anon-key query and the code *is* the access control.
 
 RPCs (Postgres functions, all idempotent where they mutate round/match state):
 ```
@@ -657,18 +854,53 @@ duel_forfeit(match_id)                      -> marks abandoned/finished, opponen
 duel_state(match_id)                        -> full current phase for resume/reconnect
 ```
 
-The four above run on the **trusted Drizzle connection only** and have no `auth.uid()` check of
+Custom lobbies add six more (drizzle/0057), all `SECURITY DEFINER` + `auth.uid()`, all
+`GRANT EXECUTE TO authenticated` and nothing else. `duel_lobbies` has no client grants, so these
+six *are* its entire access surface:
+```
+duel_lobby_create(rounds, round_seconds, from_year, to_year, nationality, team,
+                  achievement, device_id) -> code text
+                                            -- sweeps; deletes the caller's own open lobbies
+                                            -- (converge, don't error); re-clamps the config and
+                                            -- re-validates the achievement; refuses a filter
+                                            -- matching nobody; generates the code in a retry
+                                            -- loop on unique_violation
+duel_lobby_state(code)                      -> config + host handle, and match_id ONLY to the host
+                                            -- or a participant (it names the private channel)
+duel_lobby_join(code, device_id)            -> match_or_queue's EXACT row shape, so the client
+                                            -- reuses toMatchResult. Every check runs while
+                                            -- holding the lobby's FOR UPDATE; idempotent for a
+                                            -- participant, refused to anyone else once consumed
+duel_lobby_heartbeat(code)                  -> refreshes the caller's own OPEN lobby; false once
+                                            -- there is nothing left to beat
+duel_lobby_cancel(code)                     -> deletes the caller's own OPEN lobby; idempotent
+duel_sweep_stale_lobbies()                  -> called at the top of create and join, no cron
+```
+
+The four trusted-connection functions above run on the **trusted Drizzle connection only** and have no `auth.uid()` check of
 their own -- `EXECUTE` is revoked from `anon`/`authenticated` (drizzle/0034), so a browser cannot
 reach them. The round lifecycle the browser *does* drive goes through thin `SECURITY DEFINER`
 authorization wrappers, so it gets the same one-warm-hop path as guesses:
 ```
 duel_begin_round_client(match_id, round_index)   -> auth.uid() participant check, delegates to duel_begin_round
 duel_close_round_client(match_id, round_index)   -> auth.uid() participant check, delegates to duel_close_round
+duel_round_reveal(match_id, round_index)         -> what round_end/match_end re-verify against (drizzle/0050)
 duel_server_time()                               -> DB now(), for the clock-offset ping
 ```
 Wrappers rather than adding the check inside the originals: `duel_close_round` is ~120 lines of
 scoring and advancement rules, and rewriting it to add four lines of authorization would put those
 rules at risk for no reason. One definition of the logic, one definition of the authorization.
+
+`duel_round_reveal` is a **read**, not a wrapper, and it exists because
+`duel_close_round` is idempotent in its *effect* but not in its *response*: exactly one client's
+close ever advances, and the already-closed branch deliberately returns NULL for every reveal
+column (drizzle/0024) on the assumption that a repeat caller made the first call itself. The client
+receiving `round_end` is precisely the one that didn't — which is why "just re-verify against
+`duel_close_round_client`" doesn't work and this read had to be added. It returns the round's target,
+both sides' points, the running score and the intermission clock **only** once
+`duel_rounds.intermission_ends_at` is stamped, which nothing but `duel_close_round` ever writes; the
+match-level columns (status, winner, rating deltas) come back either way and say nothing until the
+match is over. So a round still in play discloses nothing through it, by construction.
 
 One more `authenticated`-granted function exists that no application code ever calls — **Postgres**
 calls it, as an RLS predicate:
@@ -682,7 +914,9 @@ duel_topic_participant(topic)   -> is auth.uid() a player in the match this Real
 
 **Ratings are the deliberate exception to the warm path.** `duel_close_round_client` does not write
 them; `applyMatchRatings` (a Server Action, `lib/duel/actions.ts`) does, called separately and only
-when a close actually finished the match. The Elo math is a unit-tested TypeScript function
+when a close actually finished the match. The write itself lives in `applyMatchResult`
+(`lib/duel/applyMatchResult.ts`, a plain module) -- the single writer of rating and W/L, and where
+the unranked short-circuit sits; see "Custom lobbies". The Elo math is a unit-tested TypeScript function
 (`lib/game/duelRating.ts`) and porting it to plpgsql would leave two definitions of the same rules
 to drift. It's the one moment in a duel where latency costs nothing -- the match is already over.
 Because it is no longer in the same server-side breath as the close, it is idempotent on its own:
@@ -698,7 +932,7 @@ Knockout (planned — not yet created):
 
 ## Realtime channels
 
-- **`lobby`** (presence + broadcast) — the channel every searching player joins; broadcasts a just-created match to the player who was waiting for it (`MATCHED_EVENT`, see `DuelSearching`). Deliberately **public**: it is shared by everyone searching, so scoping it to a participant set isn't a thing the topic can express. Nothing on it is authoritative — a forged `MATCHED_EVENT` just sends a client to a match id it isn't in, which `duel_state` rejects.
+- **`lobby`** (presence + broadcast) — the channel every searching player joins, and the one a waiting custom-lobby host listens on; broadcasts a just-created match to the player who was waiting for it (`MATCHED_EVENT`, see `DuelSearching` and `CustomLobbyWaiting`). Deliberately **public**: it is shared by everyone searching, so scoping it to a participant set isn't a thing the topic can express. Nothing on it is authoritative — a forged `MATCHED_EVENT` just sends a client to a match id it isn't in, which `duel_state` rejects, and a custom host reads the match back through `duel_lobby_state` rather than out of the payload at all.
 - **`duel:{matchId}`** (broadcast + presence) — the live match, and a **private channel**. Broadcast events (all opponent data abstracted — never target or guessed names):
   ```
   round_start      { roundIndex, startedAt, endsAt }
@@ -721,7 +955,7 @@ Knockout (planned — not yet created):
 
   **The `duel:` prefix is now a cross-language contract** — `lib/duel/liveMatch.ts#duelChannelName` and the regex inside `duel_topic_participant`. If they drift nothing errors; every duel channel just silently stops joining. The test above pins them together.
 
-  **A private channel narrows the attacker set to the two participants; it does not empty it.** Payloads that decide anything are still re-verified server-side: `onForfeit` re-reads `duel_state`, and `onRoundStart`'s intermission fast path takes the round clock from the idempotent `duel_begin_round_client` RPC rather than from the broadcast (audit 2026-07-29 §0.2 — the payload says *that* a round started, never *when*). `round_end`/`match_end` are still applied as sent, which is now an opponent-trust decision rather than an internet-trust one.
+  **A private channel narrows the attacker set to the two participants; it does not empty it — so no payload on it decides anything.** Every event that changes what a client renders is a *trigger*, re-verified against the server before it is acted on: `onForfeit` re-reads `duel_state`; `onRoundStart`'s intermission fast path takes the round clock from the idempotent `duel_begin_round_client` RPC (audit 2026-07-29 §0.2 — the payload says *that* a round started, never *when*); and `onRoundEnd`/`onMatchEnd` read the reveal, both sides' points, the scores, the intermission clock, the winner and the rating deltas back from `duel_round_reveal` (drizzle/0050, audit 2026-07-30 §3.4 residual). `round_end` used to be applied as sent on the grounds that `duel_close_round` had already returned it to the closing client — true of the *closing* client, and the receiving one is exactly the client that never made that call. The fields stay on the wire (a deploy landing mid-match leaves one client on each version), but the receiving side reads only `roundIndex` out of `round_end` and nothing at all out of `match_end`.
 
   **`ready` is a broadcast, not a presence field** — this is deliberate and must not be "tidied up" back into presence. Presence has a much stricter Supabase rate limit ("Client presence rate limit exceeded") that a *single match* can trip on its own: every ready-gate (pre-match hold, then once per intermission) tracks at least once, on top of the staging channel's own tracking, and a few rounds is enough to get the whole channel force-closed by the server — silently, with no reconnect. Broadcast has no such ceiling in practice (`guess`/`solved` fire constantly all match without issue). Presence is kept for the one thing it's genuinely needed for: **join/leave membership** for disconnect detection, via a single `track()` per subscription, never repeated.
 
@@ -729,8 +963,8 @@ Knockout (planned — not yet created):
 
 ## Architecture constraints
 
-- `lib/game/compare.ts` and `lib/game/duelScoring.ts` (speed + proximity + live-score helpers) are pure and unit-tested. Don't touch compare's rules unless a task says to. **Both are mirrored in plpgsql and both are pinned by a parity suite** — `compare.sqlParity.test.ts` and `duelScoring.sqlParity.test.ts`. The duel one is the more urgent of the pair, because both sides are live *simultaneously*: the TypeScript drives the tug-of-war bar the player watches, the SQL writes the authoritative score, so drift makes the bar lie. It pins the **live** definition rather than a transcription — the arithmetic is extracted from `pg_get_functiondef()` and executed, so a weight changed in a future migration fails the suite without anyone remembering the file exists. Neither of these is a caller-free "dead" module; deleting `compare()`/`isWin()`/`speedPoints()` deletes the spec side of a running check.
-- **Every constant duplicated into plpgsql has a parity suite, not a comment.** Four rules are mirrored TS↔SQL because a Postgres function can't import TypeScript: the compare ladder, the duel scoring weights, `DAILY_POOL_WINDOW`'s cutoff and `MAX_GUESSES`. All four are now pinned (`compare.sqlParity`, `duelScoring.sqlParity`, `poolWindow.sqlParity`) and run in the database CI tier. **A new duplicated constant gets an assertion there in the same change that creates it** — a keep-in-sync comment is what let the pool cutoff go unguarded, and its failure mode (a daily answer outside the pool the board autocompletes) is silent to everyone including the player. See "Driver pools".
+- `lib/game/compare.ts` and `lib/game/duelScoring.ts` (speed + accuracy + proximity + live-score helpers) are pure and unit-tested. Don't touch compare's rules unless a task says to. **Both are mirrored in plpgsql and both are pinned by a parity suite** — `compare.sqlParity.test.ts` and `duelScoring.sqlParity.test.ts`. The duel one is the more urgent of the pair, because both sides are live *simultaneously*: the TypeScript drives the tug-of-war bar the player watches, the SQL writes the authoritative score, so drift makes the bar lie. It pins the **live** definition rather than a transcription — the arithmetic is extracted from `pg_get_functiondef()` and executed, so a weight changed in a future migration fails the suite without anyone remembering the file exists. Neither of these is a caller-free "dead" module; deleting `compare()`/`isWin()`/`speedPoints()` deletes the spec side of a running check.
+- **Every constant duplicated into plpgsql has a parity suite, not a comment.** Five rules are mirrored TS↔SQL because a Postgres function can't import TypeScript: the compare ladder, the duel scoring weights (which since drizzle/0058 include `GUESS_DECAY`, `FREE_GUESSES`, `MIN_SOLVE_MS` and `GUESS_COOLDOWN_SERVER_MS` — all pinned by the same suite, the first three by **executing** the live expressions rather than matching their text), `DAILY_POOL_WINDOW`'s cutoff, `MAX_GUESSES`, and the driver-filter predicate. Two former duplications are simply **gone**, which is better than pinned: `MAX_ROUNDS`/`ROUND_MS` became `duel_matches` columns (drizzle/0054/0055), and the filter predicate collapsed from two SQL copies to one shared function (drizzle/0056). All five are now pinned (`compare.sqlParity`, `duelScoring.sqlParity`, `poolWindow.sqlParity`, `infiniteFilter.sqlParity`) and run in the database CI tier. **A new duplicated constant gets an assertion there in the same change that creates it** — a keep-in-sync comment is what let the pool cutoff go unguarded, and its failure mode (a daily answer outside the pool the board autocompletes) is silent to everyone including the player. See "Driver pools".
 - **A win is driver identity, never tile equality** — `p_guess_driver_id = <target id>`, in all three guess RPCs. The five attributes don't identify a driver uniquely (six colliding pairs on this roster), so a tile-derived win is winnable with the wrong driver. See "Game rules".
 - Never send the target driver to a client during a round; comparison and scoring are server-side (via `duel_submit_guess`). The target is revealed only at round end. Opponent reads are abstracted heat/counts only.
 - Guess evaluation in **every mode** is **one warm hop** — a `supabase.rpc()` Postgres call (`duel_submit_guess`, `daily_submit_guess`, `infinite_submit_guess`) with optimistic client render. No Next.js Server Action on any guess or daily-hydration critical path; compare runs in the parity-tested SQL `compare_drivers`.
@@ -744,6 +978,7 @@ Knockout (planned — not yet created):
 - **A derived value is only as trustworthy as the table it's derived from.** Client write *grants* are revoked on every server-authoritative table (drizzle/0042), so reading `daily_progress` back is a real guarantee rather than a bet on RLS alone.
 - **The daily answer is unpredictable, not merely hidden.** It's a random pick made once and pinned in `daily_targets`; there is no algorithm anywhere that reproduces it from the date and the pool. Hiding a *deterministic* answer behind grants is not a fix — the pool is in the browser by design.
 - **Game windows are auth-reactive:** persistent game state is keyed on `userId` and re-resolves on `onAuthStateChange` with no refresh; a hydration gate prevents a playable board from rendering before state is known.
+- **Auth is two contexts, split on the `identityStatus`/`status` seam.** A component that needs only identity uses `useAuthIdentity()` and does not re-render when profile/stats change; the identity value must stay primitives + stable callbacks, or the split silently reverts. See "Auth state is reactive, everywhere".
 - Auth identity is continuous: anonymous upgrades link to the same row, never orphan guest data.
 - **Streaks are decayed on every read**, never trusted from the stored column — in `AuthProvider` for the viewer and in SQL in the `leaderboard` view for the ranking. A stored streak with a stale `last_daily_date` is meaningless by design.
 - **A live match owns the screen.** One `ActiveMatchContext` flag hides the mode tabs, marketing, footer and ad slot (`GameChrome`, `AdSlotGate`). Whatever gets added to the shell, check what it does mid-duel.

@@ -11,16 +11,37 @@ import { matchHeartbeat } from "@/lib/duel/matchHeartbeat";
 import { useDuelChannel } from "@/lib/duel/useDuelChannel";
 import { useServerClock } from "@/lib/duel/useServerClock";
 import { DUEL_HEARTBEAT_MS, READY_TIMEOUT_MS } from "@/lib/game/duelTiming";
+import type { DriverWithActivity } from "@/lib/db/queries";
 import type { MatchResult } from "@/lib/duel/matchmaking";
 
 import { useActiveMatch } from "./ActiveMatchContext";
+import { CustomLobby } from "./CustomLobby";
 import { DuelCountdown } from "./DuelCountdown";
 import { DuelLanding } from "./DuelLanding";
 import { DuelMatch } from "./DuelMatch";
 import { DuelMatchFound } from "./DuelMatchFound";
 import { DuelSearching } from "./DuelSearching";
 
-type Phase = "landing" | "searching" | "found" | "countdown" | "in-match";
+type Phase = "landing" | "searching" | "custom" | "found" | "countdown" | "in-match";
+
+// The phases in which a real match exists and both players are in it: staging
+// ("found" -- matched, avatars revealed), the countdown, and the match itself.
+//
+// THREE THINGS KEY OFF THIS and they must not drift apart: the site shell
+// collapses (ActiveMatchContext), the match is registered as a live commitment
+// for sign-out, and the server-side liveness beat runs. All three answer the
+// same question -- "is this player in a match right now?" -- and they were
+// spelled two different ways, with the shell using the looser `!== "landing"`.
+// That made matchmaking and the custom-lobby screens hide the mode tabs, the
+// marketing sections, the footer and the ad slot, which is wrong on both:
+// waiting for an opponent and composing a lobby are ordinary browsing, and a
+// host is very likely to want the rest of the page while they wait. The shell
+// belongs to the player until someone is actually across the table.
+const MATCH_PHASES: readonly Phase[] = ["found", "countdown", "in-match"];
+
+function isMatchPhase(phase: Phase): boolean {
+  return MATCH_PHASES.includes(phase);
+}
 
 // The /online loading state -- the resume check, and the brief wait for a
 // profile on a resumed match.
@@ -50,19 +71,28 @@ function LoadingShell() {
 
 // Owns CLAUDE.md's Duel "Flow" steps 1-4 (mode select -> lobby/matchmaking
 // -> match-found staging -> lights-out countdown) and hands off to
-// DuelMatch, the still-stub in-match view, on GO. Also owns the ad-slot
-// gate for every one of those pre-round phases plus the handoff itself --
-// CLAUDE.md: "Hide the ad slot ... through the whole match." Deliberately
-// true for every phase except "landing" (including "in-match"): on the
-// commit where phase flips to "in-match", DuelMatch's own mount effect
-// setActive(true)'s too (it treats everything short of "finished" as
-// needing ads off, including its own brief loading fetch -- see that
-// effect's comment), so the two agree instead of racing -- if this effect
-// excluded "in-match", child-before-parent effect ordering on that same
-// commit would let this one stomp DuelMatch's true back to false. From
-// there DuelMatch alone flips it back to false once truly finished; this
-// effect doesn't fire again until phase changes, so it can't re-fight that.
-export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] }) {
+// DuelMatch, the still-stub in-match view, on GO. Also owns the shell/ad-slot
+// gate, raised for MATCH_PHASES only (see above) -- including "in-match", and
+// that inclusion is load-bearing: on the commit where phase flips to
+// "in-match", DuelMatch's own mount effect setActive(true)'s too (it treats
+// everything short of "finished" as needing the shell down, including its own
+// brief loading fetch -- see that effect's comment), so the two agree instead
+// of racing. If this effect excluded "in-match", child-before-parent effect
+// ordering on that same commit would let this one stomp DuelMatch's true back
+// to false. From there DuelMatch alone flips it back to false once truly
+// finished; this effect doesn't fire again until phase changes, so it can't
+// re-fight that.
+export function DuelRoot({
+  eligibleDrivers,
+  allDrivers,
+  referenceYear,
+}: {
+  eligibleDrivers: DriverOption[];
+  // The full roster, for the custom lobby's filter panel and its live counts.
+  // /online serves the same query /infinite does, under the same ISR.
+  allDrivers: DriverWithActivity[];
+  referenceYear: number;
+}) {
   const { user, profile, stats } = useAuth();
   const { setActive } = useActiveMatch();
 
@@ -80,6 +110,30 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
 
   const { clockOffsetMs } = useServerClock();
 
+  // /online?join=CODE. Read in a MOUNT EFFECT from window.location.search, then
+  // stripped with history.replaceState so a refresh does not re-fire the join.
+  //
+  // Deliberately not `searchParams` on the page: that opts /online out of ISR
+  // entirely, for a query string almost nobody arrives with. And deliberately
+  // not useSearchParams(), which drags a Suspense boundary into what is a purely
+  // client-side concern. The resume check below still wins -- a player already
+  // in a match is put back in it rather than sent to a join screen.
+  const [joinCode, setJoinCode] = useState<string | null>(null);
+  // A ref as well as state, because the resume effect below reads this from
+  // inside an async callback: both effects run on the same mount, so the state
+  // setter has not committed by the time getMyLiveMatch resolves, and the
+  // callback's closure would still see null.
+  const joinCodeRef = useRef<string | null>(null);
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("join");
+    if (!code) return;
+    joinCodeRef.current = code;
+    setJoinCode(code);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("join");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
   // Resume (CLAUDE.md "Reconnect/resume"): a reloaded client with a live
   // match rejoins it instead of landing on mode select. Status 'lobby'
   // means the pre-round ready-gate never completed, so re-enter staging
@@ -95,6 +149,10 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
       if (res.ok && res.match) {
         setMatch(res.match);
         setPhase(res.matchStatus === "lobby" ? "found" : "in-match");
+      } else if (joinCodeRef.current !== null) {
+        // A deep link, and nothing to resume -- go straight to the join screen
+        // rather than making someone who followed a link find it themselves.
+        setPhase("custom");
       }
       setResuming(false);
     });
@@ -112,7 +170,7 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
   const channel = useDuelChannel(channelMatchId, user?.id ?? null, match?.opponentId ?? null);
 
   useEffect(() => {
-    setActive(phase !== "landing");
+    setActive(isMatchPhase(phase));
   }, [phase, setActive]);
 
   // Publish the live match so AuthProvider.signOut() can forfeit it rather than
@@ -121,7 +179,7 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
   // duel_forfeit is a no-op on an already-finished match, so erring broad here
   // costs nothing and erring narrow would miss a real mid-match sign-out.
   useEffect(() => {
-    const live = phase !== "landing" && phase !== "searching" ? (match?.matchId ?? null) : null;
+    const live = isMatchPhase(phase) ? (match?.matchId ?? null) : null;
     setLiveMatchId(live);
     return () => setLiveMatchId(null);
   }, [phase, match]);
@@ -142,7 +200,7 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
   // a rematch's new id (handleMatchIdChange) after having stood itself down on
   // the old match's terminal status. That is precisely what it could not do
   // while the id was owned in two places -- see that handler.
-  const heartbeatMatchId = phase === "landing" || phase === "searching" ? null : (match?.matchId ?? null);
+  const heartbeatMatchId = isMatchPhase(phase) ? (match?.matchId ?? null) : null;
   useEffect(() => {
     if (heartbeatMatchId === null) return;
     let cancelled = false;
@@ -237,10 +295,15 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
     setInitialRound(null);
   }
 
+  // "Find new opponent" from a RANKED match goes back to matchmaking; from a
+  // custom one it goes back to the custom flow. Dropping someone out of a
+  // friendly game into public matchmaking is a mode switch they did not ask
+  // for -- see DuelResults, which relabels the button to match.
   function handleFindNewOpponent() {
+    const wasCustom = match !== null && !match.ranked;
     setMatch(null);
     setInitialRound(null);
-    setPhase("searching");
+    setPhase(wasCustom ? "custom" : "searching");
   }
 
   // Results-panel "Back to modes" -- back to the /online landing (mode
@@ -256,11 +319,27 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
   }
 
   if (phase === "landing") {
-    return <DuelLanding onSelectDuel={() => setPhase("searching")} />;
+    return <DuelLanding onSelectDuel={() => setPhase("searching")} onSelectCustom={() => setPhase("custom")} />;
   }
 
   if (phase === "searching") {
     return <DuelSearching onFound={handleFound} onCancel={() => setPhase("landing")} />;
+  }
+
+  // One phase, one branch. CustomLobby owns menu/create/waiting/join itself and
+  // hands back a MatchResult through the same onFound seam DuelSearching uses,
+  // so a custom match reaches staging, the ready-gate, the countdown and the
+  // match view by the identical path a matchmade one does.
+  if (phase === "custom") {
+    return (
+      <CustomLobby
+        allDrivers={allDrivers}
+        referenceYear={referenceYear}
+        initialJoinCode={joinCode ?? undefined}
+        onMatchFound={handleFound}
+        onBack={() => setPhase("landing")}
+      />
+    );
   }
 
   if (!match) {
@@ -268,7 +347,7 @@ export function DuelRoot({ eligibleDrivers }: { eligibleDrivers: DriverOption[] 
     // handleFound or the resume effect, both of which set it. Falls back
     // to the landing screen rather than rendering nothing if it somehow
     // does.
-    return <DuelLanding onSelectDuel={() => setPhase("searching")} />;
+    return <DuelLanding onSelectDuel={() => setPhase("searching")} onSelectCustom={() => setPhase("custom")} />;
   }
 
   if (!profile) {

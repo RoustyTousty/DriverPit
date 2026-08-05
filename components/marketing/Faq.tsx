@@ -25,11 +25,11 @@ const QA: { q: string; a: string }[] = [
   },
   {
     q: "Which drivers are in the pool, and can I change it?",
-    a: "The database holds every driver who's ever started a Grand Prix, but Daily and Duel always draw from Regular — anyone who's raced in the last 10 seasons. Infinite mode lets you pick the pool yourself: Amateur (this season only), Regular (10 years), Professional (20 years), Veteran (30 years), or Legend (the sport's entire history). Your choice is remembered for next time.",
+    a: "The database holds every driver who's ever started a Grand Prix, and Daily and Duel always draw from anyone who's raced in the last 20 seasons. Infinite mode lets you build the pool yourself: drag the season slider to any span from 1950 to today, and narrow it further by nationality, by team (anyone who raced for them at any point), or by what a driver achieved — podium finishers, race winners, pole sitters or world champions. The panel shows how many drivers match as you go, and your filter is remembered for next time.",
   },
   {
     q: "Is there a way to play against someone else?",
-    a: "Duel mode puts two players against the same mystery driver, drawn from the Regular pool, in a shared room. You'll see the colors and arrows from your opponent's guesses, but never who they actually guessed.",
+    a: "Duel mode puts two players against the same mystery driver, drawn from the last 20 seasons, in a shared room. You'll see the colors and arrows from your opponent's guesses, but never who they actually guessed.",
   },
   {
     q: "Do you store any personal information?",
@@ -42,6 +42,10 @@ const QA: { q: string; a: string }[] = [
   {
     q: "How does Duel matchmaking and rating work?",
     a: "Joining the queue matches you against another waiting player, roughly by duel rating when possible — the pairing widens how far apart your ratings can be the longer you wait. A match is 3 rounds, one driver each, unlimited guesses against a countdown timer; solving faster scores more, and even a DNF earns a few points for how close your best guess was. Your rating updates once the match ends.",
+  },
+  {
+    q: "Can I just spam guesses in a Duel to win?",
+    a: "No — it's the losing strategy. Guesses stay unlimited, but the first three are the only free ones: every wrong guess after that cuts what solving the round is worth, and it cuts a DNF's consolation points the same way. There's also a one-second wait between guesses, so working through the whole driver list isn't something a fast typist (or a script) can do inside a round. The board shows you what a solve is worth right now, so you can see the cost before you spend it — four considered guesses beat forty sprayed ones every time.",
   },
   {
     q: "Why do I see ads?",

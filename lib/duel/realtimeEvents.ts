@@ -68,9 +68,18 @@ export interface DuelPublicDriver {
   careerWins: number;
 }
 
-// Round closed -- reveals the target (only ever disclosed here, never
-// during an active round) and both players' round points/running score, so
-// clients can animate the reveal card + point count-up + bar settle.
+// Round closed. THE RECEIVER READS `roundIndex` AND NOTHING ELSE: every other
+// field here is advisory, and is re-read from duel_round_reveal before anything
+// is rendered (lib/duel/roundReveal.ts, drizzle/0050, audit 2026-07-30 §3.4
+// residual). drizzle/0046 made this channel private, so a forgery can only come
+// from the other participant -- which in a rated 1v1 is the party with the
+// motive: applied as sent, this payload ended a live round on an
+// attacker-chosen reveal, points, scores and intermission length.
+//
+// The fields stay on the wire rather than being deleted, for the same reason
+// RoundStartPayload kept startedAt/endsAt after §0.2: a deploy landing mid-match
+// leaves one client on each version, and a client running the older code still
+// needs them. They cost one small message per round and nothing else.
 export interface RoundEndPayload {
   roundIndex: number;
   targetDriverPublic: DuelPublicDriver;
@@ -87,6 +96,10 @@ export interface DuelRoundBreakdownEntry {
   pointsB: number;
 }
 
+// Match finished. THE RECEIVER READS NOTHING OUT OF THIS -- the event itself is
+// the whole signal, and who won and by how much is read back from duel_matches
+// (via duel_round_reveal's match-level columns), same rule and same reason as
+// RoundEndPayload above. Kept on the wire for the same mid-deploy reason.
 export interface MatchEndPayload {
   winnerId: string | null;
   scoreA: number;

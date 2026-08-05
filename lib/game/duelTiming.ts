@@ -169,3 +169,76 @@ export const RESUME_RETRIES_BEFORE_FORCE_BEGIN = 4;
 
 // The intermission's "+N" round-points count-up (components/duel/useCountUp).
 export const POINTS_COUNT_UP_MS = 1_000;
+
+// --- Guess discipline (drizzle/0058) ----------------------------------------
+//
+// Duel guesses are unlimited and were also FREE: nothing capped how fast they
+// could be submitted, and points depended only on solve time. With 103 drivers
+// in the ranked pool that made enumeration the dominant strategy -- a script
+// looping duel_submit_guess over every id solved in a couple of seconds, and a
+// human just spamming the autocomplete beat a human deducing (measured against
+// the old curve: ~845 points for 45 sprayed guesses vs 541 for four considered
+// ones). The scoring half of the answer is in lib/game/duelScoring.ts; these
+// two constants are the timing half.
+//
+// The minimum gap between one player's guesses in a round. Enforced server-side
+// (duel_submit_guess raises), and the client disables the input for the same
+// beat so an honest player never sees the rejection -- see RoundPlay.
+//
+// TWO VALUES ON PURPOSE, AND THE SERVER'S IS THE LOOSER ONE. The client starts
+// its wait when the RPC *returns*; the server measures from when the previous
+// guess was *written*, which is earlier by one response leg. Enforcing the
+// same number on both sides would reject an honest guess whenever that leg
+// exceeded the jitter between two round trips. The 150ms of slack is the same
+// reasoning as drizzle/0025's clock grace: enough to absorb the network, far
+// too little to matter to a script (at 850ms a 60s round still caps at ~70
+// guesses against a 103-driver pool).
+export const GUESS_COOLDOWN_MS = 1_000;
+// Mirrored as `interval '850 milliseconds'` in drizzle/0058's
+// duel_submit_guess -- plpgsql cannot import this file, so change both
+// together. Pinned by duelScoring.sqlParity.test.ts.
+export const GUESS_COOLDOWN_SERVER_MS = 850;
+
+// Floor under the ms-to-solve that feeds the speed curve. Nobody reads a board,
+// picks a driver and submits in under two seconds, so anything faster is a
+// script -- and without a floor the curve pays it ~982 of a possible 1000,
+// which no human can approach. A lucky first guess (the player's standard
+// opener happening to be the answer) is the one honest case this touches, and
+// it costs them ~45 points out of ~950.
+//
+// Mirrored in the same function's v_clamped, and pinned behaviourally by the
+// parity suite's speed-curve cases rather than by matching on the literal.
+export const MIN_SOLVE_MS = 2_000;
+
+// --- Custom lobbies (drizzle/0057) ------------------------------------------
+//
+// The waiting host's liveness, and DELIBERATELY NOT THE QUEUE'S 5s/15s. A
+// backgrounded tab throttles setInterval to roughly one call per minute in
+// Chrome, and hosts WILL alt-tab -- pasting the code into Discord is the entire
+// point of the feature. At the queue's window the host's own lobby dies while
+// they are doing the thing it exists for, and the friend who follows the link
+// is told the code expired. 120s survives two throttled beats.
+//
+// Do not "tidy" these toward QUEUE_STALE_MS. The two windows measure different
+// things: a searching player is staring at a spinner, a hosting player is
+// somewhere else on purpose.
+//
+// CUSTOM_LOBBY_STALE_MS is mirrored as `interval '120 seconds'` and
+// CUSTOM_LOBBY_MAX_AGE_MS as `interval '30 minutes'` in drizzle/0057
+// (duel_sweep_stale_lobbies, duel_lobby_state, duel_lobby_join) -- plpgsql
+// cannot import this file, so change both together.
+export const CUSTOM_LOBBY_HEARTBEAT_MS = 20_000;
+export const CUSTOM_LOBBY_STALE_MS = 120_000;
+
+// The host's safety-net poll of duel_lobby_state while waiting -- the joiner
+// also broadcasts on the public `lobby` channel, and this is what covers a
+// missed broadcast. Same belt-and-braces as matchmaking's poll beside its
+// broadcast, and tighter than the heartbeat because this one is what the host
+// is actually waiting on.
+export const CUSTOM_LOBBY_POLL_MS = 2_500;
+
+// Hard cap: nothing lives forever, including a lobby whose host is still
+// dutifully heart-beating from a tab they forgot about. Also what eventually
+// clears CONSUMED lobbies, which stop heart-beating the moment their match
+// starts and so are deliberately exempt from the staleness rule above.
+export const CUSTOM_LOBBY_MAX_AGE_MS = 1_800_000;

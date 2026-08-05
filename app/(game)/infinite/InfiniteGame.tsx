@@ -3,17 +3,19 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { DriverAutocomplete, type DriverOption } from "@/components/game/DriverAutocomplete";
+import { DriverFilterButton } from "@/components/game/DriverFilterButton";
+import { DriverFilterModal } from "@/components/game/DriverFilterModal";
+import { DriverFilterSummary } from "@/components/game/DriverFilterSummary";
 import { GuessGrid, type Guess } from "@/components/game/GuessGrid";
 import { LoadingOverlay } from "@/components/game/LoadingOverlay";
-import { PoolSelect, type PoolSelectOption } from "@/components/game/PoolSelect";
 import { ResultCard } from "@/components/game/ResultCard";
 import { useToast } from "@/components/ui/Toast";
 import type { DriverSummary, DriverWithActivity } from "@/lib/db/queries";
 import { MAX_GUESSES } from "@/lib/game/constants";
+import { matchesDriverFilter, type DriverFilter } from "@/lib/game/driverFilter";
 import { startInfiniteRound, submitGuess } from "@/lib/game/infiniteGuessRpc";
 import { consumeInfiniteRoundPrefetch } from "@/lib/game/infiniteRoundPrefetch";
-import { POOL_WINDOWS, poolCutoffYear, type PoolWindow } from "@/lib/game/poolWindow";
-import { readPoolWindowPreference, writePoolWindowPreference } from "@/lib/settings/poolWindow";
+import { readDriverFilterPreference, writeDriverFilterPreference } from "@/lib/settings/driverFilter";
 import { useSettings } from "@/lib/settings/useSettings";
 
 type RoundStatus = "loading" | "playing" | "won" | "lost" | "error";
@@ -38,29 +40,41 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
   // click could otherwise slip through and fire a second, wasted
   // startInfiniteRound call racing the first.
   const startingRef = useRef(false);
-  // Lazy initializer: reads localStorage on the client only, defaults to
-  // the same window as Daily on the server / first paint.
-  const [poolWindow, setPoolWindow] = useState<PoolWindow>(() => readPoolWindowPreference());
+  const [filterOpen, setFilterOpen] = useState(false);
+  // The current UTC year, pinned for this mount. It bounds the year slider and
+  // clamps the filter, and re-reading it per render would make every memo below
+  // depend on the wall clock for no benefit -- a session that spans New Year's
+  // Eve gets the new bound on its next load.
+  const referenceYear = useMemo(() => new Date().getUTCFullYear(), []);
+  // Lazy initializer: reads localStorage on the client only, and returns the
+  // default (the same 20-season span daily uses) on the server / first paint.
+  const [filter, setFilter] = useState<DriverFilter>(() =>
+    readDriverFilterPreference("infinite", referenceYear),
+  );
 
-  const poolDrivers = useMemo<DriverOption[]>(() => {
-    const cutoff = poolCutoffYear(poolWindow, new Date().getUTCFullYear());
-    const inPool = cutoff === null ? allDrivers : allDrivers.filter((d) => d.lastActiveYear >= cutoff);
-    return inPool.map((d) => ({ id: d.id, fullName: d.fullName, nationality: d.nationality }));
-  }, [allDrivers, poolWindow]);
+  // The drivers this filter admits -- the autocomplete's pool AND the set the
+  // server draws the target from, via the same predicate mirrored in
+  // infinite_start_round. One pass, memoized on the filter, so it is not redone
+  // per keystroke.
+  const matchingDrivers = useMemo(
+    () => allDrivers.filter((d) => matchesDriverFilter(d, filter)),
+    [allDrivers, filter],
+  );
 
-  const poolOptions = useMemo<PoolSelectOption[]>(() => {
-    const referenceYear = new Date().getUTCFullYear();
-    return POOL_WINDOWS.map((window) => {
-      const cutoff = poolCutoffYear(window.value, referenceYear);
-      const count = cutoff === null ? allDrivers.length : allDrivers.filter((d) => d.lastActiveYear >= cutoff).length;
-      return { value: window.value, tier: window.tier, label: window.label, count };
-    });
-  }, [allDrivers]);
+  const poolDrivers = useMemo<DriverOption[]>(
+    () =>
+      matchingDrivers.map((d) => ({
+        id: d.id,
+        fullName: d.fullName,
+        nationality: d.nationality,
+      })),
+    [matchingDrivers],
+  );
 
   // `existing` lets the initial mount reuse a round already kicked off by
   // hovering/focusing the Infinite tab (see infiniteRoundPrefetch.ts)
   // instead of paying for a second, redundant server round trip.
-  function beginRound(window: PoolWindow, existing?: Promise<void>) {
+  function beginRound(next: DriverFilter, existing?: Promise<void>) {
     if (startingRef.current) return;
     startingRef.current = true;
     setStatus("loading");
@@ -68,7 +82,7 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
     setTarget(null);
     startTransition(async () => {
       try {
-        await (existing ?? startInfiniteRound(window));
+        await (existing ?? startInfiniteRound(next));
         setStatus("playing");
       } catch {
         // startInfiniteRound throws on RPC failure (offline, a Supabase
@@ -86,16 +100,20 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
     });
   }
 
-  // Mount only — switching the pool via the selector below starts its own
-  // fresh round explicitly, so this shouldn't re-fire when poolWindow changes.
+  // Mount only — applying a filter below starts its own fresh round
+  // explicitly, so this shouldn't re-fire when `filter` changes.
   useEffect(() => {
-    beginRound(poolWindow, consumeInfiniteRoundPrefetch(poolWindow) ?? undefined);
+    beginRound(filter, consumeInfiniteRoundPrefetch(filter) ?? undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handlePoolChange(next: PoolWindow) {
-    setPoolWindow(next);
-    writePoolWindowPreference(next);
+  // Applying is what starts the round: the filter decides the target, so there
+  // is no coherent state where the panel has been applied but the board is
+  // still playing the previous pool's driver.
+  function handleApplyFilter(next: DriverFilter) {
+    setFilterOpen(false);
+    setFilter(next);
+    writeDriverFilterPreference("infinite", next, referenceYear);
     beginRound(next);
   }
 
@@ -119,10 +137,7 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
           return;
         }
 
-        setGuesses((prev) => [
-          ...prev,
-          { guessedDriver: response.guessedDriver, result: response.result },
-        ]);
+        setGuesses((prev) => [...prev, { guessedDriver: response.guessedDriver, result: response.result }]);
 
         if (response.status === "won" || response.status === "lost") {
           setStatus(response.status);
@@ -147,10 +162,7 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
   // suggestions rather than allowed to burn a turn on a row the grid is already
   // showing (audit 2026-07-29 §4.7). A new round clears `guesses`, so this
   // empties with it.
-  const guessedDriverIds = useMemo(
-    () => new Set(guesses.map((g) => g.guessedDriver.id)),
-    [guesses],
-  );
+  const guessedDriverIds = useMemo(() => new Set(guesses.map((g) => g.guessedDriver.id)), [guesses]);
 
   return (
     // `relative` anchors the loading overlay over the ENTIRE game window --
@@ -167,32 +179,59 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
           <h1 className="text-xl font-bold text-text sm:text-2xl">DriverPit</h1>
           <p className="text-sm text-text-muted">Infinite</p>
         </div>
-        {/* The overlay covers this, but covering isn't disabling: an overlay
-            stops pointers, not keyboard focus. Still `disabled` so it can't be
-            tabbed to and fired while a round is loading. Same for the two
-            controls below. */}
-        <button
-          onClick={() => beginRound(poolWindow)}
-          disabled={isLoading}
-          className="shrink-0 rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-muted transition hover:bg-surface-2 hover:text-text motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-text-muted"
-        >
-          New driver
-        </button>
+        {/* The mode's only two controls, paired. Both are `disabled` while a
+            round loads: the overlay covers them, but covering isn't disabling
+            -- an overlay stops pointers, not keyboard focus. */}
+        <div className="flex shrink-0 items-center gap-2">
+          <DriverFilterButton
+            filter={filter}
+            matchCount={matchingDrivers.length}
+            referenceYear={referenceYear}
+            onOpen={() => setFilterOpen(true)}
+            disabled={isLoading}
+          />
+          {/* FILLED, at full text strength. On this site the difference between
+              a live control and a dead one is exactly that: /online's Duel card
+              is `bg-surface-2` + `text-text`, and its Knockout "coming soon"
+              card is an unfilled border with muted text. This button had the
+              second set, so it read as disabled even when it wasn't. Hover is a
+              brightness lift like the accent buttons use, at 125 rather than
+              110 because surface-2 is dark enough that 110 is imperceptible. */}
+          <button
+            onClick={() => beginRound(filter)}
+            disabled={isLoading}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-semibold text-text transition hover:brightness-125 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:hover:brightness-100"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.75}
+              className="h-4 w-4"
+              aria-hidden="true"
+            >
+              {/* Two arrows crossing — "give me a different one", not "reload
+                this one", which is what a circular refresh arrow would say. */}
+              <path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
+            </svg>
+            New driver
+          </button>
+        </div>
       </header>
 
       {status === "error" ? (
         // Replaces the whole play area rather than sitting above a dead board:
-        // there is no round, so a pool selector, an input and six empty rows
-        // would all be controls that can't do anything. The header's "New
-        // driver" button is live again here and does the same thing as Retry --
-        // that's fine, but it isn't discoverable as error recovery on its own,
-        // which is what this says.
+        // there is no round, so an input and six empty rows would be controls
+        // that can't do anything. The header survives -- the filter is still
+        // worth changing when nothing started, and its "New driver" button does
+        // the same thing as Retry, which is fine but isn't discoverable as
+        // error recovery on its own. That's what this says.
         <div className="flex flex-col items-center gap-3 py-12 text-center">
           <p className="text-sm text-text-muted">
             Couldn&apos;t start a round. Check your connection and try again.
           </p>
           <button
-            onClick={() => beginRound(poolWindow)}
+            onClick={() => beginRound(filter)}
             className="rounded-lg border border-accent-weak bg-accent-weak/40 px-4 py-2 text-sm font-semibold text-accent transition hover:border-accent/50 hover:bg-accent-weak/60 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Retry
@@ -200,19 +239,29 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
         </div>
       ) : (
         <>
-          <PoolSelect
-            value={poolWindow}
-            options={poolOptions}
-            onChange={(next) => handlePoolChange(next)}
-            disabled={isLoading}
-          />
+          {/* The filter's state, as a caption on the input rather than as a
+              control: what you are guessing from belongs next to where you
+              guess, while the thing that CHANGES it lives with the other chrome
+              up in the header. Not a button, so nothing here competes with the
+              input for the tap.
 
-          <DriverAutocomplete
-            drivers={poolDrivers}
-            onSelect={handleSelect}
-            disabled={isLoading || isPending || isRoundOver}
-            guessedDriverIds={guessedDriverIds}
-          />
+              Grouped at gap-1.5 inside the board's gap-4 column, because a
+              caption sitting the same distance from its input as from
+              everything else is not a caption, just another row. */}
+          <div className="flex flex-col gap-1.5">
+            <DriverFilterSummary
+              filter={filter}
+              matchCount={matchingDrivers.length}
+              referenceYear={referenceYear}
+            />
+
+            <DriverAutocomplete
+              drivers={poolDrivers}
+              onSelect={handleSelect}
+              disabled={isLoading || isPending || isRoundOver}
+              guessedDriverIds={guessedDriverIds}
+            />
+          </div>
 
           {!isRoundOver && (
             <p className="text-center text-sm text-text-muted">
@@ -220,7 +269,12 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
             </p>
           )}
 
-          <GuessGrid guesses={guesses} maxGuesses={MAX_GUESSES} showFlags={showFlags} pending={guessPending} />
+          <GuessGrid
+            guesses={guesses}
+            maxGuesses={MAX_GUESSES}
+            showFlags={showFlags}
+            pending={guessPending}
+          />
 
           {isRoundOver && target && (
             <ResultCard
@@ -235,6 +289,18 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
       )}
 
       {isLoading && <LoadingOverlay label="Loading a driver" />}
+
+      {/* Mounted unconditionally so Modal can play its own exit transition --
+          the same one-way-latch reasoning as GameModals, minus the lazy chunk
+          (this one is part of the Infinite window, not the global shell). */}
+      <DriverFilterModal
+        open={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        drivers={allDrivers}
+        filter={filter}
+        onApply={handleApplyFilter}
+        referenceYear={referenceYear}
+      />
     </div>
   );
 }

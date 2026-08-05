@@ -32,6 +32,7 @@ export function Tile({
   closeness,
   delayMs,
   label,
+  title,
   children,
 }: {
   feedback: Feedback;
@@ -44,6 +45,19 @@ export function Tile({
   // said twice. Optional because the marketing legend's tiles are captioned
   // in visible prose already -- those keep their contents readable as-is.
   label?: string;
+  // The unclipped value, for a SIGHTED reader (audit 2026-07-30 §4.7). The
+  // value span below is line-clamp-2, and a narrow phone clips "Scuderia
+  // AlphaTauri" or "United States of America" with nothing to recover it --
+  // `label` fixed that in speech only.
+  //
+  // It goes on the span, NOT on this outer div, and that placement is the
+  // whole point: `title` on an element that already has an aria-label becomes
+  // its accessible DESCRIPTION, so the value would be announced a second time
+  // right after the label that already said it. Inside role="img" the span is
+  // presentational, so the tooltip exists for the mouse and not for the
+  // accessibility tree. (Hover/long-press only -- `title` has no touch
+  // affordance, so this recovers the value, it doesn't make it discoverable.)
+  title?: string;
   children?: React.ReactNode;
 }) {
   const isCorrect = feedback === "exact" || feedback === "correct";
@@ -74,7 +88,9 @@ export function Tile({
           style={{ opacity: `min(1, calc(${orangeOpacity} + var(--closeness-boost, 0)))` }}
         />
       )}
-      <span className="relative z-10 line-clamp-2 w-full min-w-0 break-words">{children}</span>
+      <span title={title} className="relative z-10 line-clamp-2 w-full min-w-0 break-words">
+        {children}
+      </span>
       {arrow && (
         <span
           aria-hidden="true"
@@ -190,9 +206,26 @@ export function GuessRow({
   // Every tile's meaning is colour, opacity and an aria-hidden glyph, so the
   // spoken row is built here instead (lib/game/tileLabel.ts, unit-tested).
   const labels = guessTileLabels(guessedDriver, result);
-  const columns: { column: TileColumn; feedback: Feedback; closeness?: number; value: React.ReactNode }[] = [
-    { column: "nationality", feedback: result.nationality, value: nationalityValue },
-    { column: "team", feedback: result.team, value: guessedDriver.team },
+  // `title` only on the two free-text columns. Age/debut/wins are at most four
+  // mono digits and cannot clip at any width the board renders at, so a
+  // tooltip there would repeat what's already fully visible. Nationality gets
+  // one even though it's the shorter of the two, because with "Show flags" on
+  // the tile is a flag glyph and no text at all -- the tooltip is then the only
+  // way a sighted player who doesn't recognise the flag reads the country.
+  const columns: {
+    column: TileColumn;
+    feedback: Feedback;
+    closeness?: number;
+    value: React.ReactNode;
+    title?: string;
+  }[] = [
+    {
+      column: "nationality",
+      feedback: result.nationality,
+      value: nationalityValue,
+      title: guessedDriver.nationality,
+    },
+    { column: "team", feedback: result.team, value: guessedDriver.team, title: guessedDriver.team },
     { column: "age", feedback: result.age, closeness: result.ageCloseness, value: guessedDriver.age },
     {
       column: "debutYear",
@@ -218,6 +251,7 @@ export function GuessRow({
           closeness={column.closeness}
           delayMs={index * 70}
           label={labels[column.column]}
+          title={column.title}
         >
           {column.value}
         </Tile>

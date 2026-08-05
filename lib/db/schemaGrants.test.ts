@@ -69,6 +69,8 @@ const FUNCTION_POLICY: Record<string, { grantees: Grantee[]; open?: boolean; why
     { grantees: [], why: "the guess-evaluation core; callers reach it through the SECURITY DEFINER RPCs" },
   "daily_target_id(p_date date)":
     { grantees: [], why: "returns the day's answer; must never be client-reachable" },
+  "pick_filtered_driver(p_filter jsonb, p_exclude integer[])":
+    { grantees: [], why: "THE only SQL copy of lib/game/driverFilter.ts's predicate (drizzle/0056); an internal helper with no auth check of its own, reached through infinite_start_round (SECURITY DEFINER) and duel_begin_round (trusted connection)" },
 
   // -- Trusted duel lifecycle. No auth.uid() check of their own by design;
   //    drizzle/0034 revoked EXECUTE and added the thin _client wrappers below
@@ -96,6 +98,26 @@ const FUNCTION_POLICY: Record<string, { grantees: Grantee[]; open?: boolean; why
     { grantees: ["authenticated"], why: "refreshes the CALLER'S OWN last_seen column; auth.uid() inside" },
   "duel_topic_participant(p_topic text)":
     { grantees: ["authenticated"], why: "realtime.messages' RLS predicate (drizzle/0046); Realtime evaluates it as the JWT's role, so `authenticated` is the one grantee it needs" },
+  "duel_round_reveal(p_match_id integer, p_round_index integer)":
+    { grantees: ["authenticated"], why: "what round_end/match_end re-verify against (drizzle/0050); participant check via auth.uid(), and it withholds the target until duel_rounds.intermission_ends_at is stamped" },
+
+  // -- Custom lobbies (drizzle/0057). duel_lobbies has NO client grants and no
+  //    RLS policy, so these six are the entire access path to it -- every one
+  //    SECURITY DEFINER with an auth.uid() check, granted to `authenticated`
+  //    and nothing else. Written with the grantees named, never a bare
+  //    REVOKE FROM PUBLIC (drizzle/0039).
+  "duel_lobby_create(p_rounds integer, p_round_seconds integer, p_from_year integer, p_to_year integer, p_nationality text, p_team text, p_achievement text, p_device_id text)":
+    { grantees: ["authenticated"], why: "hosts a lobby for auth.uid(); generates the code server-side, re-clamps the config and refuses a filter matching nobody" },
+  "duel_lobby_state(p_code text)":
+    { grantees: ["authenticated"], why: "the joiner's preview and the host's poll; returns match_id ONLY to the host or a participant, so a guessed code never yields the private channel's match id" },
+  "duel_lobby_join(p_code text, p_device_id text)":
+    { grantees: ["authenticated"], why: "creates the ranked = false match; self-join guards run inside the lobby's FOR UPDATE, and it is idempotent for a participant" },
+  "duel_lobby_heartbeat(p_code text)":
+    { grantees: ["authenticated"], why: "refreshes the CALLER'S OWN open lobby only; returns false once there is nothing to beat" },
+  "duel_lobby_cancel(p_code text)":
+    { grantees: ["authenticated"], why: "deletes the caller's own OPEN lobby; idempotent, and called from signOutAndReset while the outgoing identity can still authenticate it" },
+  "duel_sweep_stale_lobbies()":
+    { grantees: ["authenticated"], why: "deletes rows past CUSTOM_LOBBY_STALE_MS / MAX_AGE_MS; called at the top of create and join, so no cron -- same pattern as duel_sweep_stale_queue" },
 
   // -- Client-callable, still carrying a named `anon` grant from the bootstrap.
   //    Hygiene rather than exposure, and the reason is uniform: each one reads
@@ -117,8 +139,16 @@ const FUNCTION_POLICY: Record<string, { grantees: Grantee[]; open?: boolean; why
     { grantees: ["PUBLIC", "anon", "authenticated"], open: true, why: "participant check via auth.uid()" },
   "match_or_queue(p_pool_window text, p_device_id text)":
     { grantees: ["PUBLIC", "anon", "authenticated"], open: true, why: "queues auth.uid() only; self-match guards are inside the locked SELECT" },
-  "infinite_start_round(p_pool_window text)":
-    { grantees: ["PUBLIC", "anon", "authenticated"], open: true, why: "writes auth.uid()'s own infinite_rounds row" },
+  // Tighter than its neighbours here, and deliberately so: drizzle/0053 DROPped
+  // the old infinite_start_round(text) and created this signature fresh, so it
+  // was written with drizzle/0039's convention -- REVOKE naming the grantees,
+  // then GRANT to `authenticated` alone. The ones around it predate that and
+  // still carry the bootstrap's PUBLIC/anon grants, which is harmless (every one
+  // checks auth.uid()) but is not what a function written today should look
+  // like. This entry claimed the old, looser set until the live database was
+  // read back.
+  "infinite_start_round(p_from_year integer, p_to_year integer, p_nationality text, p_team text, p_achievement text)":
+    { grantees: ["authenticated"], why: "writes auth.uid()'s own infinite_rounds row; the filter is re-clamped and the achievement re-validated server-side (drizzle/0053)" },
   "infinite_submit_guess(p_guess_driver_id integer)":
     { grantees: ["PUBLIC", "anon", "authenticated"], open: true, why: "reads auth.uid()'s own round; target withheld while status = continue" },
 
@@ -216,6 +246,8 @@ const RELATION_POLICY: Record<string, { anon: string[]; authenticated: string[];
     why: "per-round points; derivable source of score_a/score_b" },
   matchmaking_queue: { anon: ["SELECT"], authenticated: ["SELECT"], rls: true,
     why: "a writable queue row is the rating-farming vector all of drizzle/0032 exists to close" },
+  duel_lobbies: { anon: [], authenticated: [], rls: true,
+    why: "the ONLY table here with no client grant at all, SELECT included (drizzle/0057): a readable duel_lobbies is every open lobby's code behind one anon-key query, and a code is the whole access control. RLS is on with no policy, so the grant and the policy have to fail together" },
 
   leaderboard: { anon: ["SELECT"], authenticated: ["SELECT"], rls: false,
     why: "owner-privileged read of public columns (drizzle/0009), so it is NOT checked against RLS -- which is why drizzle/0048 finally took the bootstrap's write set off it, the sweep drizzle/0042 missed" },
@@ -231,6 +263,25 @@ const RELATION_GRANTS = sql`
   WHERE table_schema = 'public' AND grantee IN ('anon', 'authenticated')
   GROUP BY table_name, grantee
   ORDER BY table_name, grantee`;
+
+// The COVERAGE list has to come from the relations themselves, not from the
+// grants above: a relation with NO client grant at all appears nowhere in
+// role_table_grants, so deriving "what exists" from that query makes exactly the
+// most locked-down table in the schema invisible to the check that every table
+// has a decision on record. duel_lobbies (drizzle/0057) is that table -- no
+// grant, SELECT included -- and it read as "declared but absent", i.e. as a
+// STALE POLICY MAP, when it was in fact the one table most worth covering.
+//
+// Enumerating relations instead also closes the general case: a table someone
+// creates, revokes the bootstrap grants on, and never declares here.
+const RELATION_NAMES = sql`
+  SELECT c.relname AS table_name
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public'
+    AND c.relkind IN ('r', 'v', 'm', 'p')
+    AND c.relname NOT LIKE 'pg_%'
+  ORDER BY 1`;
 
 // ---------------------------------------------------------------------------
 // Columns
@@ -319,12 +370,30 @@ describe.skipIf(!RUN)("client grants match the declared policy (integration)", (
 
   describe("tables and views (information_schema.role_table_grants)", () => {
     it("every relation in `public` has a grant decision on record", async () => {
-      const rows = await db.execute<RelationGrantRow>(RELATION_GRANTS);
-      const live = [...new Set(rows.map((r) => r.table_name))].sort();
+      const rows = await db.execute<{ table_name: string }>(RELATION_NAMES);
+      const live = rows.map((r) => r.table_name).sort();
       const declared = Object.keys(RELATION_POLICY).sort();
 
       expect(live.filter((t) => !declared.includes(t))).toEqual([]);
       expect(declared.filter((t) => !live.includes(t))).toEqual([]);
+    });
+
+    // The positive half of a no-access declaration. The per-relation diff below
+    // iterates the GRANTS, so a relation declared `anon: [], authenticated: []`
+    // is simply absent there and its declaration is never actually tested --
+    // which for duel_lobbies is the difference between "the codes are private"
+    // being enforced and being merely written down.
+    it("holds no client grant at all on the relations declared that way", async () => {
+      const rows = await db.execute<RelationGrantRow>(RELATION_GRANTS);
+      const granted = new Set(rows.map((r) => r.table_name));
+      const shouldHaveNone = Object.entries(RELATION_POLICY)
+        .filter(([, policy]) => policy.anon.length === 0 && policy.authenticated.length === 0)
+        .map(([name]) => name);
+
+      // Vacuous if nothing is declared that way, which would itself be a sign
+      // the policy above had been loosened without anyone noticing.
+      expect(shouldHaveNone).toContain("duel_lobbies");
+      expect(shouldHaveNone.filter((t) => granted.has(t))).toEqual([]);
     });
 
     it("holds exactly the declared privileges, per relation and role", async () => {

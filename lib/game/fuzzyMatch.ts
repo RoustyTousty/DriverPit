@@ -83,6 +83,56 @@ export function partitionSearchIndex<T>(
   return { included, excluded };
 }
 
+// A seeded PRNG rather than Math.random, and that is the whole design of
+// sampleSearchIndex below: its caller picks the suggestions DURING RENDER, and
+// DriverAutocomplete re-renders on things that have nothing to do with the
+// dropdown -- the duel's round clock at 10Hz, daily's countdown at 1Hz. Drawing
+// from Math.random there would reshuffle the visible list ten times a second.
+// Deterministic-given-a-seed moves the randomness to the one event that should
+// produce a new list (opening it), keeps render pure, and makes the whole thing
+// unit-testable rather than statistically testable.
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// `count` distinct items drawn uniformly from the index, in random order.
+//
+// This is what an EMPTY query offers, in place of fuzzyFilter's "first N in
+// pool order" -- which meant every player, every day, opening the box for the
+// first time was shown the same eight drivers from the top of the alphabet.
+// A typed query goes back to fuzzyFilter unchanged: the ranking is the answer
+// to a question the player asked, and shuffling it would be noise.
+//
+// Partial Fisher-Yates over a SPARSE map of displaced positions rather than a
+// copy of the array: the pools run to ~800 drivers and only eight are ever
+// shown, so this is O(count) and allocates nothing per driver -- the same
+// argument as partitionSearchIndex reusing entries instead of rebuilding them.
+export function sampleSearchIndex<T>(
+  index: readonly SearchEntry<T>[],
+  count: number,
+  seed: number,
+): T[] {
+  const take = Math.min(count, index.length);
+  if (take <= 0) return [];
+
+  const random = mulberry32(seed);
+  const displaced = new Map<number, number>();
+  const picked: T[] = [];
+  for (let i = 0; i < take; i++) {
+    const j = i + Math.floor(random() * (index.length - i));
+    picked.push(index[displaced.get(j) ?? j].item);
+    displaced.set(j, displaced.get(i) ?? i);
+  }
+  return picked;
+}
+
 // Contiguous substring matches score highest (weighted toward matches near
 // the start of the string). Falls back to an in-order subsequence match so
 // typos and skipped letters ("vrstpn" -> "Verstappen") still hit, rewarding

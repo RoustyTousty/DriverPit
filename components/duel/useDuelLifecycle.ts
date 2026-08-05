@@ -7,16 +7,17 @@ import type { DriverOption } from "@/components/game/DriverAutocomplete";
 import { useToast } from "@/components/ui/Toast";
 import type { DuelRevealedDriver } from "@/lib/db/duelRpc";
 import { applyMatchRatings, forfeitMatch, getDuelRoundState, getDuelState } from "@/lib/duel/actions";
-import { MAX_ROUNDS } from "@/lib/duel/liveMatch";
 import type { MatchResult } from "@/lib/duel/matchmaking";
 import type { RoundEndPayload, RoundStartPayload } from "@/lib/duel/realtimeEvents";
 import { beginRound, closeRound } from "@/lib/duel/roundLifecycle";
+import { fetchRoundReveal } from "@/lib/duel/roundReveal";
 import { submitDuelGuessRpc } from "@/lib/duel/submitGuess";
 import { useDuelChannel, type DuelChannelState } from "@/lib/duel/useDuelChannel";
-import { proximityPoints } from "@/lib/game/duelScoring";
+import { dnfPoints, weightedProximity } from "@/lib/game/duelScoring";
 import {
   DISCONNECT_GRACE_MS,
   DUEL_POLL_INTERVAL_MS,
+  GUESS_COOLDOWN_MS,
   READY_TIMEOUT_MS,
   RESUME_RETRIES_BEFORE_FORCE_BEGIN,
   RESUME_RETRY_MS,
@@ -68,6 +69,15 @@ export interface DuelLifecycle {
   isPreRound: boolean;
   lights: ReturnType<typeof useLightsCountdown>;
   remainingToEnd: number;
+  /**
+   * Local `Date.now()` deadline the guess input stays disabled until -- the
+   * client half of drizzle/0058's guess cooldown. 0 when nothing is cooling.
+   *
+   * A timestamp rather than a boolean, and deliberately: RoundPlay already
+   * re-renders on the round clock's 10Hz tick, so it can just compare this
+   * against the current time and needs no timer of its own to re-enable.
+   */
+  guessCooldownUntil: number;
 
   // The rematch staging screen's ready-gate.
   awaitingLobbyGate: boolean;
@@ -113,6 +123,11 @@ export function useDuelLifecycle({
   const [round, setRound] = useState<LocalRound | null>(initialRound);
   const [winnerId, setWinnerId] = useState<string | null>(null);
   const [pendingGuess, setPendingGuess] = useState(false);
+  // The guess cooldown's local deadline (drizzle/0058). Mirrored into a ref
+  // because handleGuess's own re-entry guard runs from a callback that closed
+  // over an older render -- same reason phaseRef exists.
+  const [guessCooldownUntil, setGuessCooldownUntil] = useState(0);
+  const guessCooldownUntilRef = useRef(0);
   const [intermission, setIntermission] = useState<IntermissionState | null>(null);
   // Only for the "match failed to load" case -- there's genuinely nothing else
   // to render then. Guess/rematch failures go to the toast system instead so
@@ -140,6 +155,11 @@ export function useDuelLifecycle({
   // re-subscribing them on every phase change.
   const phaseRef = useRef<Phase>(initialRound ? "playing" : "loading");
   const expiredHandledRef = useRef<number | null>(null);
+  // The round a round_end verification is in flight (or has landed) for, so a
+  // repeated broadcast doesn't fire a second read and re-open an intermission
+  // that's already on screen. Cleared again on a failed/not-yet-closed read so
+  // a later, genuine broadcast can still be acted on.
+  const roundEndVerifyRef = useRef<number | null>(null);
 
   const isPlayerA = activeMatch.youAre === "a";
   const opponentHandle = activeMatch.opponentDisplayName || activeMatch.opponentUsername;
@@ -241,21 +261,27 @@ export function useDuelLifecycle({
     },
     onRoundEnd: (payload) => {
       if (payload.roundIndex !== roundIndexRef.current) return; // not the round I'm currently on
-      applyRoundEnd({ ...payload, targetDriver: payload.targetDriverPublic });
+      // Advisory: the payload says *that* the round ended, and its roundIndex
+      // is only used to decide which round to ask the server about. Everything
+      // it renders -- the reveal, both sides' points, the running scores, the
+      // intermission clock -- is read back from duel_round_reveal (audit
+      // 2026-07-30 §3.4 residual). Same trust decision §0.2 made for
+      // round_start, for the same reason: drizzle/0046 shut third parties out
+      // of this channel, but the one party still on it is my opponent in a
+      // rated 1v1, and this payload used to be applied exactly as sent.
+      void verifyRoundEnd(payload.roundIndex);
     },
-    onMatchEnd: (payload) => {
-      // Only ever meaningful once this client's own onRoundEnd (or its own
-      // closeRound call) has already opened the last round's intermission --
-      // just fills in the winner/rating info that round_end's payload doesn't
-      // carry. If round_end hasn't arrived yet (round_end and match_end are sent
-      // back-to-back over the same connection, so this is rare), this is
-      // dropped; the receiving client simply won't show a winner until it
-      // independently discovers the match is finished.
-      setIntermission((prev) =>
-        prev && prev.isLastRound
-          ? { ...prev, winnerId: payload.winnerId, ratingDeltaA: payload.ratingDeltaA, ratingDeltaB: payload.ratingDeltaB }
-          : prev,
-      );
+    onMatchEnd: () => {
+      // Same rule, and the payload is now read for nothing at all: who won and
+      // by how much comes off duel_matches. Only ever meaningful once this
+      // client's own onRoundEnd (or its own closeRound call) has already opened
+      // the last round's intermission -- this just fills in the winner/rating
+      // info that round_end is too early to carry. If round_end hasn't arrived
+      // yet (they're sent back-to-back over the same connection, so this is
+      // rare), the merge below finds no intermission and drops it; the client
+      // simply won't show a winner until it independently discovers the match
+      // is finished.
+      void verifyMatchEnd();
     },
     onRematch: (payload) => {
       // Only meaningful while sitting on the finished screen waiting for the
@@ -357,6 +383,13 @@ export function useDuelLifecycle({
     roundIndexRef.current = data.roundIndex;
     setRound({ roundIndex: data.roundIndex, startedAt: data.startedAt, endsAt: data.endsAt });
     scoreboard.startRound(data.scoreA, data.scoreB);
+    // The cooldown is per-round on the server too (it spaces against
+    // duel_round_results.last_guess_at, and a new round means a new row), so a
+    // leftover deadline here would disable the input on a round it never
+    // applied to -- the intermission is longer than the cooldown anyway, but a
+    // round adopted early by the opponent's gate need not be.
+    guessCooldownUntilRef.current = 0;
+    setGuessCooldownUntil(0);
   }
 
   // Re-fetches full authoritative state (round timing, scores, my own solve
@@ -391,8 +424,21 @@ export function useDuelLifecycle({
   // "Intermission" beat: the reveal, point count-up, and tug settle stay on
   // screen for the full server-stamped intermissionEndsAt before a fresh
   // ready-gate (see DuelIntermission) gets to the next round.
+  //
+  // `isLastRound` IS THE SERVER'S ANSWER, NOT A LOCAL DERIVATION. It used to be
+  // `data.roundIndex >= MAX_ROUNDS - 1`, which required a client constant and
+  // duel_close_round's own last-round test to agree about how long a match is.
+  // With rounds per-match (drizzle/0054) they cannot: the constant is one
+  // number and the column is per-row, so the intermission would offer a fourth
+  // round of a three-round match, or cut a five-round one short. Both callers
+  // already hold the authoritative answer -- closeRound's `matchFinished`
+  // (match_status = 'finished') and duel_round_reveal's `matchStatus` -- so
+  // they pass it in. Strictly more correct today too, for the same reason
+  // drizzle/0050 made round_end a trigger rather than data: this client may
+  // never have made the close call whose outcome it is rendering.
   function applyRoundEnd(data: {
     roundIndex: number;
+    isLastRound: boolean;
     targetDriver: DuelRevealedDriver;
     pointsA: number;
     pointsB: number;
@@ -400,7 +446,7 @@ export function useDuelLifecycle({
     scoreB: number;
     intermissionEndsAt: string;
   }) {
-    const isLastRound = data.roundIndex >= MAX_ROUNDS - 1;
+    const isLastRound = data.isLastRound;
     setIntermission({
       roundIndex: data.roundIndex,
       nextRoundIndex: isLastRound ? null : data.roundIndex + 1,
@@ -420,6 +466,88 @@ export function useDuelLifecycle({
     setPhase("intermission");
   }
 
+  // The receiving half of a round close: the opponent's client closed the round
+  // and told us so. What it told us is treated as a *trigger*, not as data --
+  // the reveal, both sides' points, the running scores and the intermission
+  // clock all come back from duel_round_reveal, which will only produce them
+  // once duel_rounds.intermission_ends_at is actually stamped (audit
+  // 2026-07-30 §3.4 residual).
+  //
+  // Why not the idempotent duel_close_round_client, which the audit suggested
+  // and which §0.2 used for round_start: that function is idempotent in its
+  // EFFECT but not in its RESPONSE. Exactly one client's close ever advances,
+  // and the already-closed branch deliberately returns NULL for every reveal
+  // column (drizzle/0024) on the assumption that a repeat caller already has
+  // them from its own first call. The receiving client never made one -- that
+  // is the whole reason this broadcast exists -- so there was nothing to
+  // re-verify against until drizzle/0050 added a read.
+  //
+  // A failed or not-yet-closed read is not a dead end, and behaves exactly as a
+  // dropped round_end always has: this client stays on the (now expired) round
+  // until the opponent's intermission ends and their round_start arrives, whose
+  // handler refetches full state. It skips the reveal, which is the correct
+  // outcome for a broadcast the server won't corroborate.
+  async function verifyRoundEnd(closingRoundIndex: number) {
+    if (roundEndVerifyRef.current === closingRoundIndex) return;
+    roundEndVerifyRef.current = closingRoundIndex;
+
+    const reveal = await fetchRoundReveal(activeMatch.matchId, closingRoundIndex);
+    if (!reveal.ok || !reveal.closed) {
+      roundEndVerifyRef.current = null;
+      return;
+    }
+    // A round can have been adopted while the read was in flight (the
+    // opponent's intermission is short and their ready-gate may have won the
+    // race) -- applying a stale reveal over it would pull the player back out
+    // of a live round.
+    if (roundIndexRef.current !== closingRoundIndex) return;
+
+    applyRoundEnd({
+      roundIndex: closingRoundIndex,
+      // The reveal is only produced once the round is genuinely closed, so a
+      // 'finished' status here means this WAS the last round -- of this match,
+      // whatever length it was configured for.
+      isLastRound: reveal.matchStatus === "finished",
+      targetDriver: reveal.targetDriver,
+      pointsA: reveal.pointsA,
+      pointsB: reveal.pointsB,
+      scoreA: reveal.scoreA,
+      scoreB: reveal.scoreB,
+      intermissionEndsAt: reveal.intermissionEndsAt,
+    });
+    // On the last round the close and the match finish are the same event, so
+    // the winner may already be readable here -- the rating deltas usually
+    // aren't yet (applyMatchRatings is a separate call the closing client makes
+    // after broadcasting round_end), and match_end's own verification fills
+    // them in a moment later.
+    if (reveal.matchStatus === "finished") {
+      setIntermission((prev) =>
+        prev && prev.isLastRound
+          ? { ...prev, winnerId: reveal.winnerId, ratingDeltaA: reveal.ratingDeltaA, ratingDeltaB: reveal.ratingDeltaB }
+          : prev,
+      );
+    }
+  }
+
+  // The receiving half of a match finish. Same rule as verifyRoundEnd: the
+  // broadcast is the trigger, duel_matches is the answer. A forged match_end
+  // now paints nothing -- the read reports the match still running and this
+  // returns without touching the intermission.
+  async function verifyMatchEnd() {
+    // During the final intermission roundIndexRef still points at the round
+    // that just closed (only adoptRound moves it), which is the round whose
+    // reveal is on screen.
+    const reveal = await fetchRoundReveal(activeMatch.matchId, roundIndexRef.current);
+    if (!reveal.ok) return;
+    if (reveal.matchStatus !== "finished" && reveal.matchStatus !== "abandoned") return;
+
+    setIntermission((prev) =>
+      prev && prev.isLastRound
+        ? { ...prev, winnerId: reveal.winnerId, ratingDeltaA: reveal.ratingDeltaA, ratingDeltaB: reveal.ratingDeltaB }
+        : prev,
+    );
+  }
+
   // Closes out the match's current round (public.duel_close_round, idempotent)
   // whenever this client observes both players done or the timer expired, and
   // opens the intermission -- relaying round_end (and match_end, on the last
@@ -431,6 +559,9 @@ export function useDuelLifecycle({
 
     applyRoundEnd({
       roundIndex: res.roundIndex,
+      // This client made the close, so the RPC told it directly whether the
+      // match ended on that round.
+      isLastRound: res.matchFinished,
       targetDriver: res.targetDriver,
       pointsA: res.pointsA,
       pointsB: res.pointsB,
@@ -526,6 +657,7 @@ export function useDuelLifecycle({
     lobbyReadySentRef.current = false;
     lobbyBeganRef.current = false;
     roundIndexRef.current = -1;
+    roundEndVerifyRef.current = null; // round indices restart at 0 on the new match
     phaseRef.current = "loading";
     // Hands the new id to its owner. Everything below that keys on it (the
     // duel:{matchId} channel, the resume effect, the rematch negotiation) reacts
@@ -737,6 +869,11 @@ export function useDuelLifecycle({
 
   async function handleGuess(driver: DriverOption) {
     if (!round) return; // guarded by the caller (RoundPlay only renders once a round exists)
+    // The cooldown's UI half is RoundPlay disabling the input; this is the
+    // re-entry guard behind it, for the paths that don't go through a disabled
+    // attribute (an Enter keypress already in flight, a stale memoized
+    // onSelect). Silent, not a toast: the player can see the input is waiting.
+    if (Date.now() < guessCooldownUntilRef.current) return;
 
     setPendingGuess(true);
     let res;
@@ -752,15 +889,29 @@ export function useDuelLifecycle({
     }
     setPendingGuess(false);
 
+    // Cooldown starts when the response lands, not when the guess was sent --
+    // the player has only just seen the tiles, and that is the beat this
+    // exists to give them. The server measures from its own write instead and
+    // allows GUESS_COOLDOWN_SERVER_MS, which is shorter by about the response
+    // leg, so this wait is always the binding one for an honest client.
+    const until = Date.now() + GUESS_COOLDOWN_MS;
+    guessCooldownUntilRef.current = until;
+    setGuessCooldownUntil(until);
+
     const nextGuesses = [
       ...scoreboard.myGuesses,
       { id: scoreboard.nextGuessIdRef.current++, guessedDriver: res.guessedDriver, result: res.result },
     ];
     scoreboard.setMyGuesses(nextGuesses);
 
+    // A DNF's provisional is the best guess so far DECAYED by the guess count
+    // (drizzle/0058) -- what duel_close_round would actually pay if the round
+    // ended now. Undecayed, the tug bar would drift up on every wasted guess
+    // and then drop at the close, which is the exact failure the parity suite
+    // exists to prevent: a bar that says you are winning a round you are not.
     const myProvisional = res.solved
       ? (res.points ?? 0)
-      : Math.max(0, ...nextGuesses.map((g) => proximityPoints(g.result)));
+      : dnfPoints(Math.max(0, ...nextGuesses.map((g) => weightedProximity(g.result))), nextGuesses.length);
     channel.broadcastGuess({ guessCount: nextGuesses.length, bestHeat: res.bestHeat, provisionalPoints: myProvisional });
 
     if (res.solved) {
@@ -799,6 +950,7 @@ export function useDuelLifecycle({
     isPreRound,
     lights,
     remainingToEnd,
+    guessCooldownUntil,
     awaitingLobbyGate,
     lobbyHoldComplete,
     lobbyGateTimedOut,

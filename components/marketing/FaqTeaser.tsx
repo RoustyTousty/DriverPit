@@ -19,7 +19,7 @@ const QA: { q: string; a: string }[] = [
   },
   {
     q: "Which drivers are in the pool, and can I change it?",
-    a: "Daily and Duel always draw from Regular (last 10 seasons). Infinite lets you pick the pool yourself, from this season only up to the sport's entire history.",
+    a: "Daily and Duel always draw from the last 20 seasons. Infinite lets you build the pool yourself — any span of seasons, filtered by nationality, team or achievement.",
   },
   {
     q: "Is there a way to play against someone else?",

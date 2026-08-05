@@ -82,6 +82,33 @@ describe("GuessGrid tiles", () => {
     expect(screen.getByRole("img", { name: "Lewis Hamilton" })).toBeInTheDocument();
   });
 
+  // Audit 2026-07-30 §4.7's remaining half. The value span is line-clamp-2, so
+  // a 320px phone clips "Scuderia AlphaTauri" with nothing to recover it --
+  // aria-label put the value in speech and did nothing for a sighted reader.
+  it("lets a sighted reader recover a clipped value from the tile", () => {
+    render(<GuessGrid guesses={[guess(HAMILTON)]} maxGuesses={6} />);
+
+    // On the span INSIDE role="img", never on the tile itself: a title beside
+    // an aria-label becomes the accessible description, which would say the
+    // value a second time right after the label that already said it.
+    const tiles = screen.getAllByRole("img");
+    expect(tiles.some((tile) => tile.hasAttribute("title"))).toBe(false);
+
+    expect(screen.getByTitle("Ferrari")).toBeInTheDocument();
+    // Carries one despite being short, because "Show flags" replaces this
+    // tile's text with a flag glyph and the tooltip is then the only reading.
+    expect(screen.getByTitle("United Kingdom")).toBeInTheDocument();
+  });
+
+  it("leaves the numeric tiles untooltipped, since digits cannot clip", () => {
+    const { container } = render(<GuessGrid guesses={[guess(HAMILTON)]} maxGuesses={6} />);
+
+    // A tooltip repeating a fully-visible "105" is noise, so the count of
+    // titled elements is the two text columns and nothing else.
+    expect(container.querySelectorAll("[title]")).toHaveLength(2);
+    expect(screen.queryByTitle("105")).not.toBeInTheDocument();
+  });
+
   it("keeps the board a fixed height as guesses land", () => {
     const { container } = render(<GuessGrid guesses={[guess(HAMILTON)]} maxGuesses={6} />);
     const rows = container.querySelectorAll(".flex.gap-1");

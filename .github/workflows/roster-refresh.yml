@@ -1,0 +1,145 @@
+name: Roster refresh
+
+# Keeps `drivers` current without anyone remembering to do it.
+#
+# WHAT IT DOES. Runs the existing seed (scripts/seed.ts) against the production
+# database in strict commit mode, following F1DB's `latest` release. Wins, teams,
+# `last_active_year` and any new driver land in the table; nothing is ever
+# deleted and no `drivers.id` is ever reassigned (rows are matched on F1DB's own
+# slug and UPDATEd in place -- see drizzle/0043 and scripts/rosterPlan.ts).
+#
+# WHY GITHUB ACTIONS AND NOT VERCEL CRON. The seed downloads and unzips
+# f1db-csv.zip, parses four CSVs and writes ~792 rows as thousands of small
+# statements in one transaction. That does not belong in a serverless function
+# with a duration cap, and it would need rewriting as an authenticated route
+# handler to get there. Here it is the same command a human runs locally.
+#
+# WHY UNATTENDED WRITES ARE SAFE HERE. The seed fails closed and has been built
+# to: the release pin, a header assertion on every column it reads out of all
+# four CSVs, canary drivers (Hamilton's wins, Verstappen's last active year, a
+# live NON_START_CODES value), MIN_ROSTER_RATIO, a hard failure if either
+# reference join resolves nothing, the post-upsert row-count check, and
+# drizzle/0047's CHECK constraints -- every one of them inside or before the
+# single transaction, so a bad release rolls back instead of reaching players.
+# `--strict` (npm run db:seed:auto) adds the two things that were previously only
+# WARNINGS on the assumption a human was reading them: an ambiguous natural key
+# (scripts/rosterPlan.ts#assertPlanUnambiguous -- would insert a duplicate
+# driver) and any unresolved reference id
+# (scripts/releaseGuards.ts#assertNoLookupMisses -- would put a raw slug in a
+# column compare_drivers compares by string equality).
+#
+# WHEN IT BREAKS, IT TELLS YOU. A failed scheduled run emails the repo owner and
+# writes the full reconciliation report to the run's summary page. Nothing is
+# committed on a failure, so the roster simply stays as it was until the next
+# run or a manual fix -- stale, never wrong.
+#
+# SETUP -- one repository secret (Settings -> Secrets and variables -> Actions):
+#
+#   PRODUCTION_DATABASE_URL   the Supabase POOLER connection string
+#
+# Deliberately NOT the `DATABASE_URL` that ci.yml uses: that one points at a
+# scratch project, because the database test tier writes real rows into it. This
+# job writes the live roster, so it takes a separate, deliberately-named secret
+# and cannot inherit the wrong one. Use the pooler (port 6543) URL -- direct
+# Supabase connections are IPv6-only and Actions runners are not, and the seed's
+# batching is measured against the pooler.
+#
+# ONE THING TO KNOW: GitHub disables `schedule` triggers on a repository with no
+# activity for 60 days, and emails before it does. Pushing anything re-arms it;
+# so does running this workflow manually.
+
+on:
+  schedule:
+    # 06:00 UTC Monday: after a race weekend, and after F1DB has published the
+    # round's release. Off-season this is a no-op upsert, which is fine -- it
+    # also keeps the Supabase project from idling.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Write the refresh (unchecked = dry run: does the whole write, then rolls back)"
+        type: boolean
+        default: false
+
+concurrency:
+  # Never two seeds at once: they would take the same row locks and one would
+  # sit behind the other holding a transaction open over ~800 rows.
+  group: roster-refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    name: Refresh drivers from F1DB
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # ci.yml self-skips when its secrets are absent, on the grounds that a
+      # tier nobody can run should not train people to ignore red. The opposite
+      # applies here: a silent skip IS the failure mode this workflow exists to
+      # prevent -- the roster quietly stopping being updated, which looks
+      # exactly like everything being fine until a comparison is wrong.
+      - name: Require the production connection string
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          if [ -z "$PRODUCTION_DATABASE_URL" ]; then
+            echo "::error title=PRODUCTION_DATABASE_URL is not set::The roster refresh cannot run. Add the Supabase POOLER connection string as a repository secret (Settings -> Secrets and variables -> Actions). This is deliberately NOT the scratch DATABASE_URL that ci.yml uses."
+            exit 1
+          fi
+
+      # A manual run defaults to a dry run, for the same reason the script does:
+      # the write is the thing you have to ask for. The scheduled run is the one
+      # that commits.
+      #
+      # Both branches keep --strict, and that is the point of the dry one: it
+      # does the ENTIRE write against the real table and rolls it back, so it
+      # exercises the same reconciliation and the same two strict guards the
+      # Monday run will. A rehearsal that skipped them could pass while the
+      # scheduled run fails, which is the opposite of a rehearsal.
+      - name: Resolve mode
+        id: mode
+        env:
+          IS_SCHEDULE: ${{ github.event_name == 'schedule' }}
+          WANTS_COMMIT: ${{ inputs.commit }}
+        run: |
+          if [ "$IS_SCHEDULE" = "true" ] || [ "$WANTS_COMMIT" = "true" ]; then
+            echo "script=db:seed:auto" >> "$GITHUB_OUTPUT"
+          else
+            echo "script=db:seed:auto:dry" >> "$GITHUB_OUTPUT"
+          fi
+
+      # `tee` + pipefail rather than a plain run: the reconciliation report (what
+      # was adopted, re-keyed, inserted, or kept-but-absent from this release) is
+      # the part a human would have read on a local run, and a log that scrolls
+      # past in a collapsed step is not that. It goes to the summary page either
+      # way, and the step still fails on a non-zero exit.
+      - name: Seed
+        env:
+          F1DB_RELEASE: latest
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -o pipefail
+          npm run ${{ steps.mode.outputs.script }} 2>&1 | tee seed.log
+
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "## Roster refresh — \`${{ steps.mode.outputs.script }}\`"
+            echo ""
+            echo '```'
+            cat seed.log 2>/dev/null || echo "(the seed produced no output — it failed before starting)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

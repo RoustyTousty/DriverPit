@@ -7,6 +7,7 @@ import { AvatarGlyph } from "@/components/ui/AvatarGlyph";
 import { Spinner } from "@/components/ui/Spinner";
 import { useToast } from "@/components/ui/Toast";
 import { setQueued } from "@/lib/duel/duelCommitments";
+import { DEFAULT_ROUNDS } from "@/lib/duel/liveMatch";
 import {
   LOBBY_CHANNEL,
   MATCHED_EVENT,
@@ -140,6 +141,13 @@ export function DuelSearching({
           opponentDuelLosses: data.opponentDuelLosses,
           youAre: data.youAre,
           matchCreatedAt: data.matchCreatedAt,
+          // Deliberately not on the wire. This is the public `lobby` channel,
+          // so a payload field would be a stranger's word for how the match is
+          // configured -- and a matchmade match is ranked with the defaults by
+          // construction anyway (match_or_queue names no config column). Same
+          // value toMatchResult fills in for the sender.
+          ranked: true,
+          rounds: DEFAULT_ROUNDS,
         });
       })
       .subscribe(async (status) => {

@@ -127,15 +127,20 @@ export function DuelMatch({
     return withExitControl(
       <DuelIntermission
         key={intermission.roundIndex}
+        // Both counts are still the closed round's here: the scoreboard clears
+        // them in startRound, which runs when the NEXT round is adopted -- i.e.
+        // after this screen is gone.
         me={{
           handle: myHandle,
           avatarUrl: me.avatarUrl,
           roundPoints: duel.isPlayerA ? intermission.pointsA : intermission.pointsB,
+          guessCount: scoreboard.myGuesses.length,
         }}
         opponent={{
           handle: opponentHandle,
           avatarUrl: activeMatch.opponentAvatarUrl,
           roundPoints: duel.isPlayerA ? intermission.pointsB : intermission.pointsA,
+          guessCount: scoreboard.opponentProgress.guessCount,
         }}
         roundIndex={intermission.roundIndex}
         isLastRound={intermission.isLastRound}
@@ -187,7 +192,14 @@ export function DuelMatch({
         progress: scoreboard.opponentProgress,
       }}
       roundIndex={round.roundIndex}
+      totalRounds={activeMatch.rounds}
       remainingMs={duel.remainingToEnd}
+      // The round's real length, off its own server timestamps rather than the
+      // ROUND_MS default -- a custom lobby's match can be 30s or 90s, and this
+      // is the denominator the solve-now readout has to score against for its
+      // number to match what duel_submit_guess would pay.
+      roundMs={new Date(round.endsAt).getTime() - new Date(round.startedAt).getTime()}
+      guessCooldownUntil={duel.guessCooldownUntil}
       confirmedScoreA={scoreboard.roundStartScoreARef.current}
       confirmedScoreB={scoreboard.roundStartScoreBRef.current}
       isPlayerA={duel.isPlayerA}

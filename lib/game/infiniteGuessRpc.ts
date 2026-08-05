@@ -1,6 +1,6 @@
 import type { GuessResult } from "@/lib/game/compare";
+import type { DriverFilter } from "@/lib/game/driverFilter";
 import { trackGuess } from "@/lib/game/inFlightGuess";
-import type { PoolWindow } from "@/lib/game/poolWindow";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 // Same shape as lib/db/queries.ts#DriverSummary -- see
@@ -24,9 +24,20 @@ export interface InfiniteDriverSummary {
 // auth.uid() (drizzle/0028), so guess evaluation can go through a
 // client-callable RPC instead of a Server Action. Throws on failure, same
 // as this always did (no explicit error contract existed before either).
-export async function startInfiniteRound(poolWindow: PoolWindow): Promise<void> {
+// The filter goes over the wire whole (drizzle/0053). The RPC re-clamps and
+// re-validates every field rather than trusting these arguments -- this call is
+// a PostgREST endpoint, so the modal's own clamping is a UX nicety, not a
+// guarantee -- and it draws the target from exactly the predicate
+// lib/game/driverFilter.ts#matchesDriverFilter applies on the client.
+export async function startInfiniteRound(filter: DriverFilter): Promise<void> {
   const supabase = createSupabaseBrowserClient();
-  const { error } = await supabase.rpc("infinite_start_round", { p_pool_window: poolWindow });
+  const { error } = await supabase.rpc("infinite_start_round", {
+    p_from_year: filter.fromYear,
+    p_to_year: filter.toYear,
+    p_nationality: filter.nationality,
+    p_team: filter.team,
+    p_achievement: filter.achievement,
+  });
   if (error) throw error;
 }
 

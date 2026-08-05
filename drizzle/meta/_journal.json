@@ -351,6 +351,69 @@
       "when": 1785003984415,
       "tag": "0049_daily_duplicate_guess_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1785003985415,
+      "tag": "0050_duel_round_reveal",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1785003986415,
+      "tag": "0051_daily_guess_pool_validation",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1785003987415,
+      "tag": "0052_pool_window_20_years",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1785003988415,
+      "tag": "0053_infinite_driver_filter",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1785003989415,
+      "tag": "0054_duel_match_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1785003990415,
+      "tag": "0055_duel_per_match_rounds",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1785003991415,
+      "tag": "0056_pick_filtered_driver",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1785003992415,
+      "tag": "0057_duel_lobbies",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1785003993415,
+      "tag": "0058_duel_guess_discipline",
+      "breakpoints": true
     }
   ]
 }

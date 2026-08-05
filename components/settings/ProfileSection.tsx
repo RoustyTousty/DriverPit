@@ -30,7 +30,7 @@ export function ProfileSection() {
   const [pending, setPending] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   // Which commitment sign-out is about to abandon, or null for "no prompt".
-  const [confirmSignOut, setConfirmSignOut] = useState<"match" | "queue" | null>(null);
+  const [confirmSignOut, setConfirmSignOut] = useState<"match" | "queue" | "lobby" | null>(null);
 
   // Keeps the field in sync with the saved value -- a plain useState
   // initializer only runs once on mount, so without this the input could
@@ -97,9 +97,12 @@ export function ProfileSection() {
   // sign-out with nothing in flight goes straight through -- a needless "are
   // you sure?" on the common path just trains people to dismiss it.
   function handleSignOutClick() {
-    const { matchLive, queued } = getDuelCommitments();
-    if (matchLive || queued) {
-      setConfirmSignOut(matchLive ? "match" : "queue");
+    const { matchLive, queued, hostingLobby } = getDuelCommitments();
+    if (matchLive || queued || hostingLobby) {
+      // Most consequential first: a live match has an opponent mid-game, an
+      // open lobby has someone about to follow a link to it, a queue row has
+      // nobody waiting on it in particular.
+      setConfirmSignOut(matchLive ? "match" : hostingLobby ? "lobby" : "queue");
       return;
     }
     void performSignOut();
@@ -258,13 +261,21 @@ export function ProfileSection() {
       <Modal
         open={confirmSignOut !== null}
         onClose={() => setConfirmSignOut(null)}
-        title={confirmSignOut === "match" ? "Forfeit your match?" : "Leave the queue?"}
+        title={
+          confirmSignOut === "match"
+            ? "Forfeit your match?"
+            : confirmSignOut === "lobby"
+              ? "Cancel your custom game?"
+              : "Leave the queue?"
+        }
       >
         <div className="flex flex-col gap-4">
           <p className="text-sm text-text-muted">
             {confirmSignOut === "match"
               ? "Signing out will forfeit your match — your opponent wins immediately, and the result counts toward your duel record."
-              : "Signing out will take you out of matchmaking, so you won't be paired with an opponent."}
+              : confirmSignOut === "lobby"
+                ? "Signing out will cancel the game you're hosting. Anyone you sent the code to won't be able to join."
+                : "Signing out will take you out of matchmaking, so you won't be paired with an opponent."}
           </p>
           <div className="flex justify-end gap-2">
             <button

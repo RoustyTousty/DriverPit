@@ -1,15 +1,31 @@
 import { describe, expect, it } from "vitest";
 
 import { compare, isWin, type Driver, type GuessResult } from "./compare";
-import { DUEL_BASELINE, guessHeat, liveScore, proximityPoints, speedPoints, tugFill } from "./duelScoring";
+import {
+  accuracyFactor,
+  dnfPoints,
+  DUEL_BASELINE,
+  FREE_GUESSES,
+  guessHeat,
+  liveScore,
+  proximityPoints,
+  solvePoints,
+  speedPoints,
+  tugFill,
+} from "./duelScoring";
+import { MIN_SOLVE_MS } from "./duelTiming";
 
 const ROUND_MS = 45_000;
 
 describe("speedPoints", () => {
-  it("scores the maximum for an instant (0ms) solve", () => {
-    const instant = speedPoints(0, ROUND_MS);
-    const aTouchLater = speedPoints(2_000, ROUND_MS);
-    expect(instant).toBeGreaterThan(aTouchLater);
+  it("pays a sub-MIN_SOLVE_MS solve exactly what a MIN_SOLVE_MS one gets", () => {
+    // The anti-script floor (drizzle/0058): no human reads the board and picks
+    // a driver in under two seconds, so anything faster is not rewarded for
+    // being faster. This is the assertion that fails if the clamp is ever
+    // "tidied" back to GREATEST(ms, 0).
+    expect(speedPoints(0, ROUND_MS)).toBe(speedPoints(MIN_SOLVE_MS, ROUND_MS));
+    expect(speedPoints(50, ROUND_MS)).toBe(speedPoints(MIN_SOLVE_MS, ROUND_MS));
+    expect(speedPoints(MIN_SOLVE_MS, ROUND_MS)).toBeGreaterThan(speedPoints(MIN_SOLVE_MS + 1_000, ROUND_MS));
   });
 
   it("scores the minimum for a solve that lands right at the buzzer", () => {
@@ -35,6 +51,10 @@ describe("speedPoints", () => {
     }
   });
 
+  it("clamps a solve time below the floor to the same maximum as landing on it", () => {
+    expect(speedPoints(-500, ROUND_MS)).toBe(speedPoints(MIN_SOLVE_MS, ROUND_MS));
+  });
+
   it("clamps solve times beyond the round duration to the same minimum as landing exactly on it", () => {
     const atBuzzer = speedPoints(ROUND_MS, ROUND_MS);
     const wayOver = speedPoints(ROUND_MS + 30_000, ROUND_MS);
@@ -45,6 +65,95 @@ describe("speedPoints", () => {
     const instant = speedPoints(0, ROUND_MS);
     const negative = speedPoints(-500, ROUND_MS);
     expect(negative).toBe(instant);
+  });
+});
+
+// The whole point of drizzle/0058: unlimited guesses that are no longer free.
+describe("accuracyFactor", () => {
+  it("costs nothing up to and including the free allowance", () => {
+    for (let wrong = 0; wrong <= FREE_GUESSES; wrong++) {
+      expect(accuracyFactor(wrong)).toBe(1);
+    }
+  });
+
+  it("decays strictly from the first guess past the allowance", () => {
+    expect(accuracyFactor(FREE_GUESSES + 1)).toBeLessThan(1);
+    for (let wrong = FREE_GUESSES + 1; wrong < 40; wrong++) {
+      expect(accuracyFactor(wrong)).toBeLessThan(accuracyFactor(wrong - 1));
+    }
+  });
+
+  it("is gentle across a human range and severe across a scripted one", () => {
+    // The tuning claim itself, not just the shape. Counted in WRONG guesses,
+    // so a six-guess solve passes 5 -- the off-by-one that decides whether the
+    // guess that wins is treated as a mistake.
+    const sixGuessSolve = accuracyFactor(5);
+    const fortyFiveGuessSpray = accuracyFactor(44);
+    // A bad-but-real round: still clearly worth playing out.
+    expect(sixGuessSolve).toBeGreaterThan(0.75);
+    // Nobody is deducing anything here; it has to be worth ~nothing.
+    expect(fortyFiveGuessSpray).toBeLessThan(0.02);
+  });
+
+  it("never goes negative or inverts, however many guesses are thrown at it", () => {
+    expect(accuracyFactor(500)).toBeGreaterThanOrEqual(0);
+    expect(accuracyFactor(500)).toBeLessThan(accuracyFactor(100));
+    // Defensive: a negative count is not reachable through the callers, but
+    // Math.max in the exponent is what makes it harmless rather than a
+    // multiplier ABOVE 1 -- which would pay a bonus for guessing badly.
+    expect(accuracyFactor(-3)).toBe(1);
+  });
+});
+
+describe("solvePoints", () => {
+  it("pays the full speed curve while inside the free allowance", () => {
+    expect(solvePoints(10_000, ROUND_MS, FREE_GUESSES)).toBe(speedPoints(10_000, ROUND_MS));
+  });
+
+  it("never decays the floor -- only the bonus above it", () => {
+    // MIN_SPEED_POINTS is what makes "any solve beats any DNF" true. A solve
+    // after a hundred guesses is worth very little, but it is still a solve.
+    const sprayed = solvePoints(30_000, ROUND_MS, 100);
+    expect(sprayed).toBe(100);
+    const perfectDnf = proximityPoints(
+      makeResult({ nationality: "exact", team: "exact", age: "correct", debutYear: "correct", careerWins: "correct" }),
+    );
+    expect(sprayed).toBeGreaterThan(perfectDnf);
+  });
+
+  it("makes a considered slow solve beat a sprayed fast one -- the whole point", () => {
+    // The measured case from the audit that produced drizzle/0058: on the old
+    // curve the spammer scored 845 to the thinker's 541. The cooldown means 45
+    // guesses cannot land before ~45s, so this is the realistic pairing.
+    const thoughtful = solvePoints(18_000, 60_000, 3);
+    const sprayed = solvePoints(45_000, 60_000, 44);
+    expect(thoughtful).toBeGreaterThan(sprayed);
+    expect(thoughtful / sprayed).toBeGreaterThan(4);
+  });
+
+  it("still rewards speed between two equally efficient players", () => {
+    // Guess discipline must not flatten the race -- this is a duel, and at
+    // equal accuracy the faster solve has to win the round.
+    expect(solvePoints(8_000, ROUND_MS, 4)).toBeGreaterThan(solvePoints(30_000, ROUND_MS, 4));
+  });
+});
+
+describe("dnfPoints", () => {
+  it("decays the consolation payout by the same factor a solve pays", () => {
+    // Otherwise spraying is still optimal for a losing round: best-of-N rises
+    // with N for free, and the proximity ceiling is most of a round's floor.
+    expect(dnfPoints(60, FREE_GUESSES)).toBe(60);
+    expect(dnfPoints(60, 20)).toBeLessThan(20);
+  });
+
+  it("stays under the worst possible solve at its own ceiling", () => {
+    const ceiling = 75; // MAX_PROXIMITY_WEIGHT -- every attribute matched, still not the driver
+    expect(dnfPoints(ceiling, 0)).toBeLessThan(solvePoints(ROUND_MS, ROUND_MS, 200));
+  });
+
+  it("is zero when nothing was close, whatever the guess count", () => {
+    expect(dnfPoints(0, 0)).toBe(0);
+    expect(dnfPoints(0, 30)).toBe(0);
   });
 });
 

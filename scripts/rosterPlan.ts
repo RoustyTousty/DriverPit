@@ -172,3 +172,40 @@ export function planRoster(
 
   return { adoptions, inserts, unmatched, ambiguous };
 }
+
+/**
+ * Strict mode only (the unattended weekly refresh): an ambiguous natural key
+ * fails the run instead of being reported.
+ *
+ * Ambiguity is the one outcome above where the plan does something a human
+ * would want to see first. It cannot adopt, so the incoming driver becomes an
+ * INSERT — a second row for someone who may already be in the table, with a
+ * fresh id, while the original keeps every `daily_targets` / `duel_rounds` /
+ * `daily_progress.guesses` reference pointing at it. Both then show up in the
+ * pool. Interactively that is a warning next to a report someone is reading;
+ * on a schedule it is a duplicate driver committed at 06:00 on a Monday.
+ *
+ * Deliberately NOT extended to `unmatched`: rows a release stops mentioning are
+ * expected (pre-0043 imports that were never adopted, genuinely dropped
+ * entries), they are never deleted, and failing on them would make the weekly
+ * refresh permanently red for a condition that harms nothing.
+ */
+export function assertPlanUnambiguous(plan: RosterPlan): void {
+  if (plan.ambiguous.length === 0) return;
+
+  const detail = plan.ambiguous
+    .map(
+      (clash) =>
+        `${clash.naturalKey}: existing #${clash.existingIds.join(", #")} vs ` +
+        `incoming ${clash.incomingF1dbIds.join(", ")}`,
+    )
+    .join("; ");
+
+  throw new Error(
+    `Strict mode: ${plan.ambiguous.length} ambiguous natural key(s) — ${detail}. ` +
+      `Reconciliation refuses to guess which stored row belongs to which driver, ` +
+      `so each of these would be INSERTED as a new row beside the one it may ` +
+      `already be. Rolled back; nothing written. Resolve by setting the right ` +
+      `f1db_id on the existing row by hand, then re-run.`,
+  );
+}

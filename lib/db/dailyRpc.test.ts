@@ -5,6 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { MAX_GUESSES } from "../game/constants";
+import { DAILY_POOL_WINDOW, poolCutoffYear } from "../game/poolWindow";
 import { db } from "./index";
 import { dailyProgress, dailyResults, dailyTargets, drivers } from "./schema";
 
@@ -63,6 +64,7 @@ describe.skipIf(!RUN)("daily_state / daily_submit_guess (integration)", () => {
   let today: string;
   let targetId: number;
   let wrongIds: number[];
+  let outOfPoolId: number;
 
   beforeAll(async () => {
     // An anonymous guest is a real auth.users row; the signup trigger seeds its
@@ -84,18 +86,52 @@ describe.skipIf(!RUN)("daily_state / daily_submit_guess (integration)", () => {
     if (!pin) throw new Error("target was not pinned by daily_state");
     targetId = pin.driverId;
 
-    // A full board's worth of distinct non-target driver ids (guess validation
-    // is existence-only, so pool membership doesn't matter -- these just need to
-    // not be the win). MAX_GUESSES rather than a literal, so a change to the TS
-    // constant that the RPC's own cap doesn't mirror fails on the assertion
-    // below instead of on an undefined array element.
+    // A full board's worth of distinct non-target driver ids, all IN THE DAILY
+    // POOL. That last part stopped being incidental with drizzle/0051: a guess
+    // is now validated against the same DAILY_POOL_WINDOW the target is drawn
+    // from, so the lowest ids on the roster -- 1950s privateers, which is what
+    // an unfiltered `ORDER BY id` returns -- are a rejection rather than a miss.
+    // The cutoff is computed from the TypeScript constant and the DATABASE's
+    // own UTC day; the SQL copy of it is pinned separately by
+    // lib/game/poolWindow.sqlParity.test.ts.
+    //
+    // MAX_GUESSES rather than a literal, so a change to the TS constant that
+    // the RPC's own cap doesn't mirror fails on the assertion below instead of
+    // on an undefined array element.
+    const cutoff = poolCutoffYear(DAILY_POOL_WINDOW, Number(today.slice(0, 4)));
+    const inPool = cutoff === null ? sql`true` : sql`${drivers.lastActiveYear} >= ${cutoff}`;
     const others = await db
       .select({ id: drivers.id })
       .from(drivers)
-      .where(sql`${drivers.id} <> ${targetId}`)
+      .where(sql`${drivers.id} <> ${targetId} AND ${inPool}`)
       .orderBy(drivers.id)
       .limit(MAX_GUESSES);
     wrongIds = others.map((r) => r.id);
+    if (wrongIds.length < MAX_GUESSES) {
+      throw new Error(
+        `the ${DAILY_POOL_WINDOW} pool holds ${wrongIds.length} non-target driver(s), fewer than ` +
+          `the ${MAX_GUESSES} a full board needs -- run \`npm run db:seed\` before the database tier.`,
+      );
+    }
+
+    // One driver below the cutoff, for the rejection case. Ascending id like
+    // `wrongIds` above, which keeps both of this file's picks at the low end of
+    // the roster -- winByIdentity.test.ts borrows the pool's HIGHEST id, so
+    // neither suite can rewrite a driver the other is guessing in a parallel run.
+    const [outside] = await db
+      .select({ id: drivers.id })
+      .from(drivers)
+      .where(cutoff === null ? sql`false` : sql`${drivers.lastActiveYear} < ${cutoff}`)
+      .orderBy(drivers.id)
+      .limit(1);
+    if (!outside) {
+      throw new Error(
+        `no driver sits below the ${DAILY_POOL_WINDOW} cutoff, so "a guess outside the pool" ` +
+          `isn't expressible against this roster. Re-seed, or rewrite that test for the window ` +
+          `DAILY_POOL_WINDOW now names.`,
+      );
+    }
+    outOfPoolId = outside.id;
   });
 
   // Each test starts from a clean day so counts/lengths are deterministic. The
@@ -117,6 +153,33 @@ describe.skipIf(!RUN)("daily_state / daily_submit_guess (integration)", () => {
   it("rejects an unknown driver id", async () => {
     const { error } = await submit(supabase, -1);
     expect(error).not.toBeNull();
+  });
+
+  // drizzle/0051 (audit 2026-07-30 §3.9 residual). Existence was the whole
+  // check, so every driver who ever started a race was accepted while /daily
+  // only ever autocompletes DAILY_POOL_WINDOW -- the rejection message ("pick a
+  // driver from the suggestions list") was a promise the function didn't keep,
+  // and the day's stored guess list could hold rows the board would never have
+  // offered. This is the behavioural half of the guard; poolWindow.sqlParity
+  // pins the cutoff itself, and neither test alone would notice the other's
+  // failure mode.
+  it("rejects a driver outside the daily pool, without costing a turn", async () => {
+    const { error } = await submit(supabase, outOfPoolId);
+    expect(error).not.toBeNull();
+    expect(error!.message).toMatch(/not in today's pool/i);
+
+    // Refused before daily_progress is touched at all -- no row, no turn spent,
+    // nothing for a second device to hydrate.
+    const { data } = await supabase.rpc("daily_state");
+    const board = data as StateBoard;
+    expect(board.guesses).toEqual([]);
+    expect(board.guessesRemaining).toBe(MAX_GUESSES);
+    expect(board.completed).toBe(false);
+
+    // ...and the pool driver beside it is still accepted, so what was added is
+    // a filter and not a blanket refusal.
+    const { error: accepted } = await submit(supabase, wrongIds[0]);
+    expect(accepted).toBeNull();
   });
 
   it("a miss scores the guess, keeps the day live, and never reveals the target", async () => {

@@ -6,7 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "../db";
 import { drivers } from "../db/schema";
 import { compare, type Driver } from "./compare";
-import { guessHeat, proximityPoints, speedPoints } from "./duelScoring";
+import { accuracyFactor, dnfPoints, guessHeat, proximityPoints, solvePoints, speedPoints } from "./duelScoring";
+import { GUESS_COOLDOWN_SERVER_MS } from "./duelTiming";
 
 // The parity suite audit 2026-07-27 §2.5 flags as MISSING ENTIRELY: "There is
 // no duelScoring.sqlParity.test.ts at all."
@@ -82,7 +83,9 @@ describe.skipIf(!RUN)("duel scoring SQL parity with duelScoring.ts (integration)
   let clampedExpr = "";
   let remainingExpr = "";
   let speedPointsExpr = "";
+  let accuracyExpr = "";
   let dnfPointsExpr = "";
+  let submitSrc = "";
 
   beforeAll(async () => {
     const [submit] = await db.execute<{ src: string }>(
@@ -91,6 +94,7 @@ describe.skipIf(!RUN)("duel scoring SQL parity with duelScoring.ts (integration)
     const [close] = await db.execute<{ src: string }>(
       sql`SELECT pg_get_functiondef('public.duel_close_round(integer,integer)'::regprocedure) AS src`,
     );
+    submitSrc = submit.src;
 
     weightedProximityExpr = assignmentRhs(submit.src, "v_weighted_proximity");
 
@@ -105,6 +109,9 @@ describe.skipIf(!RUN)("duel scoring SQL parity with duelScoring.ts (integration)
     clampedExpr = assignmentRhs(submit.src, "v_clamped");
     remainingExpr = assignmentRhs(submit.src, "v_remaining");
     speedPointsExpr = assignmentRhs(submit.src, "v_points", (rhs) => /round\s*\(/i.test(rhs));
+    // The wrong-guess decay (drizzle/0058) -- GUESS_DECAY and FREE_GUESSES
+    // live inside this one expression on the SQL side.
+    accuracyExpr = assignmentRhs(submit.src, "v_accuracy");
 
     // The DNF path: duel_close_round turns the round's best_proximity into
     // points. Read player A's -- B's is the same expression on the other row.
@@ -218,26 +225,38 @@ describe.skipIf(!RUN)("duel scoring SQL parity with duelScoring.ts (integration)
     });
   });
 
+  // Runs the live chain of assignments duel_submit_guess performs on a solve,
+  // in its own order: wrong guesses -> accuracy, ms -> clamped -> remaining,
+  // then the points expression over both. Every piece is the database's, so a
+  // weight, a decay base, a free allowance or the ms floor changed in a future
+  // migration surfaces here.
+  async function sqlSolvePoints(cases: Array<{ ms: number; roundMs: number; wrong: number }>) {
+    const values = cases.map((c) => `(${c.ms}::numeric, ${c.roundMs}::numeric, ${c.wrong}::integer)`).join(",");
+    const rows = await db.execute<{ key: string; points: number }>(sql`
+      WITH input AS (
+        SELECT * FROM (VALUES ${sql.raw(values)}) AS t(v_ms_to_solve, v_round_ms, v_wrong_guesses)
+      ),
+      accuracy AS (SELECT input.*, ${sql.raw(accuracyExpr)} AS v_accuracy FROM input),
+      clamped AS (SELECT accuracy.*, ${sql.raw(clampedExpr)} AS v_clamped FROM accuracy),
+      remaining AS (SELECT clamped.*, ${sql.raw(remainingExpr)} AS v_remaining FROM clamped)
+      SELECT v_ms_to_solve::text || ':' || v_wrong_guesses::text AS key,
+             ${sql.raw(speedPointsExpr)} AS points
+      FROM remaining`);
+    return Object.fromEntries(rows.map((r) => [r.key, r.points]));
+  }
+
   describe("speedPoints -- the solve curve", () => {
     it("matches across the whole round, and clamps outside it", async () => {
       const roundMs = 60_000;
       // Includes both ends and both out-of-range directions: a guess landing
       // before started_at (clock drift, drizzle/0025's grace) and one landing
-      // after ends_at both have to clamp the same way on both sides.
-      const cases = [-5_000, 0, 1, 250, 1_234, 5_000, 15_000, 29_999, 30_000, 45_678, 59_999, 60_000, 90_000];
+      // after ends_at both have to clamp the same way on both sides. The low
+      // end also covers MIN_SOLVE_MS (drizzle/0058): everything under 2000
+      // must come back as 2000 does, on both sides.
+      const cases = [-5_000, 0, 1, 250, 1_234, 1_999, 2_000, 2_001, 5_000, 15_000, 29_999, 30_000, 45_678, 59_999, 60_000, 90_000];
 
-      const rows = await db.execute<{ ms: string; points: number }>(sql`
-        WITH input AS (
-          SELECT unnest(${sql.raw(`ARRAY[${cases.join(",")}]::numeric[]`)}) AS v_ms_to_solve,
-                 ${roundMs}::numeric AS v_round_ms
-        ),
-        clamped AS (SELECT input.*, ${sql.raw(clampedExpr)} AS v_clamped FROM input),
-        remaining AS (SELECT clamped.*, ${sql.raw(remainingExpr)} AS v_remaining FROM clamped)
-        SELECT v_ms_to_solve::text AS ms, ${sql.raw(speedPointsExpr)} AS points FROM remaining`);
-
-      expect(rows).toHaveLength(cases.length);
-      const actual = Object.fromEntries(rows.map((r) => [String(Number(r.ms)), r.points]));
-      const expected = Object.fromEntries(cases.map((ms) => [String(ms), speedPoints(ms, roundMs)]));
+      const actual = await sqlSolvePoints(cases.map((ms) => ({ ms, roundMs, wrong: 0 })));
+      const expected = Object.fromEntries(cases.map((ms) => [`${ms}:0`, speedPoints(ms, roundMs)]));
       expect(actual).toEqual(expected);
     });
 
@@ -245,22 +264,99 @@ describe.skipIf(!RUN)("duel scoring SQL parity with duelScoring.ts (integration)
       // duelScoring.ts's MIN_SPEED_POINTS comment, checked against the live SQL
       // rather than against itself: the slowest possible solve must still beat
       // a perfect-but-not-solving guess. Both numbers come from the database.
+      //
+      // Since drizzle/0058 the weaker reading of this ("the slowest solve")
+      // is not enough: the decay could have been applied to the floor rather
+      // than to the bonus, which is exactly the mistake that would put a lucky
+      // near miss above someone who found the driver. So the solve tested here
+      // is the worst one that can exist -- slowest AND maximally penalised.
       const perfect = await sqlScores(makeDriver(), makeDriver(), TODAY);
-      const [slowest] = await db.execute<{ points: number }>(sql`
-        WITH input AS (SELECT 60000::numeric AS v_ms_to_solve, 60000::numeric AS v_round_ms),
-        clamped AS (SELECT input.*, ${sql.raw(clampedExpr)} AS v_clamped FROM input),
-        remaining AS (SELECT clamped.*, ${sql.raw(remainingExpr)} AS v_remaining FROM clamped)
-        SELECT ${sql.raw(speedPointsExpr)} AS points FROM remaining`);
+      const worst = await sqlSolvePoints([{ ms: 60_000, roundMs: 60_000, wrong: 250 }]);
 
-      expect(slowest.points).toBeGreaterThan(perfect.points);
+      expect(worst["60000:250"]).toBeGreaterThan(perfect.points);
     });
   });
 
-  it("the DNF payout is the rounded best proximity, not some other conversion", () => {
-    // duel_close_round is where best_proximity becomes points. proximityPoints()
-    // is Math.round(weightedProximity), so the shape has to be a plain round to
-    // an integer -- anything else (floor, a multiplier, a cap) would make the
-    // intermission's "+N" disagree with what was written.
-    expect(dnfPointsExpr.replace(/\s+/g, "")).toMatch(/^ROUND\(COALESCE\(.*best_proximity,0\)\)::int$/i);
+  describe("guess discipline -- drizzle/0058", () => {
+    it("the wrong-guess decay matches accuracyFactor across the whole range", async () => {
+      // GUESS_DECAY and FREE_GUESSES are duplicated into plpgsql as literals
+      // inside one expression. Executed rather than string-matched: 0.88 and 3
+      // could be spelled a dozen ways in SQL and only the values matter.
+      const wrongCounts = [0, 1, 2, 3, 4, 5, 6, 10, 20, 45, 103];
+      const values = wrongCounts.map((w) => `(${w}::integer)`).join(",");
+      const rows = await db.execute<{ wrong: number; accuracy: string }>(sql`
+        SELECT v_wrong_guesses AS wrong, ${sql.raw(accuracyExpr)} AS accuracy
+        FROM (VALUES ${sql.raw(values)}) AS t(v_wrong_guesses)`);
+
+      expect(rows).toHaveLength(wrongCounts.length);
+      for (const row of rows) {
+        expect(Number(row.accuracy)).toBeCloseTo(accuracyFactor(row.wrong), 10);
+      }
+    });
+
+    it("solvePoints agrees end to end, across time AND guess count together", async () => {
+      // The two halves interact multiplicatively, so agreeing on each
+      // separately is not the same as agreeing on the product -- this is the
+      // grid the tug-of-war bar and the authoritative score both read.
+      const cases = [
+        { ms: 2_000, roundMs: 60_000, wrong: 0 },
+        { ms: 8_500, roundMs: 60_000, wrong: 3 },
+        { ms: 18_000, roundMs: 60_000, wrong: 4 },
+        { ms: 45_000, roundMs: 60_000, wrong: 44 },
+        { ms: 59_999, roundMs: 60_000, wrong: 7 },
+        // A custom lobby's 30s and 90s rounds -- round_seconds is per-match
+        // (drizzle/0055) and the curve has to follow it on both sides.
+        { ms: 12_000, roundMs: 30_000, wrong: 6 },
+        { ms: 12_000, roundMs: 90_000, wrong: 6 },
+      ];
+
+      const actual = await sqlSolvePoints(cases);
+      const expected = Object.fromEntries(
+        cases.map((c) => [`${c.ms}:${c.wrong}`, solvePoints(c.ms, c.roundMs, c.wrong)]),
+      );
+      expect(actual).toEqual(expected);
+    });
+
+    it("the DNF payout is the best proximity decayed by the same factor", async () => {
+      // duel_close_round is where best_proximity becomes points. Was a plain
+      // ROUND() until drizzle/0058; now it carries its own copy of the decay,
+      // against guess_count rather than guess_count - 1 (every guess in a DNF
+      // round is a wrong one). Executed against the live expression, so the
+      // off-by-one is pinned rather than described.
+      const cases = [
+        { proximity: 0, guesses: 0 },
+        { proximity: 60, guesses: 1 },
+        { proximity: 60, guesses: 3 },
+        { proximity: 60, guesses: 4 },
+        { proximity: 75, guesses: 20 },
+        { proximity: 41.5, guesses: 9 },
+      ];
+      const values = cases.map((c) => `(${c.proximity}::numeric, ${c.guesses}::integer)`).join(",");
+      const rows = await db.execute<{ key: string; points: number }>(sql`
+        SELECT best_proximity::text || ':' || guess_count::text AS key,
+               ${sql.raw(dnfPointsExpr.replaceAll("v_a_result.", "r."))} AS points
+        FROM (VALUES ${sql.raw(values)}) AS r(best_proximity, guess_count)`);
+
+      const actual = Object.fromEntries(rows.map((r) => [r.key, r.points]));
+      const expected = Object.fromEntries(
+        cases.map((c) => [`${c.proximity}:${c.guesses}`, dnfPoints(c.proximity, c.guesses)]),
+      );
+      expect(actual).toEqual(expected);
+    });
+
+    it("the server's guess cooldown is the interval duelTiming.ts declares", () => {
+      // The one constant here that is a plpgsql literal rather than an
+      // expression, so it is matched rather than executed. Read out of the
+      // live function source: a migration that widens the cooldown without
+      // moving GUESS_COOLDOWN_SERVER_MS would otherwise leave the client
+      // waiting less than the server allows, and honest players would start
+      // seeing the rejection.
+      const match = /interval\s*'(\d+)\s*milliseconds'/i.exec(submitSrc);
+      expect(match, `no millisecond interval found in duel_submit_guess -- did the cooldown move?`).not.toBeNull();
+      expect(Number(match![1])).toBe(GUESS_COOLDOWN_SERVER_MS);
+      // And it must stay under the client's own wait, or an honest client
+      // races its own cooldown. (Checked in duelTiming.ts terms, not SQL.)
+      expect(GUESS_COOLDOWN_SERVER_MS).toBeLessThan(1_000);
+    });
   });
 });

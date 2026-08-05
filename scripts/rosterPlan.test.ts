@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertPlanUnambiguous,
   assertUniqueF1dbIds,
   planRoster,
   type ExistingDriver,
@@ -262,5 +263,50 @@ describe("assertUniqueF1dbIds", () => {
     expect(() => assertUniqueF1dbIds([MAX, LEWIS, MAX])).toThrow(
       /max-verstappen.*more than once/,
     );
+  });
+});
+
+// The strict-mode guard the unattended weekly refresh runs behind
+// (.github/workflows/roster-refresh.yml -> npm run db:seed:auto). Everything
+// above describes a plan an operator READS; this decides which of those plans a
+// schedule is allowed to commit with nobody looking.
+describe("assertPlanUnambiguous", () => {
+  it("passes on a plan that resolved every driver", () => {
+    const rows = [existing(1, null, "Max Verstappen", "1997-09-30")];
+    const rookie = incoming("kimi-antonelli", "Andrea Kimi Antonelli", "2006-08-25");
+
+    expect(() => assertPlanUnambiguous(planRoster(rows, [MAX, rookie]))).not.toThrow();
+  });
+
+  // The case worth stopping for: no adoption is possible, so the incoming
+  // driver INSERTS beside a row that may already be them -- and the original
+  // keeps every daily_targets / duel_rounds / daily_progress.guesses reference
+  // pointing at it while both sit in the pool.
+  it("throws on an ambiguous natural key, naming both sides", () => {
+    const rows = [
+      existing(1, null, "Duplicate Driver", "1990-05-05"),
+      existing(2, null, "Duplicate Driver", "1990-05-05"),
+    ];
+    const dup = incoming("duplicate-driver", "Duplicate Driver", "1990-05-05");
+
+    expect(() => assertPlanUnambiguous(planRoster(rows, [dup]))).toThrow(
+      /Duplicate Driver \(1990-05-05\)[\s\S]*#1, #2[\s\S]*duplicate-driver/,
+    );
+  });
+
+  // Deliberately NOT fatal. Rows a release stops mentioning are expected (a
+  // pre-0043 import that was never adopted, a genuinely dropped entry), they are
+  // never deleted, and failing here would leave the weekly refresh permanently
+  // red -- which is how a scheduled job stops being read.
+  it("passes when rows are merely absent from the release", () => {
+    const rows = [
+      existing(1, "max-verstappen", "Max Verstappen", "1997-09-30"),
+      existing(3, "gone-upstream", "Gone Upstream", "1950-02-02"),
+    ];
+
+    const plan = planRoster(rows, [MAX]);
+
+    expect(plan.unmatched.map((r) => r.id)).toEqual([3]);
+    expect(() => assertPlanUnambiguous(plan)).not.toThrow();
   });
 });

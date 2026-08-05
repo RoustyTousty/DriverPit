@@ -1,4 +1,5 @@
 import type { GuessResult, OrderedFeedback } from "./compare";
+import { MIN_SOLVE_MS } from "./duelTiming";
 
 // Any solve, no matter how late, must outscore any DNF -- a DNF's
 // bestProximity is capped well under this floor (see PROXIMITY weights
@@ -6,15 +7,59 @@ import type { GuessResult, OrderedFeedback } from "./compare";
 const MIN_SPEED_POINTS = 100;
 const MAX_SPEED_POINTS = 1000;
 
-// Points for solving a round in `msToSolve`, out of `roundMs` total. Squared
-// falloff (same shape as compare.ts's closeness hint) so the reward is
-// heavily front-loaded -- a 5s solve is worth far more than a 40s one, not
-// just a little more.
+// --- Guess discipline (drizzle/0058) ----------------------------------------
+//
+// How many guesses a round pays full value for, and what each one after that
+// multiplies the *bonus* by. Duel guesses stay unlimited -- a hard cap would
+// lock a player out mid-round and leave them watching a timer in the one mode
+// whose whole point is presence -- but they stop being free.
+//
+// Three free guesses because that is roughly what honest deduction costs before
+// the tiles have said anything useful; 0.88 because it is gentle across the
+// range a human actually plays (six guesses is still x0.77) and brutal across
+// the range only a script reaches (forty is x0.009). Both are tunable: nothing
+// derives from them except the SQL copy in drizzle/0058, which the parity suite
+// pins by executing it against accuracyFactor below.
+export const FREE_GUESSES = 3;
+export const GUESS_DECAY = 0.88;
+
+// What a solve's speed bonus is multiplied by, given how many WRONG guesses
+// preceded it. The solving guess itself is never counted -- getting it right
+// is not a mistake -- so a four-guess solve passes 3 here and pays in full.
+//
+// Never applied to MIN_SPEED_POINTS. That floor is what makes "any solve beats
+// any DNF" true (MAX_PROXIMITY_WEIGHT is 75, well under 100), and decaying it
+// would put a heavily-penalised solve underneath a lucky near miss -- so a
+// player who eventually found the right driver could score less than one who
+// never did. What decays is the 900 points above it.
+export function accuracyFactor(wrongGuesses: number): number {
+  return GUESS_DECAY ** Math.max(0, wrongGuesses - FREE_GUESSES);
+}
+
+// The time half of a solve, on its own: squared falloff (same shape as
+// compare.ts's closeness hint) so the reward is heavily front-loaded -- a 5s
+// solve is worth far more than a 40s one, not just a little more.
+//
+// `msToSolve` is floored at MIN_SOLVE_MS before the curve sees it, so a scripted
+// sub-second solve scores exactly what the fastest possible human does. Exported
+// for the curve's own tests and the parity suite; what a round actually pays is
+// solvePoints below, and every caller in the app uses that one.
 export function speedPoints(msToSolve: number, roundMs: number): number {
-  const clamped = Math.min(Math.max(msToSolve, 0), roundMs);
+  const clamped = Math.min(Math.max(msToSolve, MIN_SOLVE_MS), roundMs);
   const remaining = 1 - clamped / roundMs;
   const falloff = remaining * remaining;
   return Math.round(MIN_SPEED_POINTS + (MAX_SPEED_POINTS - MIN_SPEED_POINTS) * falloff);
+}
+
+// What solving a round is actually worth: the floor, plus the speed bonus
+// scaled by how efficiently it was reached. Mirrored in drizzle/0058's
+// duel_submit_guess, which is the authoritative one -- this side drives the
+// "solve now +N" readout the player watches while deciding whether to guess.
+export function solvePoints(msToSolve: number, roundMs: number, wrongGuesses: number): number {
+  const clamped = Math.min(Math.max(msToSolve, MIN_SOLVE_MS), roundMs);
+  const remaining = 1 - clamped / roundMs;
+  const falloff = remaining * remaining;
+  return Math.round(MIN_SPEED_POINTS + (MAX_SPEED_POINTS - MIN_SPEED_POINTS) * falloff * accuracyFactor(wrongGuesses));
 }
 
 // Weights sum to 83 -- deliberately well under MIN_SPEED_POINTS (100), and
@@ -34,7 +79,7 @@ function orderedFieldScore(feedback: OrderedFeedback, closeness: number | undefi
   return weight * (closeness ?? 0);
 }
 
-function weightedProximity(result: GuessResult): number {
+export function weightedProximity(result: GuessResult): number {
   let points = 0;
 
   if (result.nationality === "exact") points += NATIONALITY_WEIGHT;
@@ -49,11 +94,25 @@ function weightedProximity(result: GuessResult): number {
   return points;
 }
 
-// Minor consolation points for a DNF, from the player's single best
-// (closest) incorrect guess of the round. Never as much as any solve —
-// see MIN_SPEED_POINTS above.
+// One guess's raw proximity, rounded. This is the per-guess reading the board
+// ranks by -- NOT what a DNF pays; that is dnfPoints below, which is this same
+// value at its round-best, decayed. Kept separate because the two are pinned
+// against different SQL: this against duel_submit_guess's v_weighted_proximity,
+// dnfPoints against duel_close_round's v_points_a/b.
 export function proximityPoints(bestResult: GuessResult): number {
   return Math.round(weightedProximity(bestResult));
+}
+
+// Minor consolation points for a DNF, from the player's single best (closest)
+// incorrect guess of the round -- decayed by the same accuracy factor a solve
+// pays, so spraying guesses is not a way to farm proximity either. Every guess
+// in a DNF round is by definition a wrong one, so the whole count is passed.
+//
+// Never as much as any solve: the ceiling is MAX_PROXIMITY_WEIGHT (75) at
+// factor 1, still under MIN_SPEED_POINTS (100), and the factor only ever
+// shrinks it. Mirrored in drizzle/0058's duel_close_round.
+export function dnfPoints(bestProximity: number, wrongGuesses: number): number {
+  return Math.round(bestProximity * accuracyFactor(wrongGuesses));
 }
 
 // Ceiling a guess could ever reach against weightedProximity -- team maxes

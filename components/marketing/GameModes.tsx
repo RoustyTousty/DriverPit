@@ -16,19 +16,19 @@ const MODES: ModeInfo[] = [
     points: [
       "One driver, chosen for everyone, every day",
       "Resets at 00:00 UTC worldwide",
-      "Drawn from the Regular pool (last 10 seasons)",
+      "Drawn from the last 20 seasons of drivers",
       "6 guesses, tracked in your stats and streak",
     ],
   },
   {
     id: "infinite",
     name: "Infinite",
-    summary: "Unlimited rounds, and you choose the driver pool.",
+    summary: "Unlimited rounds, and you build the driver pool.",
     points: [
       "Unlimited rounds — play as much as you want",
-      "You pick the pool, from this season only up to the sport's entire history",
+      "Any span of seasons from 1950 to today, on a slider",
       "6 guesses per round",
-      "Nothing saved between rounds except your pool choice",
+      "Narrow it by nationality, team, or achievement — champions, race winners, pole sitters",
     ],
   },
   {
@@ -40,6 +40,7 @@ const MODES: ModeInfo[] = [
       "3 rounds, a different driver each round",
       "Unlimited guesses, but racing a countdown timer",
       "Faster correct guesses score more; a close miss still earns a few points",
+      "Wrong guesses cost you: after the third, each one cuts what a solve is worth",
       "Your duel rating updates when the match ends",
     ],
   },

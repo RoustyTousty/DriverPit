@@ -50,21 +50,31 @@ const KNOWN_GOOD_RELEASE = "v2026.11.0";
 
 export const COMMIT_FLAG = "--commit";
 export const DRY_RUN_FLAG = "--dry-run";
+// Unattended runs (the weekly GitHub Actions refresh) pass this. See
+// `assertNoLookupMisses` below and `assertPlanUnambiguous` in rosterPlan.ts for
+// what it upgrades from a warning to a failure, and why only those two.
+export const STRICT_FLAG = "--strict";
+
+const KNOWN_FLAGS = [COMMIT_FLAG, DRY_RUN_FLAG, STRICT_FLAG];
 
 export interface WriteMode {
   /** True only when the operator explicitly asked for the write to be kept. */
   commit: boolean;
+  /**
+   * No human is reading the output, so anything that would merely be *reported*
+   * and then committed becomes a hard stop instead.
+   */
+  strict: boolean;
 }
 
 export function resolveWriteMode(argv: readonly string[]): WriteMode {
-  const unknown = argv.filter(
-    (arg) => arg !== COMMIT_FLAG && arg !== DRY_RUN_FLAG,
-  );
+  const unknown = argv.filter((arg) => !KNOWN_FLAGS.includes(arg));
   if (unknown.length > 0) {
     throw new Error(
       `Unrecognised argument(s): ${unknown.join(", ")}. The seed takes ` +
-        `${COMMIT_FLAG} (write and keep it) or ${DRY_RUN_FLAG} (the default: ` +
-        `write and roll back).`,
+        `${COMMIT_FLAG} (write and keep it), ${DRY_RUN_FLAG} (the default: ` +
+        `write and roll back), and ${STRICT_FLAG} (fail on anything a human ` +
+        `would otherwise have to read a warning about).`,
     );
   }
 
@@ -75,7 +85,7 @@ export function resolveWriteMode(argv: readonly string[]): WriteMode {
     );
   }
 
-  return { commit };
+  return { commit, strict: argv.includes(STRICT_FLAG) };
 }
 
 /**
@@ -84,10 +94,11 @@ export function resolveWriteMode(argv: readonly string[]): WriteMode {
  * stated up front rather than inferred from a message at the end.
  */
 export function describeWriteMode(mode: WriteMode): string {
-  return mode.commit
+  const base = mode.commit
     ? "Mode: REAL WRITE — 792-odd live driver rows will be UPDATEd in place and KEPT."
     : "Mode: DRY RUN — the write runs in full and is then rolled back. " +
-        "Use `npm run db:seed:commit` to keep it.";
+      "Use `npm run db:seed:commit` to keep it.";
+  return mode.strict ? `${base} (strict: unattended, warnings are failures)` : base;
 }
 
 /**
@@ -102,6 +113,14 @@ export const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
     "nationalityCountryId",
     "dateOfBirth",
     "dateOfDeath",
+    // The achievement tiers Infinite's filter selects on (drizzle/0053). They
+    // belong here for the same reason as every other column: renamed upstream,
+    // they would silently read as 0 for all 792 drivers, and "no driver has
+    // ever won a championship" is a filter that returns an empty pool rather
+    // than an error.
+    "totalChampionshipWins",
+    "totalPodiums",
+    "totalPolePositions",
   ],
   "f1db-countries.csv": ["id", "name"],
   "f1db-constructors.csv": ["id", "name"],
@@ -314,6 +333,40 @@ export function assertLookupsResolved(tallies: LookupTally[]): void {
   }
 }
 
+/**
+ * Strict mode only (the unattended weekly refresh): ANY unresolved id fails.
+ *
+ * `assertLookupsResolved` above is always on and catches the id space MOVING;
+ * a *partial* miss is deliberately survivable there, because refusing the whole
+ * refresh over one driver would cost the other 791 their updated wins and teams.
+ * That trade assumes someone reads `describeLookupMisses` and chases the id.
+ * Unattended, nobody does — and what a miss leaves behind is a raw slug sitting
+ * in `nationality` or `last_team`, both of which `compare_drivers` compares by
+ * string EQUALITY: two drivers of the same country reporting a miss against each
+ * other, and a flag that silently stops rendering. A stale roster is a worse
+ * game for a week; wrong tiles are a broken one, so the automated path stops.
+ */
+export function assertNoLookupMisses(tallies: LookupTally[]): void {
+  const failed = tallies.filter((tally) => tally.misses.size > 0);
+  if (failed.length === 0) return;
+
+  const detail = failed
+    .map(
+      (tally) =>
+        `${tally.subject}: ${[...tally.misses.keys()].join(", ")} (of ` +
+        `${tally.referenced.size} id(s), from ${tally.fileName})`,
+    )
+    .join("; ");
+
+  throw new Error(
+    `Strict mode: ${failed.length} reference join(s) left id(s) unresolved — ${detail}. ` +
+      `They would import as a raw id where a name belongs, and compare_drivers ` +
+      `compares both columns by string equality, so those drivers mis-compare ` +
+      `against correctly named ones. Nothing written. Run \`npm run db:seed\` ` +
+      `locally to read the full report.`,
+  );
+}
+
 /** The subset of a built driver row the sanity checks look at. */
 export interface SanityDriver {
   f1dbId: string;
@@ -321,6 +374,9 @@ export interface SanityDriver {
   careerWins: number;
   debutYear: number;
   lastActiveYear: number;
+  championshipWins: number;
+  podiums: number;
+  polePositions: number;
 }
 
 /**
@@ -362,6 +418,24 @@ export function assertRosterSanity(
         `>= ${minActive}, got ${verstappen ? verstappen.lastActiveYear : "no such driver in the release"}. ` +
         `Either race starts stopped being counted (\`positionText\`) or the ` +
         `canary retired -- pick a new one deliberately. Nothing written.`,
+    );
+  }
+
+  // The achievement columns (drizzle/0053) have their own silent mode, and it
+  // is the same shape as the wins one: renamed or re-typed upstream, every
+  // driver reads 0, the row count is unchanged, the header assertion passes if
+  // the name survived, and the only symptom is that Infinite's "World
+  // champions" filter quietly matches nobody. Hamilton is the probe again --
+  // seven titles, and every value here is a floor he cannot fall below.
+  const titles = hamilton.championshipWins;
+  const podiums = hamilton.podiums;
+  const poles = hamilton.polePositions;
+  if (titles < 7 || podiums < 190 || poles < 100) {
+    throw new Error(
+      `Sanity check failed: expected lewis-hamilton to have >= 7 titles, ` +
+        `>= 190 podiums and >= 100 poles, got ${titles}/${podiums}/${poles}. ` +
+        `Zeroes across the roster mean totalChampionshipWins / totalPodiums / ` +
+        `totalPolePositions changed meaning. Nothing written.`,
     );
   }
 }

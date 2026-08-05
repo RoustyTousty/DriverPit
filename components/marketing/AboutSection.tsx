@@ -30,10 +30,11 @@ export function AboutSection() {
         </a>
         , an open, community-maintained Formula 1 database covering every Grand Prix starter since
         1950. Not all of them are in play at once, though — which drivers can turn up as the mystery
-        driver is controlled by a <span className="font-semibold text-text">driver pool</span> based
-        on how recently they last raced, from this season only up to the sport&apos;s entire history.
-        Behind the scenes, win totals and current teams are refreshed weekly from live results, so
-        the numbers you&apos;re comparing against stay accurate as a season plays out.
+        driver is controlled by a <span className="font-semibold text-text">driver pool</span>. Daily and
+        Duel use the last 20 seasons; in Infinite you build the pool yourself — any span of seasons,
+        narrowed by nationality, team or what a driver achieved.
+        Behind the scenes, the roster is refreshed from F1DB every week, so win totals, current
+        teams and new arrivals stay accurate as a season plays out.
       </p>
 
       <p className="text-sm text-text-muted">

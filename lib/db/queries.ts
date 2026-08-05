@@ -10,16 +10,28 @@ export interface EligibleDriverOption {
   nationality: string;
 }
 
-// id + fullName + nationality + lastActiveYear for every driver who's ever
-// started a race — the full roster, unfiltered. Small enough (~800 rows, a
-// few dozen KB) to ship to the client whole and filter by pool window
-// there, so switching windows in Infinite mode is instant with no round
-// trip.
+// Every column Infinite's filter reads, for every driver who has ever started a
+// race — the full roster, unfiltered. Shipped to the client whole so composing a
+// filter is instant and needs no round trip; the SAME predicate then runs in
+// infinite_start_round to pick the target (lib/game/driverFilter.ts).
+//
+// It is the widest payload the site sends, so it is worth knowing what each
+// field buys: `teams` is the only non-scalar, and it exists because "Ferrari
+// drivers" means everyone who ever drove one, which `lastTeam` cannot answer.
+// The three achievement counts ship as plain integers rather than booleans on
+// purpose — the modal shows live counts per tier, and a boolean would fix the
+// thresholds here instead of in the filter.
 export interface DriverWithActivity {
   id: number;
   fullName: string;
   nationality: string;
+  debutYear: number;
   lastActiveYear: number;
+  teams: string[];
+  careerWins: number;
+  championshipWins: number;
+  podiums: number;
+  polePositions: number;
 }
 
 export async function listAllDriverOptionsWithActivity(): Promise<DriverWithActivity[]> {
@@ -28,11 +40,17 @@ export async function listAllDriverOptionsWithActivity(): Promise<DriverWithActi
       id: drivers.id,
       fullName: drivers.fullName,
       nationality: drivers.nationality,
+      debutYear: drivers.debutYear,
       lastActiveYear: drivers.lastActiveYear,
+      teams: drivers.previousTeams,
+      careerWins: drivers.careerWins,
+      championshipWins: drivers.championshipWins,
+      podiums: drivers.podiums,
+      polePositions: drivers.polePositions,
     })
     .from(drivers)
     .orderBy(drivers.fullName);
-  // lastActiveYear is NOT NULL at the DB level; the select type just can't
+  // These columns are NOT NULL at the DB level; the select type just can't
   // express that without a manual cast.
   return rows as DriverWithActivity[];
 }

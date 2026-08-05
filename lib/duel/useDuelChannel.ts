@@ -131,16 +131,17 @@ export interface DuelChannelState {
 // whichever client's duel_begin_round/duel_close_round call actually
 // performed a round transition, close, or match finish, as a fast-path
 // nudge for the other client (which otherwise only finds out on its own
-// next safety-net poll or timer expiry). round_start's receiving side
-// still re-confirms authoritative state via its own idempotent RPC calls
-// rather than trusting the payload outright for anything render-affecting
-// (see components/duel/DuelMatch.tsx); round_end's payload is authoritative
-// as-is (duel_close_round already returned everything in it to the closing
-// client, so the receiving client uses it directly to drive its own
-// intermission). forfeit is advisory: the receiver always re-verifies
-// against the server (getDuelState) before treating it as real, since a
-// beforeunload broadcast can outrun -- or entirely outlive -- the
-// leaver's own duel_forfeit call.
+// next safety-net poll or timer expiry). ALL THREE ARE NUDGES AND NOTHING
+// MORE -- the receiving side re-reads authoritative state before rendering
+// anything: round_start through the idempotent duel_begin_round_client (audit
+// 2026-07-29 §0.2), round_end and match_end through duel_round_reveal
+// (drizzle/0050, audit 2026-07-30 §3.4 residual). round_end used to be treated
+// as authoritative as-sent, on the grounds that duel_close_round had already
+// returned it to the closing client -- true of the CLOSING client, and the
+// receiving one is exactly the client that never made that call. forfeit is
+// advisory in the same way: the receiver re-verifies against the server
+// (getDuelState) before treating it as real, since a beforeunload broadcast
+// can outrun -- or entirely outlive -- the leaver's own duel_forfeit call.
 //
 // matchId/myUserId/opponentUserId accept null so a component that doesn't
 // know them yet (e.g. an orchestrator still on its "searching for an

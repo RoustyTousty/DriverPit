@@ -6,22 +6,25 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db } from "../db";
 import { dailyTargets } from "../db/schema";
 import { MAX_GUESSES } from "./constants";
-import { DAILY_POOL_WINDOW, POOL_WINDOWS, poolCutoffYear } from "./poolWindow";
+import { DAILY_POOL_WINDOW, poolCutoffYear } from "./poolWindow";
 
 // The guard audit 2026-07-29 §2.5 asks for by name, and the last of the four
 // TS<->plpgsql duplications to get one.
 //
 // WHAT GOES WRONG WITHOUT IT. `DAILY_POOL_WINDOW`'s cutoff is a TypeScript
 // constant that decides which drivers the browser will autocomplete, and a
-// hardcoded `- 10` inside two live plpgsql functions that decide which driver is
-// the ANSWER -- daily_target_id (the day's target) and duel_begin_round (each
-// duel round's target). Change the constant and only the autocomplete moves: the
-// target keeps coming from the old window, so /daily can serve a driver the
-// player cannot type. Nothing errors, nothing looks broken, and it is
-// unreportable as a bug. The compare ladder has compare.sqlParity, the scoring
-// weights have duelScoring.sqlParity; this had a keep-in-sync comment.
-// MAX_GUESSES (lib/game/constants.ts) is the same shape at lower stakes and is
-// covered here too, per that finding's second bullet.
+// hardcoded year offset (`- 20` since drizzle/0052, `- 10` before it) inside
+// three live plpgsql functions -- two that decide which
+// driver is the ANSWER (daily_target_id for the day's target, duel_begin_round
+// for each duel round's) and one that decides which driver is a legal GUESS
+// (daily_submit_guess, drizzle/0051). Change the constant and only the
+// autocomplete moves: the target keeps coming from the old window, so /daily can
+// serve a driver the player cannot type, and the guess check refuses one it
+// does offer. Nothing errors, nothing looks broken, and it is unreportable as a
+// bug. The compare ladder has compare.sqlParity, the scoring weights have
+// duelScoring.sqlParity; this had a keep-in-sync comment. MAX_GUESSES
+// (lib/game/constants.ts) is the same shape at lower stakes and is covered here
+// too, per that finding's second bullet.
 //
 // TWO TECHNIQUES, PICKED PER SITE:
 //
@@ -137,7 +140,7 @@ describe.skipIf(!RUN)("the SQL mirrors of lib/game's pool + guess constants (int
   // The probe day for a reference year, refused unless it is genuinely in the
   // future. These probes PIN a target and then delete the row, which is a
   // destructive thing to do to a day someone could be playing. Under the current
-  // "10-years" window they land a decade out and this never triggers; under a
+  // "20-years" window they land two decades out and this never triggers; under a
   // narrower window (say "current-season") referenceYearFor returns the current
   // year, and the probe would aim at a live day. Fail loudly there rather than
   // deleting a real answer out from under a board mid-guess.
@@ -240,39 +243,39 @@ describe.skipIf(!RUN)("the SQL mirrors of lib/game's pool + guess constants (int
 
       expect(await evaluate(bound)).toBe(poolCutoffYear(DAILY_POOL_WINDOW, dbYear));
     });
-  });
 
-  describe("infinite's pool ladder", () => {
-    it("infinite_start_round's cutoffs match poolCutoffYear for every window", async () => {
-      // Infinite is the one mode that mirrors the WHOLE ladder rather than the
-      // daily window alone, so this checks all five tiers -- including 'legacy',
-      // whose null is what makes the pool unfiltered rather than empty.
-      const src = await functionSource("public.infinite_start_round(text)");
-      const ladder = soleMatch(src, /\bv_cutoff\s*:=\s*([\s\S]*?);/g, "`v_cutoff :=` assignment");
-
-      for (const { value } of POOL_WINDOWS) {
-        const expression = ladder
-          .replaceAll("p_pool_window", `'${value}'`)
-          .replaceAll("v_year", String(dbYear));
-        expect(await evaluate(expression)).toBe(poolCutoffYear(value, dbYear));
-      }
-    });
-
-    it("infinite_start_round accepts exactly the windows POOL_WINDOWS declares", async () => {
-      // The ladder above is only reached by a window the guard clause lets
-      // through. A tier added to TypeScript and not to SQL is rejected outright
-      // -- "Invalid pool window" on a picker the player can see.
-      const src = await functionSource("public.infinite_start_round(text)");
-      const list = soleMatch(
+    it("daily_submit_guess validates a guess against that same cutoff", async () => {
+      // The third site (drizzle/0051, audit 2026-07-30 §3.9 residual), and the
+      // only one that uses the cutoff to REJECT rather than to pick. Drift here
+      // is quieter than the other two and points the opposite way: a SQL cutoff
+      // stricter than the TypeScript one refuses a driver the board offered, and
+      // one looser re-opens the whole roster the check was added to close.
+      //
+      // Extraction rather than a probe because it resolves its own day from
+      // now(), same as duel_begin_round -- v_today is substituted with a literal
+      // so the assertion is timezone-proof rather than depending on the database
+      // session's zone matching UTC on the day it runs.
+      const src = await functionSource("public.daily_submit_guess(integer)");
+      const cutoff = soleMatch(
         src,
-        /p_pool_window\s+NOT\s+IN\s*\(([^)]*)\)/gi,
-        "pool-window allow-list",
+        /\bv_pool_cutoff_year\s+constant\s+integer\s*:=\s*([^;]+);/g,
+        "`v_pool_cutoff_year` declaration",
       );
-      const accepted = list.split(",").map((entry) => entry.trim().replace(/^'|'$/g, ""));
 
-      expect(accepted.sort()).toEqual(POOL_WINDOWS.map((w) => w.value).sort());
+      expect(await evaluate(cutoff.replaceAll("v_today", `'${dbYear}-06-15'::date`))).toBe(
+        poolCutoffYear(DAILY_POOL_WINDOW, dbYear),
+      );
     });
   });
+
+  // Infinite used to mirror this whole ladder in infinite_start_round, and had
+  // two assertions here to prove it. drizzle/0053 replaced that mode's pool
+  // window with a composed filter (year range + nationality + team +
+  // achievement), so there is no ladder left in it to pin -- the equivalent
+  // TS<->SQL check for its replacement is behavioural and lives in
+  // lib/db/infiniteFilter.sqlParity.test.ts, because the filter is a predicate
+  // rather than a constant and extracting it as text would prove far less than
+  // running it. POOL_WINDOWS itself is still daily/duel's and still pinned above.
 
   describe("the guess limit", () => {
     it("daily_state and daily_submit_guess both cap the board at MAX_GUESSES", async () => {

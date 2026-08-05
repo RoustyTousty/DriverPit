@@ -14,6 +14,12 @@
 // nothing.
 let liveMatchId: number | null = null;
 let queued = false;
+// The code of an OPEN custom lobby this browser is hosting. A third live
+// commitment, and one with a second person on the other end of it: a friend who
+// follows the link to a lobby whose host signed out joins a match nobody is in
+// and eats a DISCONNECT_GRACE_MS forfeit for it. Cancelled in step 1 of
+// signOutAndReset, while the outgoing identity can still authenticate the call.
+let openLobbyCode: string | null = null;
 
 export function setLiveMatchId(matchId: number | null): void {
   liveMatchId = matchId;
@@ -32,13 +38,25 @@ export function isQueued(): boolean {
   return queued;
 }
 
+// Set by CustomLobbyWaiting for exactly as long as it holds an open lobby --
+// cleared the moment a joiner consumes it (that row belongs to a live match
+// now, and the match commitment above takes over).
+export function setOpenLobbyCode(code: string | null): void {
+  openLobbyCode = code;
+}
+
+export function getOpenLobbyCode(): string | null {
+  return openLobbyCode;
+}
+
 export interface DuelCommitments {
   matchLive: boolean;
   queued: boolean;
+  hostingLobby: boolean;
 }
 
 // Whether signing out right now would abandon something -- drives the
 // confirmation prompt.
 export function getDuelCommitments(): DuelCommitments {
-  return { matchLive: liveMatchId !== null, queued };
+  return { matchLive: liveMatchId !== null, queued, hostingLobby: openLobbyCode !== null };
 }

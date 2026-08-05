@@ -6,10 +6,11 @@ import { gte, sql } from "drizzle-orm";
 
 import { client, db } from "../lib/db";
 import { drivers } from "../lib/db/schema";
-import { poolCutoffYear } from "../lib/game/poolWindow";
+import { DAILY_POOL_WINDOW, POOL_WINDOWS, poolCutoffYear } from "../lib/game/poolWindow";
 import {
   assertColumns,
   assertLookupsResolved,
+  assertNoLookupMisses,
   assertRosterSanity,
   describeLookupMisses,
   describeWriteMode,
@@ -19,6 +20,7 @@ import {
   resolveWriteMode,
 } from "./releaseGuards";
 import {
+  assertPlanUnambiguous,
   assertUniqueF1dbIds,
   planRoster,
   type ExistingDriver,
@@ -58,7 +60,21 @@ type CsvRow = Record<string, string>;
 type DriverInsert = typeof drivers.$inferInsert & {
   f1dbId: string;
   careerWins: number;
+  // Optional on insert only because drizzle/0053 gave them defaults; the seed
+  // always computes them, and releaseGuards.ts's canary reads them.
+  championshipWins: number;
+  podiums: number;
+  polePositions: number;
 };
+
+// A non-negative integer from a CSV cell. Negative and non-numeric both floor
+// to 0 rather than throwing: drizzle/0053's CHECK constraints are the backstop
+// for a genuinely corrupt feed (they fail the seed's own transaction), and this
+// is only about a blank cell for a driver who never scored.
+function countColumn(raw: string | undefined): number {
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
 
 async function downloadCsvZip(url: string): Promise<AdmZip> {
   const res = await fetch(url);
@@ -200,7 +216,7 @@ function reportPlan(plan: RosterPlan, existingCount: number): void {
 }
 
 /** Downloads the chosen release and reduces it to the rows we import. */
-async function buildRoster(currentYear: number): Promise<DriverInsert[]> {
+async function buildRoster(currentYear: number, strict: boolean): Promise<DriverInsert[]> {
   const release = resolveRelease(process.env);
   if (!release.pinned) {
     console.warn(
@@ -279,6 +295,16 @@ async function buildRoster(currentYear: number): Promise<DriverInsert[]> {
       lastTeam,
       previousTeams,
       lastActiveYear: agg.lastYear,
+      // The three achievement tiers Infinite's filter offers (drizzle/0053).
+      // Read straight off the drivers CSV rather than aggregated from race
+      // results the way careerWins is: F1DB already totals them, and a second
+      // methodology for "did they ever podium" is a second thing to be wrong.
+      // A missing/unparseable value reads as 0 -- the header assertion in
+      // readCsv is what catches the column disappearing, so this fallback is
+      // for a blank cell on one driver, not for a moved schema.
+      championshipWins: countColumn(row.totalChampionshipWins),
+      podiums: countColumn(row.totalPodiums),
+      polePositions: countColumn(row.totalPolePositions),
     });
   }
 
@@ -305,6 +331,8 @@ async function buildRoster(currentYear: number): Promise<DriverInsert[]> {
   // Before the transaction opens, not inside it: a release that fails here has
   // no business reaching the write path at all.
   assertLookupsResolved([nationalityLookup, teamLookup]);
+  // Unattended, the warning above is the whole mitigation and nobody reads it.
+  if (strict) assertNoLookupMisses([nationalityLookup, teamLookup]);
   assertRosterSanity(values, currentYear);
 
   return values;
@@ -314,6 +342,7 @@ async function writeRoster(
   values: DriverInsert[],
   incoming: IncomingDriver[],
   dryRun: boolean,
+  strict: boolean,
 ): Promise<void> {
   // One transaction for the whole write. Nothing is deleted and no id is ever
   // reassigned: rows are matched to the release by f1db_id and UPDATEd in
@@ -340,6 +369,9 @@ async function writeRoster(
 
     const plan = planRoster(existing, incoming);
     reportPlan(plan, existing.length);
+    // Inside the transaction, so it rolls back with everything else -- and after
+    // reportPlan, so the log names the clash before the throw explains it.
+    if (strict) assertPlanUnambiguous(plan);
 
     // Adopt first, so the upsert below lands on the adopted rows instead of
     // inserting duplicates alongside them.
@@ -380,6 +412,9 @@ async function writeRoster(
             dateOfBirth: sql`excluded.date_of_birth`,
             dateOfDeath: sql`excluded.date_of_death`,
             debutYear: sql`excluded.debut_year`,
+            championshipWins: sql`excluded.championship_wins`,
+            podiums: sql`excluded.podiums`,
+            polePositions: sql`excluded.pole_positions`,
             careerWins: sql`excluded.career_wins`,
             lastTeam: sql`excluded.last_team`,
             previousTeams: sql`excluded.previous_teams`,
@@ -416,7 +451,7 @@ async function main() {
   console.log(describeWriteMode(mode));
 
   const currentYear = new Date().getUTCFullYear();
-  const values = await buildRoster(currentYear);
+  const values = await buildRoster(currentYear, mode.strict);
 
   const incoming = values.map((v) => ({
     f1dbId: v.f1dbId,
@@ -426,7 +461,7 @@ async function main() {
   assertUniqueF1dbIds(incoming);
 
   try {
-    await writeRoster(values, incoming, !mode.commit);
+    await writeRoster(values, incoming, !mode.commit, mode.strict);
   } catch (err) {
     if (!(err instanceof DryRunRollback)) throw err;
     console.log(
@@ -435,14 +470,19 @@ async function main() {
     );
   }
 
-  const defaultPoolCutoff = poolCutoffYear("10-years", currentYear)!;
+  // Reported for the window the GAME actually uses, read from the constant
+  // rather than spelled out here -- a hardcoded "10-years" kept printing a count
+  // for a pool nothing draws from once DAILY_POOL_WINDOW moved (drizzle/0052).
+  const defaultPoolCutoff = poolCutoffYear(DAILY_POOL_WINDOW, currentYear)!;
   const defaultPoolDrivers = await db
     .select()
     .from(drivers)
     .where(gte(drivers.lastActiveYear, defaultPoolCutoff));
 
+  const defaultPoolLabel =
+    POOL_WINDOWS.find((w) => w.value === DAILY_POOL_WINDOW)?.label ?? DAILY_POOL_WINDOW;
   console.log(`\nTotal drivers in release: ${values.length}`);
-  console.log(`Default pool (last 10 years): ${defaultPoolDrivers.length} drivers.`);
+  console.log(`Daily/duel pool (${defaultPoolLabel.toLowerCase()}): ${defaultPoolDrivers.length} drivers.`);
 
   const sample = [...defaultPoolDrivers]
     .sort(() => Math.random() - 0.5)

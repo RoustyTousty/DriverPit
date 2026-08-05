@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSearchIndex, fuzzyFilter, normalizeSearchText, partitionSearchIndex } from "./fuzzyMatch";
+import {
+  buildSearchIndex,
+  fuzzyFilter,
+  normalizeSearchText,
+  partitionSearchIndex,
+  sampleSearchIndex,
+} from "./fuzzyMatch";
 
 const DRIVERS = [
   "Max Verstappen",
@@ -168,5 +174,69 @@ describe("partitionSearchIndex", () => {
     const { included, excluded } = partitionSearchIndex(index, () => false);
     expect(included.map((entry) => entry.item)).toEqual(DRIVERS);
     expect(excluded).toEqual([]);
+  });
+});
+
+// What an EMPTY query offers. fuzzyFilter's answer to one is the head of the
+// pool -- which is alphabetical, so every player opening the box saw the same
+// eight A-names before typing anything.
+describe("sampleSearchIndex", () => {
+  const POOL = Array.from({ length: 40 }, (_, i) => `Driver ${String(i).padStart(2, "0")}`);
+  const index = buildSearchIndex(POOL, (d) => d);
+
+  it("draws the asked-for number of drivers, all distinct and all from the pool", () => {
+    const drawn = sampleSearchIndex(index, 8, 12345);
+    expect(drawn).toHaveLength(8);
+    expect(new Set(drawn).size).toBe(8);
+    drawn.forEach((name) => expect(POOL).toContain(name));
+  });
+
+  it("is pure: the same seed always draws the same list", () => {
+    // The property the caller depends on. DriverAutocomplete samples during
+    // render and re-renders on the duel's 10Hz round clock -- if this were
+    // seeded from Math.random internally, the suggestions would reshuffle under
+    // the player's cursor ten times a second.
+    expect(sampleSearchIndex(index, 8, 999)).toEqual(sampleSearchIndex(index, 8, 999));
+  });
+
+  it("draws differently as the seed changes", () => {
+    const lists = Array.from({ length: 20 }, (_, seed) =>
+      sampleSearchIndex(index, 8, seed).join("|"),
+    );
+    // Not "every pair differs" -- that would be asserting the PRNG never
+    // collides. One repeated draw across twenty seeds is fine; twenty identical
+    // ones would mean the seed isn't reaching the shuffle at all.
+    expect(new Set(lists).size).toBeGreaterThan(15);
+  });
+
+  it("does not just return the head of the pool", () => {
+    // The actual complaint: the box always opened on the top of the alphabet.
+    const head = POOL.slice(0, 8);
+    const anySeedMatchesHead = Array.from({ length: 20 }, (_, seed) =>
+      sampleSearchIndex(index, 8, seed),
+    ).some((drawn) => drawn.every((name, i) => name === head[i]));
+    expect(anySeedMatchesHead).toBe(false);
+  });
+
+  it("covers the whole pool over enough draws, not just its front", () => {
+    // A partial Fisher-Yates that swaps wrongly still looks plausible on one
+    // draw; what it gets wrong is reach. Every driver must be reachable.
+    const seen = new Set<string>();
+    for (let seed = 0; seed < 500; seed++) {
+      for (const name of sampleSearchIndex(index, 8, seed)) seen.add(name);
+    }
+    expect(seen.size).toBe(POOL.length);
+  });
+
+  it("returns the whole pool when it is smaller than the sample", () => {
+    const small = buildSearchIndex(["Alpha", "Beta", "Gamma"], (d) => d);
+    const drawn = sampleSearchIndex(small, 8, 7);
+    expect(drawn).toHaveLength(3);
+    expect([...drawn].sort()).toEqual(["Alpha", "Beta", "Gamma"]);
+  });
+
+  it("handles an empty pool and a zero count without a throw", () => {
+    expect(sampleSearchIndex([], 8, 1)).toEqual([]);
+    expect(sampleSearchIndex(index, 0, 1)).toEqual([]);
   });
 });

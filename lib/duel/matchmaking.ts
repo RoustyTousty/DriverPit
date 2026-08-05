@@ -2,6 +2,7 @@ import { DAILY_POOL_WINDOW } from "@/lib/game/poolWindow";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 import { getDeviceId } from "./deviceId";
+import { DEFAULT_ROUNDS } from "./liveMatch";
 
 // The shared channel every /online visitor subscribes to -- Presence for the
 // online count, broadcast for pushing a just-created match to the player
@@ -38,6 +39,14 @@ export interface MatchResult {
   opponentDuelLosses: number;
   youAre: "a" | "b";
   matchCreatedAt: string;
+  // Per-match config off duel_matches (drizzle/0054). Both are DISPLAY-ONLY on
+  // the client, and that is the invariant to keep: `rounds` prints the "Round N
+  // / M" label and `ranked` decides whether the results panel shows a rating
+  // delta. Neither decides when the match ends or whether stats move -- those
+  // are duel_close_round's and applyMatchResult's calls, made from the row.
+  // A wrong value here misprints a label; it cannot desync or misreport a match.
+  ranked: boolean;
+  rounds: number;
 }
 
 function toMatchResult(row: MatchOrQueueRow): MatchResult | null {
@@ -53,6 +62,15 @@ function toMatchResult(row: MatchOrQueueRow): MatchResult | null {
     opponentDuelLosses: row.opponent_duel_losses ?? 0,
     youAre: row.you_are ?? "a",
     matchCreatedAt: row.match_created_at ?? new Date().toISOString(),
+    // Not read off the row, and it doesn't need to be: match_or_queue creates
+    // its matches without naming any config column, so every match that comes
+    // back through here took the defaults -- ranked, DEFAULT_ROUNDS. Stating
+    // that is cheaper than a DROP FUNCTION + CREATE to widen a RETURNS TABLE
+    // (CREATE OR REPLACE cannot), which would also cost a restated grant
+    // decision. A custom match never arrives through this mapper; it comes back
+    // from duel_lobby_join, which will carry its own config (phase 4).
+    ranked: true,
+    rounds: DEFAULT_ROUNDS,
   };
 }
 

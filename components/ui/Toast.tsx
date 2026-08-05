@@ -32,19 +32,50 @@ const EXIT_MS = 200;
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const idRef = useRef(0);
+  // Every pending auto-dismiss and exit-transition timer, so unmounting can
+  // cancel them. In practice this provider is mounted at the app root and never
+  // unmounts, so nothing leaks today -- it is here because "the only instance
+  // happens to live forever" is a property of the call site, not of the
+  // component, and a second, shorter-lived ToastProvider would be a real leak
+  // with no sign at the point that introduced it.
+  const timersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
 
-  const dismiss = useCallback((id: number) => {
-    setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, leaving: true } : t)));
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), EXIT_MS);
+  useEffect(() => {
+    // Captured on mount rather than read in the cleanup: the cleanup runs after
+    // the component is gone, and a ref read there is exactly the stale-value
+    // pattern react-hooks/exhaustive-deps warns about.
+    const timers = timersRef.current;
+    return () => {
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
   }, []);
+
+  // Self-removing, so the set holds only what is genuinely still pending and
+  // can't grow across a long session.
+  const schedule = useCallback((run: () => void, delayMs: number) => {
+    const handle = setTimeout(() => {
+      timersRef.current.delete(handle);
+      run();
+    }, delayMs);
+    timersRef.current.add(handle);
+  }, []);
+
+  const dismiss = useCallback(
+    (id: number) => {
+      setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, leaving: true } : t)));
+      schedule(() => setToasts((prev) => prev.filter((t) => t.id !== id)), EXIT_MS);
+    },
+    [schedule],
+  );
 
   const push = useCallback(
     (type: ToastType, message: string) => {
       const id = idRef.current++;
       setToasts((prev) => [...prev, { id, type, message, leaving: false }]);
-      setTimeout(() => dismiss(id), DURATION_MS[type]);
+      schedule(() => dismiss(id), DURATION_MS[type]);
     },
-    [dismiss],
+    [dismiss, schedule],
   );
 
   const [value] = useState<ToastContextValue>(() => ({

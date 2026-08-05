@@ -3,7 +3,7 @@ import { ModeIcon, type GameModeId } from "./ModeIcon";
 
 const MODES: { id: GameModeId; name: string; tag?: string; summary: string }[] = [
   { id: "daily", name: "Daily", summary: "One mystery driver a day, same for everyone." },
-  { id: "infinite", name: "Infinite", summary: "Unlimited rounds, pick your own driver pool." },
+  { id: "infinite", name: "Infinite", summary: "Unlimited rounds, build your own driver pool." },
   { id: "duel", name: "Duel", summary: "Race a matchmade opponent across 3 rounds." },
   { id: "knockout", name: "Knockout", tag: "Coming soon", summary: "20 players, one target, elimination over 3 rounds." },
 ];

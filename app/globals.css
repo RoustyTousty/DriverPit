@@ -1,5 +1,9 @@
 @import "tailwindcss";
-@import "flag-icons/css/flag-icons.min.css";
+/* A 40-country cut of flag-icons, generated from COUNTRY_CODES -- not the full
+   ~250-country package stylesheet, which shipped on every route (including the
+   info and legal pages) for a setting that is off by default. See the file's
+   own header and scripts/flagSubset.ts. Regenerate with `npm run flags:subset`. */
+@import "./flag-icons.subset.css";
 
 :root {
   --bg: #0b0d10;
@@ -33,6 +37,13 @@
   --font-mono: var(--font-geist-mono);
 
   --animate-tile-reveal: tile-reveal 380ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  /* The duel's guess-discipline feedback (drizzle/0058). Both are one-shot and
+     both are keyed on a changing value in JSX, so they replay per guess rather
+     than looping -- no ambient motion. The cooldown's duration is overridden
+     inline from GUESS_COOLDOWN_MS so the bar drains for exactly as long as the
+     input is actually disabled; the value below is only the fallback. */
+  --animate-points-drop: points-drop 1400ms ease-out forwards;
+  --animate-guess-cooldown: guess-cooldown 1000ms linear forwards;
 }
 
 body {
@@ -109,6 +120,39 @@ html {
   }
 }
 
+/* "−52" falling away from the duel's solve-now readout when a wrong guess
+   costs points. Ends at opacity 0 and is unmounted shortly after, so nothing
+   is left sitting on screen. */
+@keyframes points-drop {
+  0% {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+}
+
+/* The guess cooldown draining under the duel input. scaleX rather than width
+   so it stays on the compositor -- this runs while the round clock is also
+   ticking at 10Hz. */
+@keyframes guess-cooldown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
 /* Colorblind mode (Settings): swap "correct" green for a blue that stays
    distinguishable from the orange accent under red-green color vision
    deficiencies -- green/orange can read as near-identical there, blue/orange
@@ -131,4 +175,61 @@ html {
    alone) layered on top of the blue swap, not a replacement for it. */
 [data-colorblind="true"] [data-tile="correct"] {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+/* The two-thumb year range in Infinite's driver filter
+   (components/game/YearRangeSlider.tsx). Two native range inputs are stacked
+   over one drawn track, which is only workable if the INPUT ignores pointer
+   events while its THUMB accepts them -- otherwise the upper input's full-width
+   box swallows every click meant for the lower one. Vendor pseudo-elements
+   can't be expressed in Tailwind utilities, and the two rules must be written
+   out separately: a browser drops the whole selector list on an unknown
+   pseudo-element, so combining them would silently disable both. */
+.range-thumb {
+  pointer-events: none;
+}
+
+.range-thumb::-webkit-slider-thumb {
+  pointer-events: auto;
+  appearance: none;
+  height: 1.125rem;
+  width: 1.125rem;
+  border-radius: 9999px;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
+}
+
+.range-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  height: 1.125rem;
+  width: 1.125rem;
+  border-radius: 9999px;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.4);
+}
+
+/* The focus ring belongs on the thumb, not the invisible full-width input --
+   a ring around the whole track says nothing about which end has focus. */
+.range-thumb:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.range-thumb:focus-visible::-moz-range-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.range-thumb:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.range-thumb:disabled::-moz-range-thumb {
+  cursor: not-allowed;
+  opacity: 0.5;
 }

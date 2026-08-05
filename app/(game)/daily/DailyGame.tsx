@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { useAuth } from "@/components/auth/AuthProvider";
+import { useAuthIdentity } from "@/components/auth/AuthProvider";
 import { DriverAutocomplete, type DriverOption } from "@/components/game/DriverAutocomplete";
 import { GuessGrid, type Guess } from "@/components/game/GuessGrid";
 import { LoadingOverlay } from "@/components/game/LoadingOverlay";
@@ -120,7 +120,7 @@ interface DailyGameProps {
 // signs you into your other account rather than linking -- and that case is
 // handled in place, with no reload.
 export function DailyGame(props: DailyGameProps) {
-  const { userId } = useAuth();
+  const { userId } = useAuthIdentity();
   return <DailyBoard key={userId ?? "pending"} {...props} />;
 }
 
@@ -131,7 +131,13 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
   // for profiles + user_stats) put two PostgREST round trips in front of
   // daily_state() and is what made the board take seconds -- CLAUDE.md: "board
   // readiness gates only on identity + daily_state()".
-  const { userId, identityStatus, isGuest, refresh } = useAuth();
+  //
+  // useAuthIdentity(), NOT useAuth(), for the render-time half of the same
+  // rule: the completing guess below calls refresh() to pull the new user_stats
+  // into Settings, and on the single context that re-rendered this whole board
+  // -- the one that had just finished -- for data it doesn't display (audit
+  // 2026-07-30 §1.1).
+  const { userId, identityStatus, isGuest, refresh } = useAuthIdentity();
   const identityLoading = identityStatus === "loading";
   const { showFlags } = useSettings();
   const toast = useToast();
@@ -237,6 +243,17 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
         };
         setBoard(next);
         writeCache(userId, next);
+        // Cleared HERE, batched with the row that replaces it, and not left to
+        // the `finally` below. The shimmer's whole job ends the moment the
+        // authoritative row is on the board -- but on the *completing* guess the
+        // finally is two awaits away (recordDailyResult + refresh, both real
+        // round trips), so the shimmer went on rendering for seconds BELOW the
+        // finished row instead of in place of it. On the 6th guess there's no
+        // empty slot left for it to consume either, so the grid grew a seventh
+        // row and shoved the result card and share button down until the stats
+        // write landed. Infinite never showed this only because nothing sits
+        // between its append and its clear.
+        setPending(false);
 
         // On the completing guess, flow the result through the existing
         // recordDailyResult path (its daily_results idempotency guard is
@@ -256,6 +273,9 @@ function DailyBoard({ eligibleDrivers, puzzleNumber, hasPuzzleToday }: DailyGame
         // a local-only guess is exactly how two devices diverge again.
         toast.error("Couldn't submit your guess — it didn't count. Check your connection and try again.");
       } finally {
+        // The failure path's clear (the guess threw before the line above ran,
+        // so no row landed and the shimmer must not be left behind). A no-op on
+        // the success path, where it's already false.
         setPending(false);
       }
     })();

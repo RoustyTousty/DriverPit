@@ -22,6 +22,27 @@ interface IntermissionPlayer {
   handle: string;
   avatarUrl: string;
   roundPoints: number;
+  // How many guesses that "+N" took. Since drizzle/0058 the count is half of
+  // what the number means -- this is where a player finds out they were beaten
+  // by someone slower who guessed better, which is otherwise invisible.
+  //
+  // Both sides are counts the round screen was already showing live (mine from
+  // my own board, the opponent's from their `guess` broadcasts, which
+  // OpponentPanel has been rendering all round), so nothing new is disclosed
+  // and nothing here is acted on -- it sits beside the authoritative points
+  // rather than being used to derive them.
+  guessCount: number;
+}
+
+// Rendered even at zero ("0 guesses" is a real and pointed thing to have
+// happened to a player), so the two columns never differ in height and the
+// count doesn't look like it appeared because of something one side did.
+function GuessCount({ count }: { count: number }) {
+  return (
+    <p className="font-mono text-[11px] tabular-nums text-text-muted">
+      {count} {count === 1 ? "guess" : "guesses"}
+    </p>
+  );
 }
 
 // CLAUDE.md's Duel "Intermission" beat -- this directly fixes "too fast,
@@ -163,10 +184,17 @@ export function DuelIntermission({
           say here: these are the answer's stats, not a comparison. */}
       <div className="flex w-full gap-1 [perspective:600px]">
         <DriverCodeBadge code={targetDriver.driverCode} />
-        <Tile feedback="exact" label={tileValueLabel("nationality", targetDriver.nationality)}>
+        {/* Same two columns carry a `title` as on the board rows, for the same
+            reason and no others: these are the only values wide enough to
+            clip out of a line-clamp-2 tile (audit 2026-07-30 §4.7). */}
+        <Tile
+          feedback="exact"
+          label={tileValueLabel("nationality", targetDriver.nationality)}
+          title={targetDriver.nationality}
+        >
           {nationalityValue}
         </Tile>
-        <Tile feedback="exact" label={tileValueLabel("team", targetDriver.team)}>
+        <Tile feedback="exact" label={tileValueLabel("team", targetDriver.team)} title={targetDriver.team}>
           {targetDriver.team}
         </Tile>
         <Tile feedback="correct" label={tileValueLabel("age", targetDriver.age)}>
@@ -185,11 +213,13 @@ export function DuelIntermission({
           <AvatarGlyph avatarUrl={me.avatarUrl} size="sm" />
           <p className="max-w-full truncate text-xs font-semibold text-text">{me.handle}</p>
           <p className="font-mono text-lg font-bold tabular-nums text-accent">+{myCountUp}</p>
+          <GuessCount count={me.guessCount} />
         </div>
         <div className="flex flex-1 flex-col items-center gap-1">
           <AvatarGlyph avatarUrl={opponent.avatarUrl} size="sm" />
           <p className="max-w-full truncate text-xs font-semibold text-text">{opponent.handle}</p>
           <p className="font-mono text-lg font-bold tabular-nums text-text-muted">+{opponentCountUp}</p>
+          <GuessCount count={opponent.guessCount} />
         </div>
       </div>
 

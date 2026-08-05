@@ -1,0 +1,197 @@
+/*
+ * GENERATED -- do not edit by hand. Run `npm run flags:subset`.
+ *
+ * A country subset of flag-icons@7.5.0, cut to the 40 ISO codes that
+ * COUNTRY_CODES (lib/game/flags.ts) maps -- the only ones components/ui/Flag.tsx
+ * can ever render, since countryCode() returns null for everything else.
+ *
+ * The full stylesheet was imported on every route, including /about and the
+ * legal pages, for a setting that is off by default: 542 country rules,
+ * 36,486 of the built globals chunk's 91,717 bytes, and 514 SVGs / 5.1 MB
+ * emitted into the build. (audit 2026-07-30 §1.4 residual)
+ *
+ * 4x3 only. `Flag` renders `fi fi-<code>`; nothing here uses flag-icons'
+ * square (`fis`) or box (`fib`) variants, so those selectors are dropped from
+ * the base rules too rather than left promising a rule that is not emitted.
+ *
+ * Base rules are upstream's, extracted verbatim; country rules are re-emitted
+ * with url()s rewritten relative to this file. scripts/flagSubset.test.ts
+ * regenerates and diffs, so this cannot drift from COUNTRY_CODES or from an
+ * upgraded flag-icons without failing the static tier.
+ */
+
+.fi {
+  background-size: contain;
+  background-position: 50%;
+  background-repeat: no-repeat;
+}
+
+.fi {
+  position: relative;
+  display: inline-block;
+  width: 1.333333em;
+  line-height: 1em;
+}
+.fi:before {
+  content: " ";
+}
+
+.fi-ar {
+  background-image: url("../node_modules/flag-icons/flags/4x3/ar.svg");
+}
+
+.fi-at {
+  background-image: url("../node_modules/flag-icons/flags/4x3/at.svg");
+}
+
+.fi-au {
+  background-image: url("../node_modules/flag-icons/flags/4x3/au.svg");
+}
+
+.fi-be {
+  background-image: url("../node_modules/flag-icons/flags/4x3/be.svg");
+}
+
+.fi-br {
+  background-image: url("../node_modules/flag-icons/flags/4x3/br.svg");
+}
+
+.fi-ca {
+  background-image: url("../node_modules/flag-icons/flags/4x3/ca.svg");
+}
+
+.fi-ch {
+  background-image: url("../node_modules/flag-icons/flags/4x3/ch.svg");
+}
+
+.fi-cl {
+  background-image: url("../node_modules/flag-icons/flags/4x3/cl.svg");
+}
+
+.fi-cn {
+  background-image: url("../node_modules/flag-icons/flags/4x3/cn.svg");
+}
+
+.fi-co {
+  background-image: url("../node_modules/flag-icons/flags/4x3/co.svg");
+}
+
+.fi-cz {
+  background-image: url("../node_modules/flag-icons/flags/4x3/cz.svg");
+}
+
+.fi-de {
+  background-image: url("../node_modules/flag-icons/flags/4x3/de.svg");
+}
+
+.fi-dk {
+  background-image: url("../node_modules/flag-icons/flags/4x3/dk.svg");
+}
+
+.fi-es {
+  background-image: url("../node_modules/flag-icons/flags/4x3/es.svg");
+}
+
+.fi-fi {
+  background-image: url("../node_modules/flag-icons/flags/4x3/fi.svg");
+}
+
+.fi-fr {
+  background-image: url("../node_modules/flag-icons/flags/4x3/fr.svg");
+}
+
+.fi-gb {
+  background-image: url("../node_modules/flag-icons/flags/4x3/gb.svg");
+}
+
+.fi-hu {
+  background-image: url("../node_modules/flag-icons/flags/4x3/hu.svg");
+}
+
+.fi-id {
+  background-image: url("../node_modules/flag-icons/flags/4x3/id.svg");
+}
+
+.fi-ie {
+  background-image: url("../node_modules/flag-icons/flags/4x3/ie.svg");
+}
+
+.fi-in {
+  background-image: url("../node_modules/flag-icons/flags/4x3/in.svg");
+}
+
+.fi-it {
+  background-image: url("../node_modules/flag-icons/flags/4x3/it.svg");
+}
+
+.fi-jp {
+  background-image: url("../node_modules/flag-icons/flags/4x3/jp.svg");
+}
+
+.fi-li {
+  background-image: url("../node_modules/flag-icons/flags/4x3/li.svg");
+}
+
+.fi-ma {
+  background-image: url("../node_modules/flag-icons/flags/4x3/ma.svg");
+}
+
+.fi-mc {
+  background-image: url("../node_modules/flag-icons/flags/4x3/mc.svg");
+}
+
+.fi-mx {
+  background-image: url("../node_modules/flag-icons/flags/4x3/mx.svg");
+}
+
+.fi-my {
+  background-image: url("../node_modules/flag-icons/flags/4x3/my.svg");
+}
+
+.fi-nl {
+  background-image: url("../node_modules/flag-icons/flags/4x3/nl.svg");
+}
+
+.fi-nz {
+  background-image: url("../node_modules/flag-icons/flags/4x3/nz.svg");
+}
+
+.fi-pl {
+  background-image: url("../node_modules/flag-icons/flags/4x3/pl.svg");
+}
+
+.fi-pt {
+  background-image: url("../node_modules/flag-icons/flags/4x3/pt.svg");
+}
+
+.fi-ru {
+  background-image: url("../node_modules/flag-icons/flags/4x3/ru.svg");
+}
+
+.fi-se {
+  background-image: url("../node_modules/flag-icons/flags/4x3/se.svg");
+}
+
+.fi-th {
+  background-image: url("../node_modules/flag-icons/flags/4x3/th.svg");
+}
+
+.fi-us {
+  background-image: url("../node_modules/flag-icons/flags/4x3/us.svg");
+}
+
+.fi-uy {
+  background-image: url("../node_modules/flag-icons/flags/4x3/uy.svg");
+}
+
+.fi-ve {
+  background-image: url("../node_modules/flag-icons/flags/4x3/ve.svg");
+}
+
+.fi-za {
+  background-image: url("../node_modules/flag-icons/flags/4x3/za.svg");
+}
+
+.fi-zw {
+  background-image: url("../node_modules/flag-icons/flags/4x3/zw.svg");
+}

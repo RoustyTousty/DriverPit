@@ -4,7 +4,8 @@ import { isAuthRetryableFetchError, type Session, type User } from "@supabase/su
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { forfeitMatch } from "@/lib/duel/actions";
-import { getLiveMatchId, isQueued } from "@/lib/duel/duelCommitments";
+import { cancelCustomLobby } from "@/lib/duel/customLobby";
+import { getLiveMatchId, getOpenLobbyCode, isQueued } from "@/lib/duel/duelCommitments";
 import { leaveQueue } from "@/lib/duel/matchmaking";
 import { awaitInFlightGuess } from "@/lib/game/inFlightGuess";
 import { migrateLocalStats } from "@/lib/stats/actions";
@@ -134,25 +135,58 @@ function toUserStats(row: UserStatsRow): UserStats {
 
 export type AuthStatus = "loading" | "ready";
 
-interface AuthContextValue {
-  user: User | null;
-  session: Session | null;
-  profile: Profile | null;
-  stats: UserStats | null;
+// TWO contexts, not one, and the seam is the one `identityStatus`/`status`
+// already draw (audit 2026-07-30 §1.1). AuthProvider wraps the entire app, so
+// a single context value made every useAuth() consumer a subscriber to every
+// field in it: `refresh()` after a completed daily -- which exists only to pull
+// fresh user_stats into Settings -- re-rendered the board that had just
+// finished, plus the duel root, the leaderboard modal and all four settings
+// sections. Memoizing the value doesn't help; profile/stats genuinely changed,
+// so the memo correctly produces a new object and React correctly notifies
+// everyone reading it.
+//
+// The split is about SUBSCRIPTION GRANULARITY only. Both values are computed in
+// the same render of the same provider from the same state, so the two halves
+// cannot disagree with each other -- there is no "read a stale half" window to
+// defend against, and no ordering between them to get right.
+//
+// Identity holds only PRIMITIVES and stable callbacks. That's the property that
+// makes it work: `isGuest` is derived from `profile`, but it's a boolean, so a
+// profile refetch that doesn't flip it leaves this value untouched. `user` and
+// `session` are objects that supabase-js re-materializes on every getSession(),
+// so they live on the account side, where every one of their three readers
+// (ProfileSection, DuelRoot, DuelSearching) reads profile/stats anyway.
+interface AuthIdentityValue {
   // Convenience projections of `user`/`profile` that every game window keys
   // off, per CLAUDE.md "Auth state is reactive, everywhere".
   userId: string | null;
   isGuest: boolean;
-  // TWO separate readiness signals -- keeping them apart is what stops a game
-  // board from waiting on data it doesn't render (CLAUDE.md: "The board's first
-  // paint never waits on profile/stats").
-  //
   // `identityStatus` is "ready" the moment `userId` is known and stable, with
   // NO regard for profile/stats. It's the signal a game window gates on: the
   // only thing /daily needs before firing daily_state() is which account it's
   // fetching for. Chaining the board behind `status` below is what turned the
-  // board load into seconds.
+  // board load into seconds (CLAUDE.md: "The board's first paint never waits on
+  // profile/stats").
   identityStatus: AuthStatus;
+  // Re-fetches profile/stats for the current user — call after an action
+  // that's expected to have changed them (e.g. the signup trigger firing,
+  // an upgrade completing). Lives here, on the side that does NOT re-render
+  // when it lands: the callers are boards and settings controls that trigger a
+  // refresh without rendering its result.
+  refresh: () => Promise<void>;
+  // The ONLY sign-out entry point -- no component may call
+  // supabase.auth.signOut() directly. Releases server-side commitments, signs
+  // out, then hard-reloads to "/". Throws WITHOUT signing out if the cleanup
+  // fails, so callers must surface the error rather than assume it succeeded.
+  // Resolves only in that failure case; on success the page is navigating away.
+  signOutAndReset: () => Promise<void>;
+}
+
+interface AuthAccountValue {
+  user: User | null;
+  session: Session | null;
+  profile: Profile | null;
+  stats: UserStats | null;
   // `loading` until the *current* identity's profile/stats are resolved --
   // true again when signing in resolves to a DIFFERENT user id (not the common
   // guest upgrade, which links in place and keeps the id, but the
@@ -165,24 +199,36 @@ interface AuthContextValue {
   // `status === "loading"` for existing consumers.
   status: AuthStatus;
   loading: boolean;
-  // Re-fetches profile/stats for the current user — call after an action
-  // that's expected to have changed them (e.g. the signup trigger firing,
-  // an upgrade completing).
-  refresh: () => Promise<void>;
-  // The ONLY sign-out entry point -- no component may call
-  // supabase.auth.signOut() directly. Releases server-side commitments, signs
-  // out, then hard-reloads to "/". Throws WITHOUT signing out if the cleanup
-  // fails, so callers must surface the error rather than assume it succeeded.
-  // Resolves only in that failure case; on success the page is navigating away.
-  signOutAndReset: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextValue | null>(null);
+type AuthContextValue = AuthIdentityValue & AuthAccountValue;
 
-export function useAuth(): AuthContextValue {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
+const AuthIdentityContext = createContext<AuthIdentityValue | null>(null);
+const AuthAccountContext = createContext<AuthAccountValue | null>(null);
+
+// The narrow hook: subscribes to identity ONLY, so a profile/stats refresh
+// re-renders nothing that uses it. Reach for this whenever the component needs
+// to know *which account* it is acting for rather than *what that account has
+// done* -- game boards, and anything that only calls refresh()/signOutAndReset().
+export function useAuthIdentity(): AuthIdentityValue {
+  const ctx = useContext(AuthIdentityContext);
+  if (!ctx) throw new Error("useAuthIdentity must be used within an AuthProvider");
   return ctx;
+}
+
+// The whole thing. Subscribes to BOTH contexts, so it re-renders on a
+// profile/stats change -- which is correct for its callers, all of which render
+// profile or stats. If a consumer of this only destructures identity fields,
+// that's a `useAuthIdentity()` waiting to happen.
+export function useAuth(): AuthContextValue {
+  const identity = useAuthIdentity();
+  const account = useContext(AuthAccountContext);
+  if (!account) throw new Error("useAuth must be used within an AuthProvider");
+  // Memoized so the merged object keeps one identity across renders neither
+  // half changed on -- it doesn't affect who re-renders (the two useContext
+  // calls above decide that), but it keeps the result safe to put in a
+  // dependency array.
+  return useMemo(() => ({ ...identity, ...account }), [identity, account]);
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -467,7 +513,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await leaveQueue();
     }
 
-    // 1c. Let an in-flight guess land. daily_submit_guess APPENDS server-side,
+    // 1c. Cancel an open custom lobby. Same rule as the queue row and the same
+    //     reason it must happen HERE, before step 2: duel_lobby_cancel
+    //     authorizes through auth.uid(), so an identity minted a moment later
+    //     cannot delete a lobby the previous one hosted. The stakes are higher
+    //     than the queue's, because a stranded lobby has a second person
+    //     pointed at it -- a friend following the link joins a match whose host
+    //     no longer exists and waits out DISCONNECT_GRACE_MS for nothing.
+    const lobbyCode = getOpenLobbyCode();
+    if (lobbyCode !== null) {
+      await cancelCustomLobby(lobbyCode);
+    }
+
+    // 1d. Let an in-flight guess land. daily_submit_guess APPENDS server-side,
     //     so abandoning one mid-write leaves the client's last rendered board
     //     disagreeing with what was actually stored. Never rejects -- a guess
     //     that failed is the board's problem to surface, not a reason someone
@@ -482,39 +540,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.location.assign("/");
   }, [supabase]);
 
-  // Memoized because AuthProvider wraps the ENTIRE app: a fresh object literal
-  // here re-renders every useAuth() consumer on every provider render, whether
-  // or not anything they read actually changed. `refresh` and `signOutAndReset`
-  // are both useCallback for the same reason -- one unstable function is enough
-  // to defeat the memo.
-  const value = useMemo(
-    () => ({
-      user,
-      session,
-      profile,
-      stats,
-      userId,
-      isGuest,
-      identityStatus,
-      status,
-      loading,
-      refresh,
-      signOutAndReset,
-    }),
-    [
-      user,
-      session,
-      profile,
-      stats,
-      userId,
-      isGuest,
-      identityStatus,
-      status,
-      loading,
-      refresh,
-      signOutAndReset,
-    ],
+  // Both memoized because AuthProvider wraps the ENTIRE app: a fresh object
+  // literal here re-renders every consumer of that context on every provider
+  // render, whether or not anything they read actually changed. `refresh` and
+  // `signOutAndReset` are both useCallback for the same reason -- one unstable
+  // function is enough to defeat the memo, and it would defeat the *identity*
+  // memo specifically, which is the one this split exists to keep stable.
+  //
+  // Every dep here is a primitive or a stable callback, so this value survives
+  // a profile/stats refetch untouched. Adding an object-valued field to it
+  // silently undoes the split -- see the type's comment.
+  const identityValue = useMemo<AuthIdentityValue>(
+    () => ({ userId, isGuest, identityStatus, refresh, signOutAndReset }),
+    [userId, isGuest, identityStatus, refresh, signOutAndReset],
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  const accountValue = useMemo<AuthAccountValue>(
+    () => ({ user, session, profile, stats, status, loading }),
+    [user, session, profile, stats, status, loading],
+  );
+
+  return (
+    <AuthIdentityContext.Provider value={identityValue}>
+      <AuthAccountContext.Provider value={accountValue}>{children}</AuthAccountContext.Provider>
+    </AuthIdentityContext.Provider>
+  );
 }

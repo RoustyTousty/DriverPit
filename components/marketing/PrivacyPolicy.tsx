@@ -43,7 +43,7 @@ const SECTIONS: { title: string; body: React.ReactNode }[] = [
       <div className="flex flex-col gap-2 text-sm text-text-muted">
         <p>
           A session cookie keeps you signed in between visits. Your display preferences —
-          colorblind mode, whether tiles show flags, and your preferred driver pool — live in your
+          colorblind mode, whether tiles show flags, and your Infinite driver filter — live in your
           browser's local storage, along with any stats saved there before accounts existed. None
           of that leaves your device.
         </p>

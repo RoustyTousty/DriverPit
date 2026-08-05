@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { useAuth } from "@/components/auth/AuthProvider";
+import { useAuthIdentity } from "@/components/auth/AuthProvider";
 import { readSettings, writeSettings, type Settings } from "@/lib/settings/store";
 import { resetUserStats } from "@/lib/stats/actions";
 
@@ -106,7 +106,10 @@ function ColorblindPreview({ colorblind }: { colorblind: boolean }) {
 }
 
 export function GeneralSection() {
-  const { refresh } = useAuth();
+  // refresh() is all this section wants from auth -- it triggers the reload of
+  // stats it never renders (StatisticsSection does). useAuth() would have
+  // subscribed it to the very profile/stats change it causes.
+  const { refresh } = useAuthIdentity();
   const [settings, setSettings] = useState<Settings>(() => readSettings());
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [resetDone, setResetDone] = useState(false);

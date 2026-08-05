@@ -5,10 +5,10 @@ import { and, desc, eq, gt, ne, notInArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { duelForfeit, duelState } from "@/lib/db/duelRpc";
 import { duelMatches, duelRoundResults, duelRounds, userStats } from "@/lib/db/schema";
-import { updateDuelRatings } from "@/lib/game/duelRating";
 import { DISCONNECT_GRACE_MS } from "@/lib/game/duelTiming";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+import { applyMatchResult } from "./applyMatchResult";
 import type { MatchResult } from "./matchmaking";
 
 async function getCurrentUserId(): Promise<string | null> {
@@ -354,6 +354,13 @@ export async function getMyLiveMatch(): Promise<GetMyLiveMatchResult> {
       opponentDuelLosses: opponentStats?.duelLosses ?? 0,
       youAre,
       matchCreatedAt: match.createdAt.toISOString(),
+      // Straight off the row -- this action already reads duel_matches through
+      // Drizzle, so per-match config costs nothing here and needs no RPC shape
+      // change. This is the resume path, so it is also the one that has to be
+      // right for a CUSTOM match: reloading into a 5-round friendly must print
+      // "Round 1 / 5" and, at the end, "Unranked".
+      ranked: match.ranked,
+      rounds: match.rounds,
     },
   };
 }
@@ -379,6 +386,11 @@ export interface DuelResultsData {
   // (closeRound -> applyMatchResult). The client only ever *reads* these;
   // nothing rating-related is ever computed or written client-side.
   myRatingDelta: number | null;
+  // False for a custom-lobby match. Distinct from `myRatingDelta === null`,
+  // which also means "the rating write hasn't landed yet" -- the results panel
+  // has to tell "no rating, by design" apart from "no rating, not yet" so it
+  // can say so instead of rendering nothing and leaving the player guessing.
+  ranked: boolean;
   rounds: DuelRoundBreakdownRow[];
 }
 
@@ -440,6 +452,7 @@ export async function getDuelResults(matchId: number): Promise<GetDuelResultsRes
     myScore: iAmA ? match.scoreA : match.scoreB,
     theirScore: iAmA ? match.scoreB : match.scoreA,
     myRatingDelta: iAmA ? match.ratingDeltaA : match.ratingDeltaB,
+    ranked: match.ranked,
     rounds: breakdown,
   };
 }
@@ -514,78 +527,36 @@ export async function requestRematch(oldMatchId: number): Promise<RequestRematch
       return { ok: true, newMatchId: null };
     }
 
+    // THE CONFIG MUST BE CARRIED FORWARD, and this is the sharp edge of the
+    // whole unranked feature. A rematch is a brand-new duel_matches row, so
+    // every column not named here silently takes its DEFAULT -- which is
+    // `ranked = true`, 3 rounds, 60 seconds, the 20-year pool. Miss it and
+    // pressing Rematch on a friendly custom game turns it into a rated,
+    // differently-shaped duel that neither player asked for, off a PRIMARY
+    // results-screen CTA. That is exactly the shape of audit 2026-07-29 §0.1,
+    // where the same button silently re-armed nothing and both players became
+    // forfeitable. Pinned by lib/db/customMatchUnranked.test.ts.
     const [newMatch] = await tx
       .insert(duelMatches)
-      .values({ playerA: oldMatch.playerA, playerB: oldMatch.playerB, status: "lobby", currentRound: 0 })
+      .values({
+        playerA: oldMatch.playerA,
+        playerB: oldMatch.playerB,
+        status: "lobby",
+        currentRound: 0,
+        ranked: oldMatch.ranked,
+        rounds: oldMatch.rounds,
+        roundSeconds: oldMatch.roundSeconds,
+        filter: oldMatch.filter,
+      })
       .returning();
 
     return { ok: true, newMatchId: newMatch.id };
   });
 }
 
-// Writes both players' user_stats (rating + W/L) and caches the deltas on
-// duel_matches (CLAUDE.md's schema: "stored at finish for the results screen")
-// so a reload can read them back via duel_state instead of needing the live
-// match_end broadcast.
-//
-// EXACTLY ONCE PER MATCH, and duel_matches.rating_delta_a is what enforces it.
-// This used to lean on the caller for that: it ran inside the same Server
-// Action as duel_close_round, so that RPC's own row lock -- which hands
-// `advanced: true` to exactly one racing caller -- meant this could only be
-// reached once. Closing a round is now a separate client-side RPC, so that
-// coupling is gone and the guarantee has to live here. Both players' clients
-// observe the same finish and both call in; a forfeit can land on top of a
-// finish; a reconnecting client can arrive late.
-//
-// The null check alone would be a check-then-act race (two callers both read
-// null, both apply, ratings move twice). Taking the match row FOR UPDATE first
-// serializes them, so the second caller reads the row the first one wrote and
-// returns those deltas instead of applying its own.
-async function applyMatchResult(
-  matchId: number,
-  playerA: string,
-  playerB: string,
-  winnerId: string | null,
-): Promise<{ ratingDeltaA: number; ratingDeltaB: number }> {
-  return db.transaction(async (tx) => {
-    const [match] = await tx.select().from(duelMatches).where(eq(duelMatches.id, matchId)).for("update");
-    if (!match) return { ratingDeltaA: 0, ratingDeltaB: 0 };
-
-    // Already settled -- report what was actually written, don't re-apply.
-    // Checked on A alone because both are written in the one statement below.
-    if (match.ratingDeltaA !== null) {
-      return { ratingDeltaA: match.ratingDeltaA, ratingDeltaB: match.ratingDeltaB ?? 0 };
-    }
-
-    const [statsA] = await tx.select().from(userStats).where(eq(userStats.userId, playerA));
-    const [statsB] = await tx.select().from(userStats).where(eq(userStats.userId, playerB));
-    if (!statsA || !statsB) return { ratingDeltaA: 0, ratingDeltaB: 0 };
-
-    const outcome = winnerId === null ? "draw" : winnerId === playerA ? "a" : "b";
-    const { ratingA, ratingB } = updateDuelRatings(statsA.duelRating, statsB.duelRating, outcome);
-    const ratingDeltaA = ratingA - statsA.duelRating;
-    const ratingDeltaB = ratingB - statsB.duelRating;
-
-    await tx
-      .update(userStats)
-      .set({
-        duelRating: ratingA,
-        duelWins: statsA.duelWins + (outcome === "a" ? 1 : 0),
-        duelLosses: statsA.duelLosses + (outcome === "b" ? 1 : 0),
-      })
-      .where(eq(userStats.userId, playerA));
-
-    await tx
-      .update(userStats)
-      .set({
-        duelRating: ratingB,
-        duelWins: statsB.duelWins + (outcome === "b" ? 1 : 0),
-        duelLosses: statsB.duelLosses + (outcome === "a" ? 1 : 0),
-      })
-      .where(eq(userStats.userId, playerB));
-
-    await tx.update(duelMatches).set({ ratingDeltaA, ratingDeltaB }).where(eq(duelMatches.id, matchId));
-
-    return { ratingDeltaA, ratingDeltaB };
-  });
-}
+// applyMatchResult -- the single writer of rating + W/L -- used to live here.
+// It moved to lib/duel/applyMatchResult.ts (a plain module) so it could be
+// reached by lib/db/customMatchUnranked.test.ts without becoming an exported
+// "use server" endpoint that takes `winnerId` as a parameter; see the comment
+// at the top of that file. Same split, for the same reason, as
+// lib/stats/recordDailyResult.ts against lib/stats/actions.ts.

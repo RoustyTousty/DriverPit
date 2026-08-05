@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { prefetchInfiniteRound } from "@/lib/game/infiniteRoundPrefetch";
-import { readPoolWindowPreference } from "@/lib/settings/poolWindow";
+import { readDriverFilterPreference } from "@/lib/settings/driverFilter";
 
 const TABS = [
   { href: "/daily", label: "Daily" },
@@ -18,7 +18,7 @@ const TABS = [
 // overlaps with the user's own dwell time rather than adding to it. See
 // lib/game/infiniteRoundPrefetch.ts.
 function handleInfiniteIntent() {
-  prefetchInfiniteRound(readPoolWindowPreference());
+  prefetchInfiniteRound(readDriverFilterPreference("infinite", new Date().getUTCFullYear()));
 }
 
 // Same segmented-pill look as the Settings/Leaderboard modal tablists
