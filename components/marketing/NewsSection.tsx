@@ -20,10 +20,20 @@ async function NewsBody() {
   return <NewsCarousel items={items} />;
 }
 
+// Mirrors the real card's shape, not just its image: 16:9 photo plus the
+// two-line caption block under it. Without the caption the skeleton is ~76px
+// shorter than what replaces it, so the whole page below jumps at the moment
+// the feed lands -- which is the one thing a skeleton exists to prevent.
 function NewsSkeleton() {
   return (
     <div className="animate-pulse motion-reduce:animate-none" aria-hidden="true">
-      <div className="aspect-video w-full rounded-lg border border-border bg-surface-2" />
+      <div className="overflow-hidden rounded-lg border border-border bg-surface-2">
+        <div className="aspect-video w-full bg-surface" />
+        <div className="flex flex-col gap-2 p-4">
+          <div className="h-4 w-3/4 rounded bg-surface" />
+          <div className="h-3 w-2/5 rounded bg-surface" />
+        </div>
+      </div>
       <div className="mt-3 flex justify-center gap-2">
         {Array.from({ length: 5 }).map((_, index) => (
           <div key={index} className="h-1.5 w-1.5 rounded-full bg-border" />

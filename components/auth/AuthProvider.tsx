@@ -5,14 +5,14 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { forfeitMatch } from "@/lib/duel/actions";
 import { cancelCustomLobby } from "@/lib/duel/customLobby";
-import { getLiveMatchId, getOpenLobbyCode, isQueued } from "@/lib/duel/duelCommitments";
+import { getDuelCommitments, getLiveMatchId, getOpenLobbyCode, isQueued } from "@/lib/duel/duelCommitments";
 import { leaveQueue } from "@/lib/duel/matchmaking";
 import { awaitInFlightGuess } from "@/lib/game/inFlightGuess";
 import { migrateLocalStats } from "@/lib/stats/actions";
 import { normalizeDistribution } from "@/lib/stats/guessDistribution";
 import { currentStreakAsOf, todayUtcDateString } from "@/lib/stats/streak";
 import { readStats, resetStats } from "@/lib/stats/store";
-import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { createSupabaseBrowserClient, createSupabaseProbeClient } from "@/lib/supabase/browser";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -180,6 +180,12 @@ interface AuthIdentityValue {
   // fails, so callers must surface the error rather than assume it succeeded.
   // Resolves only in that failure case; on success the page is navigating away.
   signOutAndReset: () => Promise<void>;
+  // The ONLY email+password sign-in entry point, and the sibling of the above
+  // for the same reasons -- it, too, abandons the identity that is currently
+  // signed in. Throws with a usable message on bad credentials, having released
+  // nothing; on success the page is navigating away. See the implementation for
+  // why this one reloads where a Google *link* deliberately doesn't.
+  signInWithPassword: (email: string, password: string) => Promise<void>;
 }
 
 interface AuthAccountValue {
@@ -497,7 +503,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // value, so an unstable identity would make that value new on every render no
   // matter how the value itself is memoized -- and would churn the deps of any
   // consumer that captures it (ProfileSection's sign-out handler).
-  const signOutAndReset = useCallback(async () => {
+  //
+  // Step 1 is its own function because sign-out is no longer the only way to
+  // stop being the current identity -- signInWithPassword below abandons it
+  // too, and has exactly the same commitments to release before it does.
+  const releaseServerCommitments = useCallback(async () => {
     // 1a. Forfeit a live match so the opponent gets an immediate clean win
     //     rather than waiting out DISCONNECT_GRACE_MS.
     const liveMatchId = getLiveMatchId();
@@ -531,6 +541,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     //     that failed is the board's problem to surface, not a reason someone
     //     can't sign out.
     await awaitInFlightGuess();
+  }, []);
+
+  const signOutAndReset = useCallback(async () => {
+    // 1.
+    await releaseServerCommitments();
 
     // 2.
     const { error } = await supabase.auth.signOut();
@@ -538,7 +553,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // 3.
     window.location.assign("/");
-  }, [supabase]);
+  }, [supabase, releaseServerCommitments]);
+
+  // Signing in with a password is the OTHER way to stop being the identity you
+  // currently are, so it needs the same three steps for the same reasons: a
+  // guest who signs into their real account leaves behind exactly the match,
+  // queue row and open lobby a sign-out would have.
+  //
+  // It RELOADS, which the Google upgrade deliberately doesn't. That asymmetry
+  // is about what happens to `userId`, not about which button was pressed:
+  // linking Google preserves the id, so reloading would interrupt an
+  // in-progress daily for nothing, whereas a password sign-in resolves to a
+  // DIFFERENT account whose board, stats and duel record all have to be
+  // re-fetched anyway. With nothing worth preserving, the clean boot is free --
+  // and it spares the one remaining path that would otherwise swap ids in place
+  // the whole class of stale-identity bug signOutAndReset exists to discard.
+  //
+  // ORDERING, and the one place it differs from sign-out: sign-out can release
+  // first because the step after it cannot fail on user input, but a sign-in
+  // fails on a typo -- and "we forfeited your rated match, and also the password
+  // was wrong" is not a recoverable mistake. So when there is something to lose,
+  // the credentials are proven on a throwaway client BEFORE anything is
+  // released. That costs one extra token grant on a path almost nobody takes
+  // (signing in from inside a live match) and nothing at all on the normal one.
+  const signInWithPassword = useCallback(
+    async (email: string, password: string) => {
+      const { matchLive, queued: inQueue, hostingLobby } = getDuelCommitments();
+
+      if (matchLive || inQueue || hostingLobby) {
+        const probe = createSupabaseProbeClient();
+        const { error: probeError } = await probe.auth.signInWithPassword({ email, password });
+        if (probeError) throw probeError;
+        await releaseServerCommitments();
+      }
+
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+
+      window.location.assign("/");
+    },
+    [supabase, releaseServerCommitments],
+  );
 
   // Both memoized because AuthProvider wraps the ENTIRE app: a fresh object
   // literal here re-renders every consumer of that context on every provider
@@ -551,8 +606,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // a profile/stats refetch untouched. Adding an object-valued field to it
   // silently undoes the split -- see the type's comment.
   const identityValue = useMemo<AuthIdentityValue>(
-    () => ({ userId, isGuest, identityStatus, refresh, signOutAndReset }),
-    [userId, isGuest, identityStatus, refresh, signOutAndReset],
+    () => ({ userId, isGuest, identityStatus, refresh, signOutAndReset, signInWithPassword }),
+    [userId, isGuest, identityStatus, refresh, signOutAndReset, signInWithPassword],
   );
 
   const accountValue = useMemo<AuthAccountValue>(

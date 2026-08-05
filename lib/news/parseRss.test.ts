@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseRssItems } from "./parseRss";
+import { parseRssItems, usableImageUrl } from "./parseRss";
 
 const SAMPLE_FEED = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -81,5 +81,61 @@ describe("parseRssItems", () => {
 
   it("returns an empty array for garbage input", () => {
     expect(parseRssItems("not xml at all")).toEqual([]);
+  });
+});
+
+describe("usableImageUrl", () => {
+  it("keeps the absolute http(s) URLs the feeds actually ship", () => {
+    for (const url of [
+      "https://example.com/img/1.jpg?w=800&h=600",
+      "http://cdn.example.com/a.png",
+      "https://e0.365dm.com/26/08/1920x1080/x_7313566.jpg?20260805",
+    ]) {
+      expect(usableImageUrl(url)).toBe(url);
+    }
+  });
+
+  it("rejects the empty and whitespace forms that became <img src=''>", () => {
+    // The bug this closes: `""` is not `null`, so an `imageUrl !== null` check
+    // downstream passed it through and the carousel rendered a full-height
+    // slot around a broken image.
+    expect(usableImageUrl("")).toBeNull();
+    expect(usableImageUrl("   ")).toBeNull();
+    expect(usableImageUrl(null)).toBeNull();
+    expect(usableImageUrl(undefined)).toBeNull();
+  });
+
+  it("rejects anything that isn't absolute, since it would resolve against OUR origin", () => {
+    expect(usableImageUrl("/img/x.jpg")).toBeNull();
+    expect(usableImageUrl("//cdn.example.com/x.jpg")).toBeNull();
+    expect(usableImageUrl("img/x.jpg")).toBeNull();
+  });
+
+  it("rejects non-http schemes and embedded whitespace", () => {
+    expect(usableImageUrl("data:image/gif;base64,R0lGOD")).toBeNull();
+    expect(usableImageUrl("javascript:alert(1)")).toBeNull();
+    expect(usableImageUrl("https://example.com/a b.jpg")).toBeNull();
+  });
+});
+
+describe("parseRssItems image validation", () => {
+  function feedWithEnclosure(enclosure: string) {
+    return `<rss><channel><item><title>T</title><link>https://example.com/x</link><pubDate>Fri, 17 Jul 2026 09:00:00 +0000</pubDate>${enclosure}</item></channel></rss>`;
+  }
+
+  it("treats an explicitly empty enclosure url as no image at all", () => {
+    // Captured by `[^"]*` and then rejected -- with `[^"]+` this fell through
+    // to the second attribute-order pattern and looked like a missing
+    // enclosure, which is the same outcome by luck rather than by rule.
+    expect(parseRssItems(feedWithEnclosure(`<enclosure url="" type="image/jpeg"/>`))[0].imageUrl).toBeNull();
+    expect(parseRssItems(feedWithEnclosure(`<enclosure type="image/jpeg" url=""/>`))[0].imageUrl).toBeNull();
+  });
+
+  it("still keeps the item itself -- only its image is dropped", () => {
+    // getLatestNews decides what to do about an imageless item; the parser's
+    // job is only to be honest that there isn't one.
+    const items = parseRssItems(feedWithEnclosure(`<enclosure url="   " type="image/jpeg"/>`));
+    expect(items).toHaveLength(1);
+    expect(items[0].title).toBe("T");
   });
 });

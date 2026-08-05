@@ -1,7 +1,65 @@
 "use client";
 
 import { useAuth } from "@/components/auth/AuthProvider";
-import { useSettingsModal } from "@/components/layout/SettingsModalContext";
+import { GuestUpgradePrompt } from "@/components/auth/GuestUpgradePrompt";
+import { ModeIcon, type GameModeId } from "@/components/marketing/ModeIcon";
+
+// Three stacked rows rather than three tall cards. The old cards each carried a
+// two-to-three-line description at `text-sm`, so choosing a mode meant reading
+// ~60 words of prose about modes most players already know -- and on a phone
+// the third one started below the fold, which is a poor way to advertise that
+// Custom exists.
+//
+// The row is GameModesTeaser's card, which is the app's existing dense
+// mode-list shape: accent-weak well + accent ModeIcon, `text-sm font-bold`
+// name, one `text-xs text-text-muted` line. So /online and /game-modes now show
+// the same modes with the same icons in the same shape, and the chevron is the
+// only thing added -- it is what makes a row read as "go here" rather than as a
+// description.
+//
+// The one-liners describe the SHAPE OF THE CONTEST, not the plumbing: "race a
+// matchmade opponent across 3 rounds" led with how you get an opponent, which
+// is the part a player has no decision to make about. They are also the same
+// strings, in the same register, as /game-modes and the home teaser.
+//
+// Nothing here explains scoring. This screen's job is to get someone into a
+// mode; the rules -- including guess decay, which used to sit under these rows
+// as a fourth block of text -- live on /game-modes, one footer link away, and
+// are surfaced *inside* a match where they actually apply (the "Solve now +N"
+// figure and the "×0.88 on a solve" caption).
+interface ModeRow {
+  id: GameModeId;
+  name: string;
+  summary: string;
+  // Rendered inert, with a tag instead of a chevron. Not "disabled": there is
+  // no button here to disable, because there is nowhere for it to go.
+  comingSoon?: boolean;
+  onSelect?: () => void;
+}
+
+const CHEVRON = (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.75}
+    className="h-4 w-4 shrink-0 text-text-muted transition group-hover:text-text"
+    aria-hidden="true"
+  >
+    <path d="M9 6l6 6-6 6" />
+  </svg>
+);
+
+function ModeWell({ mode }: { mode: GameModeId }) {
+  return (
+    <span
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-weak text-accent"
+      aria-hidden="true"
+    >
+      <ModeIcon mode={mode} className="h-4.5 w-4.5" />
+    </span>
+  );
+}
 
 export function DuelLanding({
   onSelectDuel,
@@ -13,81 +71,73 @@ export function DuelLanding({
   onSelectCustom?: () => void;
 }) {
   const { profile } = useAuth();
-  const { openSettings } = useSettingsModal();
+
+  // Custom last, matching /game-modes: it is a variant of Duel rather than a
+  // third way to play, and it reads as one when it follows the two headline
+  // modes instead of splitting them.
+  const modes: ModeRow[] = [
+    { id: "duel", name: "Duel", summary: "1v1, one target, 3 rounds — highest score wins.", onSelect: onSelectDuel },
+    {
+      id: "knockout",
+      name: "Knockout",
+      summary: "20 players, one target, 3 rounds — the bottom 5 go out each round.",
+      comingSoon: true,
+    },
+    { id: "custom", name: "Custom", summary: "The same match, by invite, on your terms.", onSelect: onSelectCustom },
+  ];
 
   return (
-    <div className="flex flex-col gap-3 px-4 py-6">
-      <header>
-        <h1 className="text-xl font-bold text-text sm:text-2xl">DriverPit</h1>
-        <p className="text-sm text-text-muted">Online</p>
-      </header>
+    <div className="flex flex-col gap-3 px-4 py-5">
+      {/* One line instead of a stacked title + subtitle: the top bar already
+          says DriverPit, and the mode tabs already say Online. */}
+      <h1 className="text-lg font-bold text-text">Play online</h1>
 
       {profile?.isGuest && (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-accent-weak bg-accent-weak/40 p-3">
-          <div>
-            <p className="text-sm font-semibold text-accent">Save your progress</p>
-            <p className="text-xs text-text-muted">Create an account so your stats and streak follow you across devices.</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => openSettings("profile")}
-            className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98]"
-          >
-            Sign up
-          </button>
-        </div>
+        <GuestUpgradePrompt
+          description="Create an account so your stats and streak follow you across devices."
+          next="/online"
+        />
       )}
 
-      <button
-        type="button"
-        onClick={onSelectDuel}
-        className="flex flex-col items-start gap-1 rounded-lg border border-border bg-surface-2 p-4 text-left transition hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      >
-        <span className="text-base font-bold text-text">Duel</span>
-        {/* The second sentence is the rule a first-time player has to know
-            BEFORE the penalty first bites, or it reads as a bug (drizzle/0058).
-            Stated as what to do, not as what is forbidden -- the mechanic
-            exists to make thinking pay, and framing it as an anti-cheat
-            warning would put the accusation on the wrong player. */}
-        <span className="text-sm text-text-muted">
-          Race a matchmade opponent across 3 rounds. Solve fast to score, but guess carefully — after the
-          third, every wrong guess cuts what the round is worth.
-        </span>
-      </button>
-
-      {/* cursor-not-allowed on a plain div: it is the only hover feedback an
-          unavailable card gets, and without it the pointer stays a plain arrow,
-          which says nothing either way. Deliberately no hover style beyond it --
-          matching the custom lobby's Knockout card, which is the same mode said
-          the same way on the other screen. */}
-      <div className="flex cursor-not-allowed flex-col items-start gap-1 rounded-lg border border-border bg-surface p-4 text-left opacity-60">
-        <div className="flex w-full items-center justify-between gap-2">
-          <span className="text-base font-bold text-text">Knockout</span>
-          <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold tracking-wide text-text-muted uppercase">
-            Coming soon
-          </span>
-        </div>
-        <span className="text-sm text-text-muted">
-          20 players, one target, F1-qualifying-style elimination over 3 rounds.
-        </span>
+      <div className="flex flex-col gap-2">
+        {modes.map((mode) =>
+          mode.comingSoon ? (
+            // cursor-not-allowed on a plain div: it is the only hover feedback
+            // an unavailable row gets, and without it the pointer stays a plain
+            // arrow, which says nothing either way. No chevron -- there is
+            // nowhere to go.
+            <div
+              key={mode.id}
+              className="flex cursor-not-allowed items-center gap-3 rounded-lg border border-border bg-surface p-3 text-left opacity-60"
+            >
+              <ModeWell mode={mode.id} />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-text">{mode.name}</span>
+                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold tracking-wide text-text-muted uppercase">
+                    Coming soon
+                  </span>
+                </span>
+                <span className="block text-xs text-text-muted">{mode.summary}</span>
+              </span>
+            </div>
+          ) : (
+            <button
+              key={mode.id}
+              type="button"
+              onClick={mode.onSelect}
+              className="group flex items-center gap-3 rounded-lg border border-border bg-surface-2 p-3 text-left transition hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <ModeWell mode={mode.id} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-bold text-text">{mode.name}</span>
+                <span className="block text-xs text-text-muted">{mode.summary}</span>
+              </span>
+              {CHEVRON}
+            </button>
+          ),
+        )}
       </div>
-
-      {/* Under Knockout, not above it: the two live modes are not adjacent
-          because Custom is the deliberate, bring-your-own-opponent option
-          rather than a second way to play a stranger. Same card style as Duel
-          -- an enabled card, so the disabled Knockout one sits between them and
-          reads as the odd one out rather than as the end of the list. */}
-      <button
-        type="button"
-        onClick={onSelectCustom}
-        className="flex flex-col items-start gap-1 rounded-lg border border-border bg-surface-2 p-4 text-left transition hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      >
-        <span className="text-base font-bold text-text">Custom</span>
-        <span className="text-sm text-text-muted">
-          Play a friend with a code. Pick the rounds, the clock and the drivers — nothing counts toward your
-          rating.
-        </span>
-      </button>
     </div>
   );
 }

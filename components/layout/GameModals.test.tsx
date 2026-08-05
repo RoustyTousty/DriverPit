@@ -86,8 +86,8 @@ describe("GameModals", () => {
     expect(screen.getByTestId("leaderboard-modal")).toHaveAttribute("data-open", "false");
   });
 
-  // The duel results panel's guest prompt opens Settings straight to Profile,
-  // which is the whole reason this state sits up here rather than in TopBar.
+  // Settings opens to whichever section the caller named, not always to the
+  // one the modal defaults to.
   it("passes the requested section through to Settings", async () => {
     const user = setup();
 

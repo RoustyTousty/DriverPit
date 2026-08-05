@@ -21,7 +21,7 @@ const QA: { q: string; a: string }[] = [
   },
   {
     q: "What's the small code shown next to each guess?",
-    a: "That's the driver's official F1DB abbreviation — the same three-letter codes used on TV timing screens, like VER or HAM. It's not guaranteed unique across every driver in history, but it's always shown attached to one specific row, so there's no ambiguity about who it refers to.",
+    a: "The driver's official three-letter abbreviation — the same codes used on TV timing screens, like VER or HAM. It's not guaranteed unique across every driver in history, but it's always shown attached to one specific row, so there's no ambiguity about who it refers to.",
   },
   {
     q: "Which drivers are in the pool, and can I change it?",

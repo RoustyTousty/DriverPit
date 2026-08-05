@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/auth/AuthProvider";
+import { GuestUpgradePrompt } from "@/components/auth/GuestUpgradePrompt";
 import { Modal } from "@/components/ui/Modal";
 
 import { GeneralSection } from "./GeneralSection";
@@ -36,22 +37,12 @@ export function SettingsModal({
   return (
     <Modal open={open} onClose={onClose} title="Settings">
       <div className="flex flex-col gap-5">
+        {/* Shown on every section, and now on Profile too: the button used to be
+            hidden there because Profile WAS the destination. It is a page of its
+            own now (/auth/sign-in), so the prompt has somewhere to send a guest
+            from every tab. */}
         {profile?.isGuest && (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-accent-weak bg-accent-weak/40 p-3">
-            <div>
-              <p className="text-sm font-semibold text-accent">Save your progress</p>
-              <p className="text-xs text-text-muted">Create an account so your stats and streak follow you across devices.</p>
-            </div>
-            {section !== "profile" && (
-              <button
-                type="button"
-                onClick={() => setSection("profile")}
-                className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98]"
-              >
-                Sign up
-              </button>
-            )}
-          </div>
+          <GuestUpgradePrompt description="Create an account so your stats and streak follow you across devices." />
         )}
 
         <div role="tablist" aria-label="Settings section" className="flex gap-1 rounded-lg border border-border bg-surface-2 p-1">

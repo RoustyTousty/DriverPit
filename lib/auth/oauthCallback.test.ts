@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AUTH_FLOWS,
   buildHashForwardHtml,
   escapeHtmlAttribute,
+  sanitizeAuthFlow,
   sanitizeErrorCode,
   sanitizeNextPath,
 } from "./oauthCallback";
@@ -116,5 +118,33 @@ describe("buildHashForwardHtml", () => {
   it("forwards the hash-only `error` key as well as `error_code`", () => {
     const html = buildHashForwardHtml({ next: "/daily", errorCode: "oauth_callback_failed", nonce });
     expect(html).toContain('hashParams.get("error_code") || hashParams.get("error")');
+  });
+});
+
+describe("sanitizeAuthFlow", () => {
+  it("passes through every flow the app actually sends", () => {
+    for (const flow of AUTH_FLOWS) {
+      expect(sanitizeAuthFlow(flow)).toBe(flow);
+    }
+  });
+
+  it("falls back to google for anything unrecognised", () => {
+    // Google is the default because it is the only flow that existed before
+    // this param did: a callback with no `flow` at all -- the hash-forward
+    // branch, or a link built before this change -- is a Google round trip.
+    expect(sanitizeAuthFlow(null)).toBe("google");
+    expect(sanitizeAuthFlow(undefined)).toBe("google");
+    expect(sanitizeAuthFlow("")).toBe("google");
+    expect(sanitizeAuthFlow("EMAIL")).toBe("google");
+    expect(sanitizeAuthFlow("<script>alert(1)</script>")).toBe("google");
+  });
+
+  it("returns a value safe to interpolate into a redirect URL unescaped", () => {
+    // The route builds `${next}?auth=${flow}` with no encodeURIComponent, on
+    // the strength of this allowlist. Pin the property rather than the call
+    // site, so adding a flow with a `&` or a space in it fails here.
+    for (const flow of AUTH_FLOWS) {
+      expect(encodeURIComponent(flow)).toBe(flow);
+    }
   });
 });

@@ -8,11 +8,10 @@
 // the overlay takes over once there's real content to sit under it.
 export default function OnlineLoading() {
   return (
-    <div className="flex flex-col gap-3 px-4 py-6">
-      <header>
-        <h1 className="text-xl font-bold text-text sm:text-2xl">DriverPit</h1>
-        <p className="text-sm text-text-muted">Online</p>
-      </header>
+    // Header kept identical to DuelLanding's, down to the padding, so the
+    // real screen replaces this without the title moving.
+    <div className="flex flex-col gap-3 px-4 py-5">
+      <h1 className="text-lg font-bold text-text">Play online</h1>
       <div className="py-12 text-center text-sm text-text-muted">Loading…</div>
     </div>
   );

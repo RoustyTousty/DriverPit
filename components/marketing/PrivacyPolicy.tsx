@@ -118,8 +118,7 @@ const SECTIONS: { title: string; body: React.ReactNode }[] = [
       <p className="text-sm text-text-muted">
         Account data and stats are kept for as long as your account exists. Guest identities that
         never convert to a full account are effectively abandoned rather than actively deleted, but
-        carry no personal information to begin with. If you'd like your account and its data
-        removed entirely, contact us (below) and we'll delete it.
+        carry no personal information to begin with.
       </p>
     ),
   },
@@ -131,7 +130,6 @@ const SECTIONS: { title: string; body: React.ReactNode }[] = [
           "Guests: your stats live only in your session until you sign up — clearing your browser data or using Settings → Reset local stats wipes it for good.",
           "Full accounts: Settings → Profile shows exactly what's stored and lets you edit your avatar and display name yourself.",
           "Ad consent can be changed at any time by re-opening the consent banner.",
-          "Ask us to access, correct, or delete your data at any point — see Contact below.",
         ].map((item) => (
           <li key={item} className="flex gap-2">
             <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-text-muted" aria-hidden="true" />
@@ -146,7 +144,7 @@ const SECTIONS: { title: string; body: React.ReactNode }[] = [
     body: (
       <p className="text-sm text-text-muted">
         DriverPit isn't directed at children, and we don't knowingly collect data from anyone under
-        13. If you believe a child has created an account, contact us and we'll remove it.
+        13.
       </p>
     ),
   },
@@ -155,21 +153,6 @@ const SECTIONS: { title: string; body: React.ReactNode }[] = [
     body: (
       <p className="text-sm text-text-muted">
         If how we handle data changes meaningfully, we'll update this page and the date below.
-      </p>
-    ),
-  },
-  {
-    title: "Contact",
-    body: (
-      <p className="text-sm text-text-muted">
-        Questions, or want your data accessed or deleted? Reach us at{" "}
-        <a
-          href="mailto:privacy@driver-pit.vercel.app"
-          className="font-medium text-text underline decoration-border underline-offset-2 hover:text-accent"
-        >
-          privacy@driver-pit.vercel.app
-        </a>
-        .
       </p>
     ),
   },

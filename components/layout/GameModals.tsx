@@ -34,10 +34,14 @@ type OpenModal = "settings" | "leaderboard" | null;
 // Owns the game shell's two global modals (Settings, Leaderboard) and
 // exposes openers via SettingsModalContext. This state used to live inside
 // TopBar itself, which worked while the top bar's own buttons were the only
-// way in -- but the duel results panel (deep under the game window, a
-// sibling subtree) needs to open Settings -> Profile for its guest upgrade
-// prompt, so the state moved up here where both TopBar and the game window
-// are descendants. Still exactly one instance of each modal.
+// way in; it moved up here so a component deep under the game window (a
+// sibling subtree) could open one too, without mounting a second copy. Still
+// exactly one instance of each modal.
+//
+// The original such caller -- the duel results panel's guest prompt, which
+// opened Settings -> Profile -- no longer needs it: the auth UI is a page now
+// (/auth/sign-in) and every guest prompt on the site is a plain link to it.
+// That is what removed LeaderboardModal's `onUpgrade` prop.
 export function GameModals({ children }: { children: React.ReactNode }) {
   const [openModal, setOpenModal] = useState<OpenModal>(null);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
@@ -103,11 +107,7 @@ export function GameModals({ children }: { children: React.ReactNode }) {
         />
       )}
       {leaderboardMounted && (
-        <LeaderboardModal
-          open={openModal === "leaderboard"}
-          onClose={() => setOpenModal(null)}
-          onUpgrade={() => value.openSettings("profile")}
-        />
+        <LeaderboardModal open={openModal === "leaderboard"} onClose={() => setOpenModal(null)} />
       )}
     </SettingsModalProvider>
   );

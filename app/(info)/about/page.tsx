@@ -4,7 +4,8 @@ import { AboutSection } from "@/components/marketing/AboutSection";
 
 export const metadata: Metadata = {
   title: "About – DriverPit",
-  description: "Where DriverPit's driver data comes from and how the driver pools and comparisons work.",
+  description:
+    "What DriverPit is, the four ways to play it, and who builds it — a free, independent Formula 1 guessing game.",
 };
 
 export default function AboutPage() {

@@ -125,21 +125,6 @@ const SECTIONS: { title: string; body: React.ReactNode }[] = [
       </p>
     ),
   },
-  {
-    title: "Contact",
-    body: (
-      <p className="text-sm text-text-muted">
-        Questions about these terms? Reach us at{" "}
-        <a
-          href="mailto:privacy@driver-pit.vercel.app"
-          className="font-medium text-text underline decoration-border underline-offset-2 hover:text-accent"
-        >
-          privacy@driver-pit.vercel.app
-        </a>
-        .
-      </p>
-    ),
-  },
 ];
 
 export function TermsOfService() {

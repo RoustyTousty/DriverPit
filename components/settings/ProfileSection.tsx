@@ -1,36 +1,37 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
+import { signInHref } from "@/lib/auth/routes";
 import { getDuelCommitments } from "@/lib/duel/duelCommitments";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 import { AvatarPicker } from "./AvatarPicker";
 
-function GoogleLogo() {
-  return (
-    <svg viewBox="0 0 18 18" className="h-4 w-4 shrink-0" aria-hidden="true">
-      <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" />
-      <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" />
-      <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" />
-      <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" />
-    </svg>
-  );
-}
-
+// Settings -> Profile: the things about an account that genuinely are settings
+// -- avatar, display name, which state you're in, and the way out.
+//
+// The email/password/Google form used to live here inline. It is now
+// /auth/sign-in (components/auth/AuthPanel), and this section links to it. A
+// modal is the wrong container for an auth flow: creating an account sends the
+// player to their inbox, signing in may send them to a password manager, and a
+// recovery link has to land on a page anyway -- so half the flow already
+// happened somewhere this dialog couldn't follow. What stayed is what a player
+// opens Settings to change.
 export function ProfileSection() {
   const { user, profile, loading, refresh, signOutAndReset } = useAuth();
   const toast = useToast();
   const [supabase] = useState(() => createSupabaseBrowserClient());
-  const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [pending, setPending] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
-  // Which commitment sign-out is about to abandon, or null for "no prompt".
-  const [confirmSignOut, setConfirmSignOut] = useState<"match" | "queue" | "lobby" | null>(null);
+  // Which live server-side commitment signing out is about to abandon, or null
+  // when there is nothing at stake and no prompt is needed.
+  const [confirm, setConfirm] = useState<"match" | "queue" | "lobby" | null>(null);
 
   // Keeps the field in sync with the saved value -- a plain useState
   // initializer only runs once on mount, so without this the input could
@@ -45,33 +46,6 @@ export function ProfileSection() {
     const timeout = setTimeout(() => setJustSaved(false), 2000);
     return () => clearTimeout(timeout);
   }, [justSaved]);
-
-  async function handleEmailUpgrade(event: React.FormEvent) {
-    event.preventDefault();
-    setPending(true);
-    const { error } = await supabase.auth.updateUser({ email });
-    setPending(false);
-    if (error) {
-      toast.error(`Something went wrong: ${error.message}`);
-      return;
-    }
-    toast.success("Check your email for a confirmation link to finish saving your progress.");
-  }
-
-  async function handleGoogleUpgrade() {
-    setPending(true);
-    const next = window.location.pathname;
-    const { error } = await supabase.auth.linkIdentity({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}` },
-    });
-    // On success this navigates away to Google -- only the error path
-    // returns control to this component.
-    if (error) {
-      setPending(false);
-      toast.error(`Something went wrong: ${error.message}`);
-    }
-  }
 
   const trimmedDisplayName = displayName.trim();
   const isUnchanged = trimmedDisplayName === (profile?.displayName ?? "");
@@ -102,14 +76,14 @@ export function ProfileSection() {
       // Most consequential first: a live match has an opponent mid-game, an
       // open lobby has someone about to follow a link to it, a queue row has
       // nobody waiting on it in particular.
-      setConfirmSignOut(matchLive ? "match" : hostingLobby ? "lobby" : "queue");
+      setConfirm(matchLive ? "match" : hostingLobby ? "lobby" : "queue");
       return;
     }
     void performSignOut();
   }
 
   async function performSignOut() {
-    setConfirmSignOut(null);
+    setConfirm(null);
     setPending(true);
     try {
       await signOutAndReset();
@@ -166,51 +140,25 @@ export function ProfileSection() {
       </div>
 
       {profile.isGuest ? (
-        // Tighter than the section's gap-5: the email field, the "or" and the
-        // Google button are three ways to do ONE thing, so they read as a
-        // single control group. At the section gap they looked like three
-        // unrelated settings that happened to sit near each other.
-        <div className="flex flex-col gap-3">
-          <form onSubmit={handleEmailUpgrade} className="flex flex-col gap-2">
-            <label htmlFor="profile-email" className="text-xs font-semibold tracking-wide text-text-muted uppercase">
-              Email
-            </label>
-            <div className="flex gap-2">
-              <input
-                id="profile-email"
-                type="email"
-                required
-                placeholder="you@example.com"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                disabled={pending}
-                className="flex-1 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text outline-none transition focus:border-accent focus:ring-2 focus:ring-accent disabled:opacity-50"
-              />
-              <button
-                type="submit"
-                disabled={pending}
-                className="shrink-0 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
-              >
-                Continue
-              </button>
-            </div>
-          </form>
-
-          <div className="flex items-center gap-3">
-            <div className="h-px flex-1 bg-border" />
-            <span className="text-[10px] font-semibold tracking-wide text-text-muted uppercase">or</span>
-            <div className="h-px flex-1 bg-border" />
+        // A guest gets a settings ROW, the shape GeneralSection established --
+        // label, one-line description, control on the right -- rather than the
+        // form that used to be inlined here. Deliberately not the accent
+        // "Save your progress" card: that banner is already at the top of this
+        // modal for a guest, and a second copy of it two rows down would be the
+        // same ask twice in one dialog.
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-text">Account</p>
+            <p className="text-xs text-text-muted">
+              Sign in, or create an account to carry your progress to another device.
+            </p>
           </div>
-
-          <button
-            type="button"
-            onClick={handleGoogleUpgrade}
-            disabled={pending}
-            className="flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-semibold text-text transition hover:border-text-muted/40 hover:bg-surface motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+          <Link
+            href={signInHref()}
+            className="shrink-0 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
-            <GoogleLogo />
-            Continue with Google
-          </button>
+            Sign in
+          </Link>
         </div>
       ) : (
         <>
@@ -259,28 +207,28 @@ export function ProfileSection() {
       )}
 
       <Modal
-        open={confirmSignOut !== null}
-        onClose={() => setConfirmSignOut(null)}
+        open={confirm !== null}
+        onClose={() => setConfirm(null)}
         title={
-          confirmSignOut === "match"
+          confirm === "match"
             ? "Forfeit your match?"
-            : confirmSignOut === "lobby"
+            : confirm === "lobby"
               ? "Cancel your custom game?"
               : "Leave the queue?"
         }
       >
         <div className="flex flex-col gap-4">
           <p className="text-sm text-text-muted">
-            {confirmSignOut === "match"
+            {confirm === "match"
               ? "Signing out will forfeit your match — your opponent wins immediately, and the result counts toward your duel record."
-              : confirmSignOut === "lobby"
+              : confirm === "lobby"
                 ? "Signing out will cancel the game you're hosting. Anyone you sent the code to won't be able to join."
                 : "Signing out will take you out of matchmaking, so you won't be paired with an opponent."}
           </p>
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => setConfirmSignOut(null)}
+              onClick={() => setConfirm(null)}
               className="rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-muted transition hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Stay signed in
@@ -291,7 +239,7 @@ export function ProfileSection() {
               disabled={pending}
               className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
             >
-              {confirmSignOut === "match" ? "Forfeit and sign out" : "Sign out"}
+              {confirm === "match" ? "Forfeit and sign out" : "Sign out"}
             </button>
           </div>
         </div>

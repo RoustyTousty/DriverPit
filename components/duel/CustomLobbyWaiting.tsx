@@ -249,11 +249,19 @@ export function CustomLobbyWaiting({
         )}
       </div>
 
+      {/* The duel's one "leave this screen" shape, verbatim: full width, the
+          same padding, radius and muted weight as Cancel while searching, Back
+          to modes on the results panel, and Exit match mid-duel. It was the
+          only one of the five rendered as bare auto-width text, so it sat
+          narrow and unaligned under the two full-width controls directly above
+          it. Backing out of a duel should look the same wherever you do it.
+          `disabled:opacity-50` is the one addition -- this is the only one of
+          the five that awaits a server call before it can leave. */}
       <button
         type="button"
         onClick={() => void handleCancel()}
         disabled={cancelling}
-        className="text-sm font-semibold text-text-muted transition hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+        className="w-full rounded-lg px-4 py-2 text-sm font-semibold text-text-muted transition hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
       >
         {cancelling ? "Cancelling…" : "Cancel game"}
       </button>

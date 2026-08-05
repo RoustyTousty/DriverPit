@@ -1,11 +1,25 @@
 import { MoreLink } from "./MoreLink";
 import { ModeIcon, type GameModeId } from "./ModeIcon";
 
+// Four, not five: Custom is a variant of Duel rather than a fifth thing to
+// learn, so it earns its place on /game-modes and on /online -- where you can
+// actually start one -- but not in the home page's summary, which exists to
+// answer "what is there to play here?" in one glance.
+//
+// Summaries are one clause per fact, in the same clipped register across all
+// three places a mode list appears. "Race a matchmade opponent across 3 rounds"
+// described the matchmaking rather than the game; what a player wants to know
+// first is the shape of the contest.
 const MODES: { id: GameModeId; name: string; tag?: string; summary: string }[] = [
-  { id: "daily", name: "Daily", summary: "One mystery driver a day, same for everyone." },
-  { id: "infinite", name: "Infinite", summary: "Unlimited rounds, build your own driver pool." },
-  { id: "duel", name: "Duel", summary: "Race a matchmade opponent across 3 rounds." },
-  { id: "knockout", name: "Knockout", tag: "Coming soon", summary: "20 players, one target, elimination over 3 rounds." },
+  { id: "daily", name: "Daily", summary: "One driver a day, the same for everyone, 6 guesses." },
+  { id: "infinite", name: "Infinite", summary: "Unlimited rounds, your own driver pool, 6 guesses." },
+  { id: "duel", name: "Duel", summary: "1v1, one target, 3 rounds — highest score wins." },
+  {
+    id: "knockout",
+    name: "Knockout",
+    tag: "Coming soon",
+    summary: "20 players, one target, 3 rounds — the bottom 5 go out each round.",
+  },
 ];
 
 export function GameModesTeaser() {

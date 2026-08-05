@@ -1,6 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { buildHashForwardHtml, sanitizeErrorCode, sanitizeNextPath } from "@/lib/auth/oauthCallback";
+import {
+  buildHashForwardHtml,
+  sanitizeAuthFlow,
+  sanitizeErrorCode,
+  sanitizeNextPath,
+} from "@/lib/auth/oauthCallback";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 // Auth redirects carry per-user state and must never sit in a shared cache.
@@ -19,24 +24,32 @@ export async function GET(request: NextRequest) {
   // below, which serves HTML) inject markup. See lib/auth/oauthCallback.ts
   // for the rules; anything unexpected becomes `/daily`.
   const next = sanitizeNextPath(searchParams.get("next"));
+  // Which round trip this is -- Google, an email-address confirmation, or a
+  // password reset. Set by whoever built the `redirectTo`, and carried through
+  // to the destination so the arrival message describes what actually
+  // happened. Needed on the FAILURE path too: a confirmation link opened in a
+  // different browser has already confirmed the address server-side (GoTrue's
+  // /verify runs before this redirect) and only the PKCE exchange below fails,
+  // so "something went wrong signing in with Google" would be wrong twice over.
+  const flow = sanitizeAuthFlow(searchParams.get("flow"));
 
   if (code) {
     const supabase = await createSupabaseServerClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      // Marks this specifically as "just finished an OAuth round trip" so
+      // Marks this specifically as "just finished an auth round trip" so
       // OAuthErrorHandler can show a closing confirmation -- otherwise a
       // recovered identity-conflict sign-in (see below) ends in silence,
       // which reads as "did that actually work?" even though it did.
-      return NextResponse.redirect(`${origin}${next}?oauth=success`, { headers: NO_STORE });
+      return NextResponse.redirect(`${origin}${next}?auth=${flow}`, { headers: NO_STORE });
     }
-    console.error("OAuth code exchange failed", error);
+    console.error("Auth code exchange failed", error);
     // Forward the real reason (e.g. "identity_already_exists" when a
     // guest tries to link a Google account already claimed by a different
     // DriverPit account) so OAuthErrorHandler can react to it specifically
     // instead of showing a generic failure.
     return NextResponse.redirect(
-      `${origin}${next}?error_code=${encodeURIComponent(sanitizeErrorCode(error.code))}`,
+      `${origin}${next}?auth=${flow}&error_code=${encodeURIComponent(sanitizeErrorCode(error.code))}`,
       { headers: NO_STORE },
     );
   }
@@ -56,6 +69,12 @@ export async function GET(request: NextRequest) {
   // response is locked down accordingly: values reach the script as escaped
   // `data-*` attributes rather than interpolated source, and the CSP below
   // admits only this exact nonce -- no inline, no external, no anything else.
+  //
+  // Deliberately carries no `flow`: this branch exists for a failed
+  // linkIdentity(), which is the Google path and nothing else, and "google" is
+  // exactly what an absent `auth` param means downstream. Threading it through
+  // would put a fourth request-derived value into a response whose entire
+  // design is about not letting request data reach the served markup.
   const nonce = crypto.randomUUID();
   const html = buildHashForwardHtml({
     next,

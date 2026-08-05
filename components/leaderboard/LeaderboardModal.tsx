@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/auth/AuthProvider";
+import { GuestUpgradePrompt } from "@/components/auth/GuestUpgradePrompt";
 import { Modal } from "@/components/ui/Modal";
 import { AvatarGlyph } from "@/components/ui/AvatarGlyph";
 import { getLeaderboard, type DuelLeaderboardEntry, type StreakLeaderboardEntry } from "@/lib/leaderboard/actions";
@@ -72,14 +73,14 @@ function Row({
   );
 }
 
+// No `onUpgrade` prop any more: the guest nudge is a link to /auth/sign-in, so
+// there is nothing for GameModals to thread down here.
 export function LeaderboardModal({
   open,
   onClose,
-  onUpgrade,
 }: {
   open: boolean;
   onClose: () => void;
-  onUpgrade: () => void;
 }) {
   const { profile, userId } = useAuth();
   const [board, setBoard] = useState<Board>("streak");
@@ -119,19 +120,7 @@ export function LeaderboardModal({
     <Modal open={open} onClose={onClose} title="Leaderboard">
       <div className="flex flex-col gap-4">
         {profile?.isGuest && (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-accent-weak bg-accent-weak/40 p-3">
-            <div>
-              <p className="text-sm font-semibold text-accent">Save your progress</p>
-              <p className="text-xs text-text-muted">Create an account to appear on the leaderboard.</p>
-            </div>
-            <button
-              type="button"
-              onClick={onUpgrade}
-              className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98]"
-            >
-              Sign up
-            </button>
-          </div>
+          <GuestUpgradePrompt description="Create an account to appear on the leaderboard." />
         )}
 
         <div role="tablist" aria-label="Leaderboard" className="flex gap-1 rounded-lg border border-border bg-surface-2 p-1">

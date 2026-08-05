@@ -29,13 +29,49 @@ function extractTag(block: string, tag: string): string | null {
   return decodeEntities((cdata ? cdata[1] : raw).trim());
 }
 
+// "There is an <enclosure>" and "there is an image to show" are not the same
+// claim, and the gap between them is what put empty grey boxes in the carousel:
+// a feed can ship url="" or url=" ", and `""` is not `null`, so an emptiness
+// check spelled `imageUrl !== null` downstream waves it straight through into
+// `<img src="">` -- which every browser renders as a broken/blank image inside
+// a full-height slot. A relative or protocol-less URL fails the same way, since
+// this is resolved against OUR origin, not the feed's.
+//
+// So the check happens once, HERE, at the only place a URL enters the app:
+// anything that isn't an absolute http(s) URL becomes `null`, which is the
+// value the rest of the pipeline already knows how to drop.
+export function usableImageUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  // Whitespace inside a URL means the attribute captured something that isn't
+  // one; `new URL` would happily strip it and hand back a plausible-looking
+  // address for a resource nobody published.
+  if (/\s/.test(trimmed)) return null;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    // Relative ("/img/x.jpg") or protocol-relative ("//cdn/x.jpg") -- both are
+    // meaningless without the feed's own base, which we don't track.
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  if (!parsed.hostname) return null;
+  return trimmed;
+}
+
 // <enclosure> is a self-closing tag with url/type as attributes, not text
-// content, and feeds don't agree on attribute order -- match both.
+// content, and feeds don't agree on attribute order -- match both. `[^"]*`
+// rather than `[^"]+` on the url so an explicitly empty url="" is CAPTURED and
+// then rejected above, instead of falling through to the second pattern and
+// looking like a feed that simply had no enclosure.
 function extractEnclosureImage(block: string): string | null {
   const match =
-    block.match(/<enclosure\b[^>]*\burl="([^"]+)"[^>]*\btype="image\/[^"]*"/i) ??
-    block.match(/<enclosure\b[^>]*\btype="image\/[^"]*"[^>]*\burl="([^"]+)"/i);
-  return match ? decodeEntities(match[1]) : null;
+    block.match(/<enclosure\b[^>]*\burl="([^"]*)"[^>]*\btype="image\/[^"]*"/i) ??
+    block.match(/<enclosure\b[^>]*\btype="image\/[^"]*"[^>]*\burl="([^"]*)"/i);
+  return match ? usableImageUrl(decodeEntities(match[1])) : null;
 }
 
 // Deliberately not a general-purpose XML parser: RSS <item> blocks are

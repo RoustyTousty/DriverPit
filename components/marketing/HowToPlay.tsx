@@ -68,7 +68,7 @@ export function HowToPlay() {
         <p className="text-sm text-text-muted">
           Guess the mystery Formula 1 driver in six tries. Suggestions are scoped to the active
           driver pool, but a name from outside it still works if you type the whole thing —
-          after each guess, the driver&apos;s F1DB code appears on the left of the row.
+          after each guess, the driver&apos;s three-letter code appears on the left of the row.
         </p>
       </div>
 

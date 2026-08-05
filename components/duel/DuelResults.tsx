@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import type { Profile } from "@/components/auth/AuthProvider";
-import { useSettingsModal } from "@/components/layout/SettingsModalContext";
+import { GuestUpgradePrompt } from "@/components/auth/GuestUpgradePrompt";
 import { AvatarGlyph } from "@/components/ui/AvatarGlyph";
 import { getDuelResults, type DuelResultsData } from "@/lib/duel/actions";
 
@@ -54,7 +54,6 @@ export function DuelResults({
   onFindNewOpponent: () => void;
   onBackToModes: () => void;
 }) {
-  const { openSettings } = useSettingsModal();
   const [details, setDetails] = useState<DuelResultsData | null>(null);
 
   useEffect(() => {
@@ -216,20 +215,11 @@ export function DuelResults({
           promise there -- this match moved neither, so the prompt would be
           selling an account on something the player just didn't earn. */}
       {me.isGuest && iWon && !isUnranked && (
-        <div className="flex w-full items-center justify-between gap-3 rounded-lg border border-accent-weak bg-accent-weak/40 p-3 text-left">
-          <div>
-            <p className="text-sm font-semibold text-accent">Save your progress</p>
-            <p className="text-xs text-text-muted">
-              Create an account to keep your duel rating and record.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => openSettings("profile")}
-            className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-bg transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-safe:active:scale-[0.98]"
-          >
-            Sign up
-          </button>
+        <div className="w-full">
+          {/* `next` is /online rather than this results screen: the panel is
+              client state belonging to a finished match, so there is no URL that
+              restores it. /online is where every CTA below leads anyway. */}
+          <GuestUpgradePrompt description="Create an account to keep your duel rating and record." next="/online" />
         </div>
       )}
 

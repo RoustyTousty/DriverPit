@@ -52,6 +52,28 @@ export function sanitizeErrorCode(raw: string | null | undefined): string {
   return raw;
 }
 
+// Which round trip just landed. Three of them come back through
+// /auth/callback and they need different words on arrival -- "Signed in with
+// Google" is wrong for a confirmed email address and actively confusing on the
+// password-reset page. The caller sets it on its own `redirectTo` (so it is our
+// value, round-tripping through Supabase), and the route forwards it to the
+// destination as `?auth=<flow>`; components/auth/OAuthErrorHandler.tsx maps it
+// to copy.
+//
+// An allowlist, not a passthrough, for the same reason `next` is one: it is
+// attacker-supplied by the time it comes back, and it decides what the app then
+// tells the player happened. Unknown values become the Google flow, which is
+// the only one that existed before this and the one every legacy `?oauth=
+// success` link in flight means.
+export const AUTH_FLOWS = ["google", "email", "recovery"] as const;
+export type AuthFlow = (typeof AUTH_FLOWS)[number];
+
+const DEFAULT_AUTH_FLOW: AuthFlow = "google";
+
+export function sanitizeAuthFlow(raw: string | null | undefined): AuthFlow {
+  return (AUTH_FLOWS as readonly string[]).includes(raw ?? "") ? (raw as AuthFlow) : DEFAULT_AUTH_FLOW;
+}
+
 export function escapeHtmlAttribute(value: string): string {
   return value
     .replace(/&/g, "&amp;")
