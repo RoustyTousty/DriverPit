@@ -1,18 +1,22 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import driverpitBanner from "@/public/driverpit-banner.png";
+import { useTranslations } from "next-intl";
 
+import { Link, usePathname } from "@/lib/i18n/navigation";
+
+// Paths unprefixed, labels as message keys -- `nav.links.*`, the same set the
+// footer reads, so the two navs cannot drift into different words for the same
+// page in the same language.
 const LINKS = [
-  { href: "/about", label: "About" },
-  { href: "/faq", label: "FAQ" },
-  { href: "/game-modes", label: "Game modes" },
-  { href: "/how-to-play", label: "How to play" },
-];
+  { href: "/about", key: "about" },
+  { href: "/faq", key: "faq" },
+  { href: "/game-modes", key: "gameModes" },
+  { href: "/how-to-play", key: "howToPlay" },
+] as const;
 
 // aria-controls target for the collapsed nav's disclosure button.
 const MENU_ID = "info-nav-menu";
@@ -42,11 +46,16 @@ const MENU_ID = "info-nav-menu";
 // is one the browser keeps for free -- Tab reaches each link, Enter follows it,
 // Escape closes.
 export function InfoTopBar() {
+  const t = useTranslations("nav");
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const activeLink = LINKS.find((link) => link.href === pathname) ?? LINKS[0];
+  // Null, not LINKS[0], when the current route is not one of the four. The
+  // fallback was harmless while (info) held exactly these pages; the archive
+  // lives in the same group and is not in this nav, so it would have labelled
+  // the collapsed trigger "About" on every one of those pages.
+  const activeLink = LINKS.find((link) => link.href === pathname) ?? null;
 
   useEffect(() => {
     if (!open) return;
@@ -77,13 +86,13 @@ export function InfoTopBar() {
     <header className="border-b border-border">
       <div className="mx-auto flex w-full max-w-240 items-center gap-2 px-4 py-3">
         <Link
-          href="/daily"
+          href="/"
           className="flex shrink-0 items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          <Image src={driverpitBanner} alt="DriverPit" priority className="h-7 w-auto" />
+          <Image src={driverpitBanner} alt={t("logoAlt")} priority className="h-7 w-auto" />
         </Link>
 
-        <nav aria-label="Info pages" className="ml-auto hidden items-center gap-1 sm:flex">
+        <nav aria-label={t("infoPages")} className="ml-auto hidden items-center gap-1 sm:flex">
           {LINKS.map((link) => {
             const active = pathname === link.href;
             return (
@@ -95,7 +104,7 @@ export function InfoTopBar() {
                   active ? "bg-surface-2 text-text" : "text-text-muted hover:bg-surface-2 hover:text-text"
                 }`}
               >
-                {link.label}
+                {t(`links.${link.key}`)}
               </Link>
             );
           })}
@@ -107,11 +116,11 @@ export function InfoTopBar() {
             ref={triggerRef}
             aria-expanded={open}
             aria-controls={MENU_ID}
-            aria-label="Info pages"
+            aria-label={t("infoPages")}
             onClick={() => setOpen((v) => !v)}
-            className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-left text-sm font-semibold text-text outline-none transition focus:border-accent focus:ring-2 focus:ring-accent"
+            className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-left text-sm font-semibold text-text outline-none transition focus:border-accent focus:ring-1 focus:ring-accent"
           >
-            {activeLink.label}
+            {activeLink ? t(`links.${activeLink.key}`) : t("menu")}
             <svg
               viewBox="0 0 24 24"
               fill="none"
@@ -147,7 +156,7 @@ export function InfoTopBar() {
                         active ? "bg-accent-weak font-semibold text-accent" : "text-text hover:bg-surface-2"
                       }`}
                     >
-                      {link.label}
+                      {t(`links.${link.key}`)}
                     </Link>
                   </li>
                 );
@@ -157,10 +166,10 @@ export function InfoTopBar() {
         </div>
 
         <Link
-          href="/daily"
+          href="/"
           className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          Play now
+          {t("playNow")}
         </Link>
       </div>
     </header>

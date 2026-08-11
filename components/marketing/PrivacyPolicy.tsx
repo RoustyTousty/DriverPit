@@ -1,175 +1,91 @@
-const LAST_UPDATED = "July 2026";
+import { useTranslations } from "next-intl";
 
-const SECTIONS: { title: string; body: React.ReactNode }[] = [
-  {
-    title: "Overview",
-    body: (
-      <p className="text-sm text-text-muted">
-        DriverPit is a small, independently-run F1 guessing game. This page explains what data we
-        collect when you play, why we collect it, and what choices you have about it. We collect
-        as little as we can get away with — enough to run accounts, stats, and the duel
-        leaderboard, and nothing beyond that.
-      </p>
-    ),
-  },
-  {
-    title: "Accounts and gameplay data",
-    body: (
-      <div className="flex flex-col gap-2 text-sm text-text-muted">
-        <p>
-          Every visitor gets a real account from the moment they arrive, even if they never sign
-          up — a random, anonymous <span className="font-medium text-text">guest</span> identity
-          (shown as a handle like <code className="text-xs">user482913</code>) is created so guests
-          can play Daily, Infinite, and Duel and have their stats tracked without handing over any
-          personal information.
-        </p>
-        <p>
-          If you choose to create a full account with an email address, or sign in with Google, we
-          store: your email address (or the email Google shares with us), a username and optional
-          display name, an avatar, and your gameplay stats — games played, win rate, streaks, guess
-          distribution, and your duel rating, wins, and losses. Signing up links to your existing
-          guest identity rather than replacing it, so nothing you'd already played is lost.
-        </p>
-        <p>
-          We don't ask for your real name, date of birth, or any payment information — there's
-          nothing to buy here.
-        </p>
-      </div>
-    ),
-  },
-  {
-    title: "Cookies and local storage",
-    body: (
-      <div className="flex flex-col gap-2 text-sm text-text-muted">
-        <p>
-          A session cookie keeps you signed in between visits. Your display preferences —
-          colorblind mode, whether tiles show flags, and your Infinite driver filter — live in your
-          browser's local storage, along with any stats saved there before accounts existed. None
-          of that leaves your device.
-        </p>
-        <p>
-          We also keep a random identifier for your browser in local storage. It is sent only when
-          you join the duel matchmaking queue, where it stops the same browser being matched
-          against itself. It identifies a browser rather than a person, and clearing your site data
-          replaces it with a new one.
-        </p>
-        <p>
-          Once ads are enabled, we also use cookies for advertising — see{" "}
-          <span className="font-medium text-text">Advertising</span> below for how that's gated
-          behind your consent.
-        </p>
-      </div>
-    ),
-  },
-  {
-    title: "Advertising",
-    body: (
-      <div className="flex flex-col gap-2 text-sm text-text-muted">
-        <p>
-          DriverPit is supported by Google AdSense. If you're visiting from the EEA, UK, or
-          Switzerland, ad cookies and personalization stay switched off by default (Google Consent
-          Mode v2) until you actively respond to the consent banner — you can accept, decline, or
-          open "Manage options" to choose more precisely, and you can change your mind later by
-          re-opening that banner.
-        </p>
-        <p>
-          Ads are hidden entirely during a live Duel match — a race is the wrong moment for a
-          banner.
-        </p>
-      </div>
-    ),
-  },
-  {
-    title: "Who we share data with",
-    body: (
-      <div className="flex flex-col gap-2 text-sm text-text-muted">
-        <p>We don't sell your data. It's shared only with the services that run the site itself:</p>
-        <ul className="flex flex-col gap-1.5">
-          {[
-            "Supabase — hosts the database, authentication, and real-time matchmaking/duel connections.",
-            "Vercel — hosts and serves the site.",
-            "Google AdSense / Google's consent messaging (Funding Choices) — serves ads and records your consent choice, once ads are enabled.",
-          ].map((item) => (
-            <li key={item} className="flex gap-2">
-              <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-text-muted" aria-hidden="true" />
-              {item}
-            </li>
-          ))}
-        </ul>
-        <p>
-          Driver stats themselves — nationality, team, age, debut year, career wins — come from the
-          public{" "}
-          <a
-            href="https://github.com/f1db/f1db"
-            className="font-medium text-text underline decoration-border underline-offset-2 hover:text-accent"
-          >
-            F1DB
-          </a>{" "}
-          database and the Jolpica-F1 API, and the news carousel pulls public RSS feeds from
-          motorsport press outlets. None of that involves sending any of your data anywhere —
-          it's just how the game content gets built.
-        </p>
-      </div>
-    ),
-  },
-  {
-    title: "How long we keep it",
-    body: (
-      <p className="text-sm text-text-muted">
-        Account data and stats are kept for as long as your account exists. Guest identities that
-        never convert to a full account are effectively abandoned rather than actively deleted, but
-        carry no personal information to begin with.
-      </p>
-    ),
-  },
-  {
-    title: "Your choices",
-    body: (
-      <ul className="flex flex-col gap-1.5 text-sm text-text-muted">
-        {[
-          "Guests: your stats live only in your session until you sign up — clearing your browser data or using Settings → Reset local stats wipes it for good.",
-          "Full accounts: Settings → Profile shows exactly what's stored and lets you edit your avatar and display name yourself.",
-          "Ad consent can be changed at any time by re-opening the consent banner.",
-        ].map((item) => (
-          <li key={item} className="flex gap-2">
-            <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-text-muted" aria-hidden="true" />
-            {item}
-          </li>
-        ))}
-      </ul>
-    ),
-  },
-  {
-    title: "Children's privacy",
-    body: (
-      <p className="text-sm text-text-muted">
-        DriverPit isn't directed at children, and we don't knowingly collect data from anyone under
-        13.
-      </p>
-    ),
-  },
-  {
-    title: "Changes to this policy",
-    body: (
-      <p className="text-sm text-text-muted">
-        If how we handle data changes meaningfully, we'll update this page and the date below.
-      </p>
-    ),
-  },
-];
+import { LegalTranslationNotice } from "./LegalTranslationNotice";
+
+// Section ORDER and the shape of each section live here; the prose lives in
+// messages/*.json under `legal.privacy`. Same split as every other marketing
+// component, but it matters more on this page: a reordered or dropped section is
+// a disclosure that stopped being made, and a translator must not be able to
+// cause one by rewording a paragraph.
+const SECTIONS = [
+  { key: "overview", paragraphs: 1 },
+  { key: "accounts", paragraphs: 3 },
+  { key: "cookies", paragraphs: 3 },
+  { key: "advertising", paragraphs: 2 },
+  { key: "sharing", paragraphs: 0 },
+  { key: "retention", paragraphs: 1 },
+  { key: "choices", paragraphs: 0 },
+  { key: "children", paragraphs: 1 },
+  { key: "changes", paragraphs: 1 },
+] as const;
+
+const BULLET = (
+  <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-text-muted" aria-hidden="true" />
+);
+
+const LINK_CLASS =
+  "font-medium text-text underline decoration-border underline-offset-2 hover:text-accent";
 
 export function PrivacyPolicy() {
+  const t = useTranslations("legal");
+  const p = useTranslations("legal.privacy.sections");
+
   return (
     <section id="privacy-policy" className="flex flex-col gap-8">
       <div className="flex flex-col gap-2">
-        <h2 className="text-2xl font-bold text-text">Privacy policy</h2>
-        <p className="text-xs text-text-muted">Last updated {LAST_UPDATED}.</p>
+        <h2 className="text-2xl font-bold text-text">{t("privacy.heading")}</h2>
+        <p className="text-xs text-text-muted">{t("lastUpdated", { date: t("date") })}</p>
       </div>
 
+      {/* Renders on every locale but English — see the component. */}
+      <LegalTranslationNotice />
+
       {SECTIONS.map((section) => (
-        <div key={section.title} className="flex flex-col gap-3">
-          <h3 className="text-sm font-semibold text-text">{section.title}</h3>
-          {section.body}
+        <div key={section.key} className="flex flex-col gap-3">
+          <h3 className="text-sm font-semibold text-text">{p(`${section.key}.title`)}</h3>
+
+          {section.key === "sharing" ? (
+            <div className="flex flex-col gap-2 text-sm text-text-muted">
+              <p>{p("sharing.p1")}</p>
+              <ul className="flex flex-col gap-1.5">
+                {[1, 2, 3].map((item) => (
+                  <li key={item} className="flex gap-2">
+                    {BULLET}
+                    {p(`sharing.items.${item}`)}
+                  </li>
+                ))}
+              </ul>
+              <p>
+                {p.rich("sharing.p2", {
+                  f1db: (chunks) => (
+                    <a href="https://github.com/f1db/f1db" className={LINK_CLASS}>
+                      {chunks}
+                    </a>
+                  ),
+                })}
+              </p>
+            </div>
+          ) : section.key === "choices" ? (
+            <ul className="flex flex-col gap-1.5 text-sm text-text-muted">
+              {[1, 2, 3].map((item) => (
+                <li key={item} className="flex gap-2">
+                  {BULLET}
+                  {p(`choices.items.${item}`)}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="flex flex-col gap-2 text-sm text-text-muted">
+              {Array.from({ length: section.paragraphs }, (_, i) => i + 1).map((n) => (
+                <p key={n}>
+                  {p.rich(`${section.key}.p${n}`, {
+                    b: (chunks) => <span className="font-medium text-text">{chunks}</span>,
+                    code: (chunks) => <code className="text-xs">{chunks}</code>,
+                  })}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
       ))}
     </section>

@@ -1,0 +1,707 @@
+{
+  "site": {
+    "title": "DriverPit — Daily Formula 1 Driver Guessing Game",
+    "description": "Guess the mystery Formula 1 driver in six tries. A free daily F1 guessing game with unlimited practice rounds and real-time 1v1 duels against other players.",
+    "tagline": "The daily Formula 1 driver guessing game"
+  },
+  "og": {
+    "headline": "Guess the mystery F1 driver in six tries",
+    "features": "Daily puzzle · Unlimited practice · Real-time 1v1 duels",
+    "free": "Free to play",
+    "tiles": {
+      "nationality": "NATIONALITY",
+      "team": "TEAM",
+      "age": "AGE",
+      "debut": "DEBUT",
+      "wins": "WINS"
+    }
+  },
+  "meta": {
+    "daily": {
+      "title": "Daily F1 Driver Puzzle #{number}",
+      "description": "Today's puzzle (#{number}, {date}): guess the mystery Formula 1 driver in six tries. Free daily F1 guessing game — a new driver every day at midnight UTC."
+    },
+    "infinite": {
+      "title": "Unlimited F1 Driver Guessing — Infinite Mode",
+      "description": "Play as many rounds as you like, no daily limit. Build your own driver pool by season, nationality, team or achievement — from 1950 to today, world champions to one-race entrants."
+    },
+    "online": {
+      "title": "F1 Driver Duels — Play 1v1 Against Friends or Strangers",
+      "description": "Race another player to the same mystery Formula 1 driver in real time. Get matched against a random opponent, or send a friend a code and set your own rounds, timer and driver pool."
+    },
+    "howToPlay": {
+      "title": "How to Play",
+      "description": "The full rules of the F1 driver guessing game: what each tile colour means, how closeness shading works, and a worked example guess."
+    },
+    "gameModes": {
+      "title": "Game Modes — Daily, Infinite, Duel and Custom",
+      "description": "What Daily, Infinite, Duel and Custom lobbies each play like, how duel scoring works, and what Knockout will bring."
+    },
+    "faq": {
+      "title": "FAQ",
+      "description": "Answers to common questions about how DriverPit's guessing, driver pools, duels and accounts work."
+    },
+    "about": {
+      "title": "About",
+      "description": "What DriverPit is, the four ways to play it, and who builds it — a free, independent Formula 1 guessing game."
+    },
+    "privacy": {
+      "title": "Privacy Policy",
+      "description": "What data DriverPit collects, why, and what choices you have about it."
+    },
+    "terms": {
+      "title": "Terms of Service",
+      "description": "The terms that apply to playing DriverPit and creating an account."
+    }
+  },
+  "nav": {
+    "leaderboard": "Leaderboard",
+    "settings": "Settings",
+    "logoAlt": "DriverPit",
+    "playNow": "Play now",
+    "menu": "Menu",
+    "modes": {
+      "label": "Game mode",
+      "daily": "Daily",
+      "infinite": "Infinite",
+      "online": "Online"
+    },
+    "infoPages": "Info pages",
+    "links": {
+      "archive": "Archive",
+      "about": "About",
+      "faq": "FAQ",
+      "gameModes": "Game modes",
+      "howToPlay": "How to play",
+      "privacy": "Privacy",
+      "terms": "Terms"
+    },
+    "language": {
+      "label": "Language",
+      "description": "The site's language. Driver and team names stay as they are.",
+      "choose": "Choose a language"
+    },
+    "disclaimer": "© {year} DriverPit. Not affiliated with Formula 1, the FIA, or any team."
+  },
+  "faq": {
+    "heading": "FAQ",
+    "items": {
+      "dailyReset": {
+        "q": "How often does the daily puzzle change?",
+        "a": "A new mystery driver is chosen once a day, at 00:00 UTC, the same one for everyone. The countdown shown after you finish converts that reset to your local time."
+      },
+      "unknownDriver": {
+        "q": "Why can't I guess a driver who isn't in the list?",
+        "a": "Every guess has to be a real driver, so the comparison always has something meaningful to show. Start typing a name and pick from the matches — misspellings aren't accepted as a guess. The autocomplete only suggests names from the active driver pool, but if you know a driver outside it, typing their full name and selecting them still works."
+      },
+      "teamMeaning": {
+        "q": "What counts as a driver's “team”?",
+        "a": "Mainly the constructor they most recently raced for — that's what has to match exactly for a green tile. But if you guess a team the mystery driver has raced for at any point in their career, the tile turns a dim orange instead of grey, so you still get a hint even when your guess is out of date."
+      },
+      "shading": {
+        "q": "What does the shading on Age, Debut, and Wins mean?",
+        "a": "Beyond the up/down arrow, those three tiles shade from grey toward bright orange based on how close your guess was — a wild guess stays dim, a near-miss glows. It's a hint about magnitude, not just direction."
+      },
+      "ageBasis": {
+        "q": "Is “Age” the driver's age when they debuted, or now?",
+        "a": "Their current age — or their age at death, for drivers who have since passed away — not their age when they started racing."
+      },
+      "driverCode": {
+        "q": "What's the small code shown next to each guess?",
+        "a": "The driver's official three-letter abbreviation — the same codes used on TV timing screens, like VER or HAM. It's not guaranteed unique across every driver in history, but it's always shown attached to one specific row, so there's no ambiguity about who it refers to."
+      },
+      "pool": {
+        "q": "Which drivers are in the pool, and can I change it?",
+        "a": "The database holds every driver who's ever started a Grand Prix, and Daily and Duel always draw from anyone who's raced in the last 20 seasons. Infinite mode lets you build the pool yourself: drag the season slider to any span from 1950 to today, and narrow it further by nationality, by team (anyone who raced for them at any point), or by what a driver achieved — podium finishers, race winners, pole sitters or world champions. The panel shows how many drivers match as you go, and your filter is remembered for next time."
+      },
+      "multiplayer": {
+        "q": "Is there a way to play against someone else?",
+        "a": "Duel mode puts two players against the same mystery driver, drawn from the last 20 seasons, in a shared room. You'll see the colors and arrows from your opponent's guesses, but never who they actually guessed."
+      },
+      "personalData": {
+        "q": "Do you store any personal information?",
+        "a": "Every visitor gets an anonymous guest identity automatically, just so stats and duel matchmaking work — no personal information involved. If you create a full account (email or Google), we store your email, username, avatar, and gameplay stats so they follow you across devices. See the Privacy policy for the full details, and what to do if you'd rather not."
+      },
+      "accountNeeded": {
+        "q": "Do I need an account to play?",
+        "a": "No — every visitor can play Daily, Infinite, and Duel straight away as a guest, no sign-up required. Creating a full account (email or Google) is only needed to appear on the global leaderboard and set a custom username, display name, or avatar."
+      },
+      "duelRating": {
+        "q": "How does Duel matchmaking and rating work?",
+        "a": "Joining the queue matches you against another waiting player, roughly by duel rating when possible — the pairing widens how far apart your ratings can be the longer you wait. A match is 3 rounds, one driver each, unlimited guesses against a countdown timer; solving faster scores more, and even a DNF earns a few points for how close your best guess was. Your rating updates once the match ends."
+      },
+      "duelSpam": {
+        "q": "Can I just spam guesses in a Duel to win?",
+        "a": "No — it's the losing strategy. Guesses stay unlimited, but the first three are the only free ones: every wrong guess after that cuts what solving the round is worth, and it cuts a DNF's consolation points the same way. There's also a one-second wait between guesses, so working through the whole driver list isn't something a fast typist (or a script) can do inside a round. The board shows you what a solve is worth right now, so you can see the cost before you spend it — four considered guesses beat forty sprayed ones every time."
+      },
+      "ads": {
+        "q": "Why do I see ads?",
+        "a": "DriverPit is free to play and ad-supported through Google AdSense — ads only ever show outside of an active Duel match, never mid-race. If you're in the EEA, UK, or Switzerland, you'll get a consent choice before any ad personalization is switched on."
+      },
+      "profile": {
+        "q": "Can I change my avatar or display name?",
+        "a": "Yes, under Settings → Profile — full accounts can pick a new avatar from the picker (with a shuffle for more options) and edit their display name any time. Guests get a random avatar and a generated handle until they sign up."
+      },
+      "knockout": {
+        "q": "What is Knockout mode?",
+        "a": "A planned 20-player elimination mode, not live yet — you'll see it listed (marked “coming soon”) when you open Duel's matchmaking screen. It'll reuse the same live-match engine as Duel, with everyone guessing the same driver as new hints reveal automatically and the slowest players eliminated each round."
+      }
+    }
+  },
+  "marketing": {
+    "about": {
+      "heading": "About DriverPit",
+      "teaser": "A daily Formula 1 guessing game, built and run by one person as a side project. Free to play, no account needed, and an independent fan project — not affiliated with F1, the FIA, or any team.",
+      "teaserMore": "More about DriverPit",
+      "whatItIs": "DriverPit is a Formula 1 guessing game. There's one mystery driver a day, the same one for everyone, and six guesses to find them — every guess you make comes back compared against the answer on five things: nationality, team, age, debut year and career wins. No trivia questions, no multiple choice. You narrow it down.",
+      "modes": "It started as a simple idea — one mystery driver a day, six tries to find them — and grew into four ways to play. <b>Daily</b> is the one puzzle everyone shares. <b>Infinite</b> is unlimited practice over a grid you compose yourself: any span of seasons, narrowed by nationality, team, or what a driver actually won. <b>Duel</b> puts you against a real opponent in a live three-round race where speed scores points and you can watch them closing in. And a <b>Custom</b> game is that same duel hosted by a code, so you can send it to a friend and set the rules yourself. See <howToPlay>How to play</howToPlay> for the rules and <gameModes>Game modes</gameModes> for what each one offers.",
+      "whoBuildsIt": "It's built and maintained by one independent developer — a passion project for people who like F1 trivia and word games in equal measure, not a commercial product. That shapes what it is: free to play with no paywall and no premium tier, playable without an account (making one only carries your streak between devices and puts you on the leaderboard), and answerable to nobody about which features come next.",
+      "support": "Running it isn't free, though, and nothing here is sponsored. If DriverPit has become part of your morning and you'd like to keep it going, you can <coffee>buy me a coffee</coffee>. Entirely optional — the game is exactly the same either way.",
+      "disclaimer": "DriverPit is an independent fan project. It isn't affiliated with, endorsed by, or connected to Formula 1, the FIA, or any team or driver named in the game."
+    },
+    "howToPlay": {
+      "heading": "How to play",
+      "intro": "Guess the mystery Formula 1 driver in six tries. Suggestions are scoped to the active driver pool, but a name from outside it still works if you type the whole thing — after each guess, the driver's three-letter code appears on the left of the row.",
+      "steps": {
+        "type": {
+          "title": "Type a guess",
+          "body": "Start typing a driver's name in the box and pick from the suggestions. Every guess has to be a real driver."
+        },
+        "read": {
+          "title": "Read the five tiles",
+          "body": "Each guess compares nationality, team, age, debut year, and career wins to the mystery driver."
+        },
+        "narrow": {
+          "title": "Narrow it down",
+          "body": "Color, arrows, and shading tell you how close you were — use that to pick your next guess."
+        },
+        "solve": {
+          "title": "Solve it",
+          "body": "You get six guesses. Match all five tiles green and you've got it."
+        }
+      },
+      "legendHeading": "Tile legend",
+      "legend": {
+        "exact": "Exact match",
+        "historical": "Raced for them before, not currently",
+        "miss": "No match at all",
+        "wide": "Numeric miss, wide off",
+        "close": "Numeric miss, close"
+      },
+      "columnsHeading": "What each column means",
+      "columnRules": {
+        "nationality": {
+          "label": "Nationality",
+          "rule": "Exact match only — green or grey, no in-between."
+        },
+        "team": {
+          "label": "Team",
+          "rule": "Green for their current team, dim orange if they've raced for it before, grey otherwise."
+        },
+        "age": {
+          "label": "Age",
+          "rule": "Numeric. A miss shows an arrow for higher/lower, shading toward orange the closer you were."
+        },
+        "debut": {
+          "label": "Debut year",
+          "rule": "Same numeric rules as age."
+        },
+        "wins": {
+          "label": "Career wins",
+          "rule": "Same numeric rules as age."
+        }
+      },
+      "exampleHeading": "Worked example",
+      "exampleLead": "You guessed Sebastian Vettel:",
+      "exampleExplanation": "Nationality miss — the mystery driver isn't German. Team is a historical near-miss — they've raced for Aston Martin before, just not currently. The up arrow means the mystery driver is older than Vettel; the down arrows mean they debuted earlier and have fewer career wins — and the brighter Debut tile means that guess landed closer than the dim Wins guess did.",
+      "teaserIntro": "Guess the mystery Formula 1 driver in six tries. Every guess compares five attributes — nationality, team, age, debut year, career wins — with tiles that shade toward orange the closer a numeric guess was.",
+      "teaserLegend": {
+        "exact": "Exact match",
+        "historical": "Raced for them before",
+        "miss": "No match",
+        "close": "Close numeric miss"
+      },
+      "teaserMore": "How to play in full",
+      "tipsHeading": "Tips",
+      "tips": {
+        "broad": "Guess something broad first — it splits the field even if it misses, since every tile carries some information.",
+        "historical": "A dim orange team tile is a real clue, not a miss — you've probably got the right driver, just the wrong season.",
+        "brightest": "The brighter a numeric tile glows, the closer that guess was — chase the brightest tile first.",
+        "pace": "Six guesses goes fast. Save at least one or two for narrowing down, not just first impressions."
+      }
+    },
+    "gameModes": {
+      "heading": "Game modes",
+      "teaserMore": "More about game modes",
+      "comingSoon": "Coming soon",
+      "modes": {
+        "daily": {
+          "name": "Daily",
+          "summary": "One driver a day, the same for everyone, 6 guesses.",
+          "points": {
+            "1": "One driver, chosen for everyone, every day",
+            "2": "Resets at 00:00 UTC worldwide",
+            "3": "Drawn from the last 20 seasons of drivers",
+            "4": "6 guesses, tracked in your stats and streak",
+            "5": "Your progress follows your account across devices"
+          }
+        },
+        "infinite": {
+          "name": "Infinite",
+          "summary": "Unlimited rounds, your own driver pool, 6 guesses.",
+          "points": {
+            "1": "Unlimited rounds — play as much as you want",
+            "2": "Any span of seasons from 1950 to today, on a slider",
+            "3": "Narrow it by nationality, team, or achievement — champions, race winners, pole sitters",
+            "4": "6 guesses per round",
+            "5": "Practice only: nothing here counts toward your stats or streak"
+          }
+        },
+        "duel": {
+          "name": "Duel",
+          "summary": "1v1, one target, 3 rounds — highest score wins.",
+          "points": {
+            "1": "Matched against another player at a similar rating",
+            "2": "3 rounds, a different driver in each",
+            "3": "Both of you race the same clock, with unlimited guesses",
+            "4": "Solving scores by speed: the faster you find the driver, the more the round pays",
+            "5": "Miss the round and your closest guess still earns a little",
+            "6": "Guess carefully — after the third wrong guess, every further one cuts what a solve is worth",
+            "7": "Highest total across the 3 rounds takes the match, and your rating moves with the result"
+          }
+        },
+        "knockout": {
+          "name": "Knockout",
+          "summary": "20 players, one target, 3 rounds — the bottom 5 go out each round.",
+          "points": {
+            "1": "20 players guess the same driver at once",
+            "2": "New clues reveal automatically every few seconds",
+            "3": "The slowest 5 players are eliminated each round",
+            "4": "3 rounds, one winner"
+          }
+        },
+        "custom": {
+          "name": "Custom",
+          "summary": "The same match, by invite, on your terms.",
+          "points": {
+            "1": "Host a game and share a six-character code or a link",
+            "2": "1, 3 or 5 rounds, on a 30, 60 or 90 second clock",
+            "3": "Pick the driver pool yourself — seasons, nationality, team or achievement",
+            "4": "The same board, timer and scoring as Duel, guess decay included",
+            "5": "Unranked: nothing counts toward your rating, your record or the leaderboard"
+          }
+        }
+      }
+    },
+    "faqTeaser": {
+      "heading": "FAQ",
+      "more": "See all FAQ",
+      "items": {
+        "dailyReset": {
+          "q": "How often does the daily puzzle change?",
+          "a": "A new mystery driver is chosen once a day, at 00:00 UTC, the same one for everyone."
+        },
+        "unknownDriver": {
+          "q": "Why can't I guess a driver who isn't in the list?",
+          "a": "Every guess has to be a real driver. Start typing a name and pick from the matches — misspellings aren't accepted as a guess."
+        },
+        "teamMeaning": {
+          "q": "What counts as a driver's “team”?",
+          "a": "Their most recent constructor for a green tile — but a team they've raced for at any point turns a dim orange instead of grey."
+        },
+        "shading": {
+          "q": "What does the shading on Age, Debut, and Wins mean?",
+          "a": "Those tiles shade from grey toward bright orange based on how close your guess was — a hint about magnitude, not just direction."
+        },
+        "pool": {
+          "q": "Which drivers are in the pool, and can I change it?",
+          "a": "Daily and Duel always draw from the last 20 seasons. Infinite lets you build the pool yourself — any span of seasons, filtered by nationality, team or achievement."
+        },
+        "multiplayer": {
+          "q": "Is there a way to play against someone else?",
+          "a": "Duel mode races you and a matchmade opponent against the same mystery driver — you'll see their guess colors, but never who they guessed."
+        }
+      }
+    },
+    "support": {
+      "heading": "Support me",
+      "lead": "DriverPit is free, and stays free",
+      "body": "It's built and run by one person in their spare time — hosting, the domain and the hours all come out of the same pocket. A coffee helps keep it going; nothing in the game changes either way.",
+      "cta": "Buy me a coffee"
+    }
+  },
+  "game": {
+    "columns": {
+      "nationality": "Nation",
+      "team": "Team",
+      "age": "Age",
+      "debut": "Debut",
+      "wins": "Wins"
+    },
+    "guessPlaceholder": "Guess a driver…",
+    "suggestions": "Driver suggestions",
+    "noDrivers": "No drivers found.",
+    "alreadyGuessed": "{driver} is already guessed."
+  },
+  "leaderboard": {
+    "title": "Leaderboard",
+    "streak": "Daily streak",
+    "duel": "Duel rating",
+    "rating": "Rating",
+    "streakMetric": "Streak",
+    "you": "You",
+    "guestPrompt": "Create an account to appear on the leaderboard."
+  },
+  "ui": {
+    "close": "Close",
+    "dismiss": "Dismiss",
+    "loading": "Loading…"
+  },
+  "legal": {
+    "translationNotice": "This is a translation of the English original, provided for convenience. If anything here differs from the English version, the English version is the one that applies.",
+    "lastUpdated": "Last updated {date}.",
+    "date": "July 2026",
+    "privacy": {
+      "heading": "Privacy policy",
+      "sections": {
+        "overview": {
+          "title": "Overview",
+          "p1": "DriverPit is a small, independently-run F1 guessing game. This page explains what data we collect when you play, why we collect it, and what choices you have about it. We collect as little as we can get away with — enough to run accounts, stats, and the duel leaderboard, and nothing beyond that."
+        },
+        "accounts": {
+          "title": "Accounts and gameplay data",
+          "p1": "Every visitor gets a real account from the moment they arrive, even if they never sign up — a random, anonymous <b>guest</b> identity (shown as a handle like <code>user482913</code>) is created so guests can play Daily, Infinite, and Duel and have their stats tracked without handing over any personal information.",
+          "p2": "If you choose to create a full account with an email address, or sign in with Google, we store: your email address (or the email Google shares with us), a username and optional display name, an avatar, and your gameplay stats — games played, win rate, streaks, guess distribution, and your duel rating, wins, and losses. Signing up links to your existing guest identity rather than replacing it, so nothing you'd already played is lost.",
+          "p3": "We don't ask for your real name, date of birth, or any payment information — there's nothing to buy here."
+        },
+        "cookies": {
+          "title": "Cookies and local storage",
+          "p1": "A session cookie keeps you signed in between visits. Your display preferences — colorblind mode, whether tiles show flags, and your Infinite driver filter — live in your browser's local storage, along with any stats saved there before accounts existed. None of that leaves your device.",
+          "p2": "We also keep a random identifier for your browser in local storage. It is sent only when you join the duel matchmaking queue, where it stops the same browser being matched against itself. It identifies a browser rather than a person, and clearing your site data replaces it with a new one.",
+          "p3": "Once ads are enabled, we also use cookies for advertising — see <b>Advertising</b> below for how that's gated behind your consent."
+        },
+        "advertising": {
+          "title": "Advertising",
+          "p1": "DriverPit is supported by Google AdSense. If you're visiting from the EEA, UK, or Switzerland, ad cookies and personalization stay switched off by default (Google Consent Mode v2) until you actively respond to the consent banner — you can accept, decline, or open “Manage options” to choose more precisely, and you can change your mind later by re-opening that banner.",
+          "p2": "Ads are hidden entirely during a live Duel match — a race is the wrong moment for a banner."
+        },
+        "sharing": {
+          "title": "Who we share data with",
+          "p1": "We don't sell your data. It's shared only with the services that run the site itself:",
+          "items": {
+            "1": "Supabase — hosts the database, authentication, and real-time matchmaking/duel connections.",
+            "2": "Vercel — hosts and serves the site.",
+            "3": "Google AdSense / Google's consent messaging (Funding Choices) — serves ads and records your consent choice, once ads are enabled."
+          },
+          "p2": "Driver stats themselves — nationality, team, age, debut year, career wins — come from the public <f1db>F1DB</f1db> database and the Jolpica-F1 API, and the news carousel pulls public RSS feeds from motorsport press outlets. None of that involves sending any of your data anywhere — it's just how the game content gets built."
+        },
+        "retention": {
+          "title": "How long we keep it",
+          "p1": "Account data and stats are kept for as long as your account exists. Guest identities that never convert to a full account are effectively abandoned rather than actively deleted, but carry no personal information to begin with."
+        },
+        "choices": {
+          "title": "Your choices",
+          "items": {
+            "1": "Guests: your stats live only in your session until you sign up — clearing your browser data or using Settings → Reset local stats wipes it for good.",
+            "2": "Full accounts: Settings → Profile shows exactly what's stored and lets you edit your avatar and display name yourself.",
+            "3": "Ad consent can be changed at any time by re-opening the consent banner."
+          }
+        },
+        "children": {
+          "title": "Children's privacy",
+          "p1": "DriverPit isn't directed at children, and we don't knowingly collect data from anyone under 13."
+        },
+        "changes": {
+          "title": "Changes to this policy",
+          "p1": "If how we handle data changes meaningfully, we'll update this page and the date below."
+        }
+      }
+    },
+    "terms": {
+      "heading": "Terms of service",
+      "sections": {
+        "agreement": {
+          "title": "Agreement",
+          "p1": "By playing DriverPit, you agree to these terms. If you don't agree, you're welcome to not use the site — there's no account required to try it, and no obligation to keep one."
+        },
+        "service": {
+          "title": "The service",
+          "p1": "DriverPit is a free, independently-run Formula 1 guessing game. It isn't affiliated with, endorsed by, or connected to Formula 1, the FIA, or any team or driver named in the game. Driver data comes from <f1db>F1DB</f1db>, an open, community-maintained database."
+        },
+        "accounts": {
+          "title": "Accounts",
+          "p1": "You can play Daily, Infinite, and Duel as an anonymous guest, with no sign-up. Creating a full account (email or Google) is only required to appear on the leaderboard or set a custom profile. You're responsible for keeping your account secure and for anything that happens under it.",
+          "p2": "You must be at least 13 years old to create an account. If we learn an account belongs to someone younger, we'll remove it."
+        },
+        "acceptableUse": {
+          "title": "Acceptable use",
+          "items": {
+            "1": "No automating guesses, scripting matchmaking, or otherwise using bots or tools to gain an unfair advantage in Duel or on the leaderboard.",
+            "2": "No harassment, hate speech, or abuse directed at other players, including through usernames or display names.",
+            "3": "No attempting to disrupt the service — matchmaking, the database, or the site itself — for other players.",
+            "4": "No scraping or reselling the driver data served by the game."
+          }
+        },
+        "usernames": {
+          "title": "Usernames and profiles",
+          "p1": "Your username, display name, and avatar are visible to other players in Duel and on the leaderboard. Don't impersonate anyone or use offensive names — we can rename or suspend an account that does."
+        },
+        "advertising": {
+          "title": "Advertising",
+          "p1": "DriverPit is supported by ads served through Google AdSense, shown outside of active matches. See our <privacy>Privacy policy</privacy> for how ad consent works."
+        },
+        "noWarranty": {
+          "title": "No warranty",
+          "p1": "DriverPit is provided “as is,” built and maintained by a solo developer as a passion project. We don't guarantee it'll always be available, error-free, or that driver data is perfectly up to date, though we try to keep it accurate."
+        },
+        "liability": {
+          "title": "Limitation of liability",
+          "p1": "To the fullest extent allowed by law, DriverPit and its developer aren't liable for any indirect, incidental, or consequential damages arising from your use of the service. It's a free game, not a service you're relying on for anything critical."
+        },
+        "termination": {
+          "title": "Termination",
+          "p1": "We can suspend or remove an account that violates these terms. You can stop playing, or ask us to delete your account, at any time — see the Privacy policy for how."
+        },
+        "changes": {
+          "title": "Changes to these terms",
+          "p1": "If these terms change meaningfully, we'll update this page and the date below."
+        }
+      }
+    }
+  },
+  "archive": {
+    "meta": {
+      "indexTitle": "Past Answers — Every Daily F1 Puzzle",
+      "indexDescription": "Every finished DriverPit puzzle, newest first: the answer, how many players found it, and how the field did that day.",
+      "pageTitle": "Past Answers — Page {page}",
+      "pageDescription": "Older DriverPit puzzles, page {page}: the answer to each finished day and how the field did against it.",
+      "notFound": "Puzzle Not Found",
+      "dayTitle": "Puzzle #{number} — {date}",
+      "dayDescription": "The answer to DriverPit puzzle #{number} ({date}) was {driver}.{outcome} See the guess distribution and the most-guessed drivers of the day.",
+      "dayOutcome": " {percent} of finished boards found them.",
+      "cardAlt": "DriverPit daily recap for {date}"
+    },
+    "breadcrumb": {
+      "home": "Home",
+      "archive": "Archive",
+      "page": "Page {page}"
+    },
+    "dayHeading": "{date} — {driver}",
+    "driverLink": "More about {driver}",
+    "puzzleNumber": "Puzzle #{number}",
+    "playToday": "Play today's puzzle",
+    "notFound": "That puzzle isn't in the archive yet.",
+    "index": {
+      "heading": "Puzzle archive",
+      "intro": "Every finished daily puzzle, with the answer and how the day went. A new one is added each midnight UTC, once the day it belongs to is over.",
+      "empty": "No puzzles have finished yet. The first archive entry appears the day after the first puzzle.",
+      "playToday": "Play today's puzzle →",
+      "noPlayers": "no players",
+      "solved": "{percent} solved",
+      "players": "{count, plural, one {# player} other {# players}}",
+      "pagination": {
+        "label": "Archive pages",
+        "newer": "← Newer",
+        "older": "Older →",
+        "position": "Page {page} of {total}"
+      }
+    },
+    "stats": {
+      "players": "Players",
+      "solveRate": "Solve rate",
+      "avgGuesses": "Avg guesses",
+      "solvedIn": "Solved in",
+      "mostGuessed": "Most guessed",
+      "smallSample": "Only {count, plural, one {# player} other {# players}} took part in this one, so these are a small sample rather than a verdict."
+    }
+  },
+  "driverPage": {
+    "meta": {
+      "title": "{driver} — DriverPit Answers and Career Record",
+      "description": "{appearances} {driver} started their Formula 1 career in {debut}, with {wins, plural, =0 {no wins} one {# win} other {# wins}}, {podiums, plural, =0 {no podiums} one {# podium} other {# podiums}} and {titles, plural, =0 {no world titles} one {# world title} other {# world titles}}.",
+      "appearedOnce": "Was the DriverPit answer on {date}.",
+      "appearedMany": "Has been the DriverPit answer {count} times."
+    },
+    "notFound": "Driver Not Found",
+    "jobTitle": "Formula One driver",
+    "breadcrumbHome": "Home",
+    "backToArchive": "Back to the archive",
+    "playToday": "Play today's puzzle",
+    "career": {
+      "wins": "Wins",
+      "podiums": "Podiums",
+      "poles": "Poles",
+      "titles": "Titles",
+      "nationality": "Nationality",
+      "age": "Age",
+      "ageAtDeath": "Age at death",
+      "seasons": "Seasons",
+      "lastTeam": "Last team",
+      "code": "Code"
+    },
+    "appearances": {
+      "heading": "{count, plural, one {The day they were the answer} other {Days they were the answer}}"
+    }
+  },
+  "recapSummary": {
+    "ordinal": {
+      "1": "first",
+      "2": "second",
+      "3": "third",
+      "4": "fourth",
+      "5": "fifth",
+      "6": "sixth"
+    },
+    "number": {
+      "0": "zero",
+      "1": "one",
+      "2": "two",
+      "3": "three",
+      "4": "four",
+      "5": "five",
+      "6": "six"
+    },
+    "numberCap": {
+      "0": "Zero",
+      "1": "One",
+      "2": "Two",
+      "3": "Three",
+      "4": "Four",
+      "5": "Five",
+      "6": "Six"
+    },
+    "opening": {
+      "nobody": "Nobody recorded a guess on puzzle #{number}. The answer was {driver}.",
+      "noneFinishedOne": "Puzzle #{number} was {driver}. One player opened it and did not play it out.",
+      "noneFinished": "Puzzle #{number} was {driver}. {players} players opened it and none of them played it out.",
+      "soloFirstGuess": "The only player who finished puzzle #{number} found {driver} on the opening guess.",
+      "soloNthGuess": "The only player who finished puzzle #{number} found {driver} on the {ordinal} guess.",
+      "soloFailed": "The only player who finished puzzle #{number} did not find {driver}.",
+      "bothSolved": "Both players who finished puzzle #{number} found {driver}.",
+      "allSolved": "All {completed} players who finished puzzle #{number} found {driver}.",
+      "noneSolved": "None of the {completed} players who finished puzzle #{number} found {driver}.",
+      "veryEasy": "{driver} caught almost nobody out: {fraction} finished boards found them.",
+      "easy": "The answer was {driver}, and {fraction} finished boards found them.",
+      "even": "{driver} split the field almost evenly — {fraction} finished boards found them.",
+      "hard": "{driver} proved awkward: only {fraction} finished boards found them.",
+      "veryHard": "Hardly anyone got {driver} — just {fraction} finished boards found them."
+    },
+    "fraction": {
+      "words": "{solved} of the {completed}",
+      "digits": "{solved} of {completed}"
+    },
+    "difficulty": {
+      "muchHarder": "That is far below the {average} the rest of the archive averages.",
+      "muchEasier": "That is far above the {average} the rest of the archive averages.",
+      "slightlyHarder": "That is a little below the archive's {average} average.",
+      "slightlyEasier": "That is a little above the archive's {average} average."
+    },
+    "firstGuess": {
+      "one": "One board got there on the opening guess.",
+      "many": "{count} boards got there on the opening guess."
+    },
+    "upset": "More players tried {leader} than tried {driver}.",
+    "distribution": {
+      "uniformOne": "The one winning board needed {guesses} guesses.",
+      "uniformTwo": "Both winning boards needed {guesses} guesses.",
+      "uniformAll": "Every winning board needed the same {guesses} guesses.",
+      "averageAndMode": "Winning boards averaged {average} guesses, and the {ordinal} was the most common.",
+      "mode": "Most winning boards got there on the {ordinal} guess."
+    },
+    "approach": {
+      "openerWasAnswer": "{count} players opened with the answer itself.",
+      "bothOpened": "Both boards opened with {opener}.",
+      "allOpened": "All {players} boards opened with {opener}.",
+      "mostOpened": "Most boards opened with {opener}.",
+      "popularOpener": "The most common opening guess was {opener}.",
+      "bothOpenedWithWrong": "Both boards opened with {opener}, and the wrong name that came up most often was {wrong}.",
+      "allOpenedWithWrong": "All {players} boards opened with {opener}, and the wrong name that came up most often was {wrong}.",
+      "mostOpenedWithWrong": "Most boards opened with {opener}, and the wrong name that came up most often was {wrong}.",
+      "popularOpenerWithWrong": "The most common opening guess was {opener}, and the wrong name that came up most often was {wrong}.",
+      "wrongOnly": "The wrong name that came up most often was {wrong}."
+    }
+  },
+  "driverSummary": {
+    "number": {
+      "0": "no",
+      "1": "one",
+      "2": "two",
+      "3": "three",
+      "4": "four",
+      "5": "five",
+      "6": "six",
+      "7": "seven",
+      "8": "eight",
+      "9": "nine",
+      "10": "ten",
+      "11": "eleven",
+      "12": "twelve"
+    },
+    "times": {
+      "once": "once",
+      "twice": "twice",
+      "many": "{count} times"
+    },
+    "span": {
+      "single": "in {year}",
+      "since": "since {from}",
+      "between": "between {from} and {to}"
+    },
+    "career": {
+      "titlesAndWins": {
+        "active": "{driver} has won {titles} {titlesRaw, plural, one {world championship} other {world championships}} and {wins} {wins, plural, one {grand prix} other {grands prix}} {when}.",
+        "past": "{driver} won {titles} {titlesRaw, plural, one {world championship} other {world championships}} and {wins} {wins, plural, one {grand prix} other {grands prix}} {when}."
+      },
+      "titles": {
+        "active": "{driver} has won {titles} {titlesRaw, plural, one {world championship} other {world championships}} {when}, without a race win.",
+        "past": "{driver} won {titles} {titlesRaw, plural, one {world championship} other {world championships}} {when}, without a race win."
+      },
+      "winsAndPodiums": {
+        "active": "{driver} has won {wins} {wins, plural, one {grand prix} other {grands prix}} and finished on the podium {podiums} {when}.",
+        "past": "{driver} won {wins} {wins, plural, one {grand prix} other {grands prix}} and finished on the podium {podiums} {when}."
+      },
+      "wins": {
+        "active": "{driver} has won {wins} {wins, plural, one {grand prix} other {grands prix}} {when}.",
+        "past": "{driver} won {wins} {wins, plural, one {grand prix} other {grands prix}} {when}."
+      },
+      "podiumsNoWin": {
+        "active": "{driver} has never won a grand prix, but finished on the podium {podiums} {when}.",
+        "past": "{driver} never won a grand prix, but finished on the podium {podiums} {when}."
+      },
+      "polesOnly": {
+        "active": "{driver} has started from pole {poles} {when}, without a podium finish.",
+        "past": "{driver} started from pole {poles} {when}, without a podium finish."
+      },
+      "none": {
+        "active": "{driver} has been racing {when} without a podium finish.",
+        "past": "{driver} raced {when} without a podium finish."
+      }
+    },
+    "teams": {
+      "single": {
+        "active": "They have spent their whole career so far with {team}.",
+        "past": "Their whole career was spent with {team}."
+      },
+      "few": {
+        "active": "They have raced for {list}.",
+        "past": "They raced for {list}."
+      },
+      "many": {
+        "active": "They have raced for {count} different constructors so far: {list}.",
+        "past": "They raced for {count} different constructors: {list}."
+      }
+    },
+    "archive": {
+      "single": {
+        "soloSolved": "They were the answer on {date}, and the one player who finished it found them.",
+        "soloFailed": "They were the answer on {date}, and the one player who finished it did not find them.",
+        "bothSolved": "They were the answer on {date}, and both players who finished it found them.",
+        "allSolved": "They were the answer on {date}, and all {completed} players who finished it found them.",
+        "noneSolved": "They were the answer on {date}, and none of the {completed} players who finished it found them.",
+        "someSolved": "They were the answer on {date}, and {solved} of the {completed} players who finished it found them."
+      },
+      "multiRate": "They have come up as the answer {appearances}, and {percent}% of the {completed} boards finished on those days found them.",
+      "multiCounts": "They have come up as the answer {appearances}, and {solved} of the {completed} boards finished on those days found them."
+    }
+  }
+}

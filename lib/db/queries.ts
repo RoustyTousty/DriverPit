@@ -99,6 +99,6 @@ export interface DriverSummary {
 // getDailyDriverId() specifically must never come back. The day's target is a
 // RANDOM pick made once inside public.daily_target_id (drizzle/0038) and pinned
 // in daily_targets. A TypeScript helper that could recompute it is exactly the
-// leak §3.1 closed -- /daily ships the whole pool WITH ids to the browser for
+// leak §3.1 closed -- the daily page ships the whole pool WITH ids to the browser for
 // autocomplete, so a reproducible answer is a devtools one-liner. Server code
 // that needs the target reads daily_targets over the trusted connection.

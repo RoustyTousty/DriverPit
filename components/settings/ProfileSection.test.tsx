@@ -41,6 +41,7 @@ function renderSection({ isGuest }: { isGuest: boolean }) {
     profile: { id: "u-1", username: "user482913", displayName: null, avatarUrl: "seed", isGuest },
     loading: false,
     refresh: vi.fn(),
+    ensureIdentity: vi.fn().mockResolvedValue("user-1"),
     signOutAndReset,
   });
   return render(<ProfileSection />);

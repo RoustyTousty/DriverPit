@@ -1,4 +1,5 @@
-import Link from "next/link";
+import { Link } from "@/lib/i18n/navigation";
+
 
 // The one deliberate use of accent orange in the marketing sections beyond
 // the wordmark -- a single small, consistent affordance pointing at each

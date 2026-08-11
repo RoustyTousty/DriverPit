@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -11,9 +13,9 @@ import { LEADERBOARD_TOP_SLOTS } from "@/lib/leaderboard/constants";
 
 type Board = "duel" | "streak";
 
-const BOARDS: { value: Board; label: string }[] = [
-  { value: "streak", label: "Daily streak" },
-  { value: "duel", label: "Duel rating" },
+const BOARDS: { value: Board; labelKey: "streak" | "duel" }[] = [
+  { value: "streak", labelKey: "streak" },
+  { value: "duel", labelKey: "duel" },
 ];
 
 // Always exactly this many slots at the top, real entries or not -- with
@@ -30,7 +32,9 @@ function EmptySlotRow({ rank }: { rank: number }) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-dashed border-border px-3 py-2">
       <span className="w-5 shrink-0 text-right font-mono text-xs tabular-nums text-text-muted">{rank}</span>
-      <div className="h-7 w-7 shrink-0 rounded-full border-2 border-dashed border-border" aria-hidden="true" />
+      {/* Same radius as AvatarGlyph -- this slot is the shape a real avatar
+          will take once someone claims the rank. */}
+      <div className="h-7 w-7 shrink-0 rounded-lg border-2 border-dashed border-border" aria-hidden="true" />
       <p className="min-w-0 flex-1 truncate text-sm text-text-muted">Open</p>
     </div>
   );
@@ -53,6 +57,7 @@ function Row({
   metricLabel: string;
   isYou: boolean;
 }) {
+  const t = useTranslations("leaderboard");
   return (
     <div
       className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${
@@ -63,7 +68,7 @@ function Row({
       <AvatarGlyph avatarUrl={avatarUrl} size="sm" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold text-text">{displayName || username}</p>
-        {isYou && <p className="text-[10px] tracking-wide text-accent uppercase">You</p>}
+        {isYou && <p className="text-[10px] tracking-wide text-accent uppercase">{t("you")}</p>}
       </div>
       <div className="flex shrink-0 flex-col items-end">
         <span className="font-mono text-sm font-bold tabular-nums text-text">{metric}</span>
@@ -82,6 +87,7 @@ export function LeaderboardModal({
   open: boolean;
   onClose: () => void;
 }) {
+  const t = useTranslations("leaderboard");
   const { profile, userId } = useAuth();
   const [board, setBoard] = useState<Board>("streak");
   const [duelBoard, setDuelBoard] = useState<DuelLeaderboardEntry[]>([]);
@@ -117,10 +123,10 @@ export function LeaderboardModal({
   }, [open, userId]);
 
   return (
-    <Modal open={open} onClose={onClose} title="Leaderboard">
+    <Modal open={open} onClose={onClose} title={t("title")}>
       <div className="flex flex-col gap-4">
         {profile?.isGuest && (
-          <GuestUpgradePrompt description="Create an account to appear on the leaderboard." />
+          <GuestUpgradePrompt description={t("guestPrompt")} />
         )}
 
         <div role="tablist" aria-label="Leaderboard" className="flex gap-1 rounded-lg border border-border bg-surface-2 p-1">
@@ -137,7 +143,7 @@ export function LeaderboardModal({
                   active ? "bg-accent-weak text-accent" : "text-text-muted hover:text-text"
                 }`}
               >
-                {tab.label}
+                {t(tab.labelKey)}
               </button>
             );
           })}
@@ -158,7 +164,7 @@ export function LeaderboardModal({
                       displayName={entry.displayName}
                       avatarUrl={entry.avatarUrl}
                       metric={entry.duelRating}
-                      metricLabel="Rating"
+                      metricLabel={t("rating")}
                       isYou={entry.id === profile?.id}
                     />
                   ) : (
@@ -175,7 +181,7 @@ export function LeaderboardModal({
                       displayName={entry.displayName}
                       avatarUrl={entry.avatarUrl}
                       metric={entry.currentStreak}
-                      metricLabel="Streak"
+                      metricLabel={t("streakMetric")}
                       isYou={entry.id === profile?.id}
                     />
                   ) : (
@@ -194,7 +200,7 @@ export function LeaderboardModal({
                   displayName={myDuelRank.entry.displayName}
                   avatarUrl={myDuelRank.entry.avatarUrl}
                   metric={myDuelRank.entry.duelRating}
-                  metricLabel="Rating"
+                  metricLabel={t("rating")}
                   isYou
                 />
               </>
@@ -208,7 +214,7 @@ export function LeaderboardModal({
                   displayName={myStreakRank.entry.displayName}
                   avatarUrl={myStreakRank.entry.avatarUrl}
                   metric={myStreakRank.entry.currentStreak}
-                  metricLabel="Streak"
+                  metricLabel={t("streakMetric")}
                   isYou
                 />
               </>

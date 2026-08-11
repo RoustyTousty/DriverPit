@@ -1,42 +1,45 @@
+import { useTranslations } from "next-intl";
+
 import { Tile } from "@/components/game/GuessGrid";
 
 import { MoreLink } from "./MoreLink";
 
+// Its own short labels, not the full page's: this is a four-tile summary and
+// the wording is written tighter for it. Shares the `marketing.howToPlay`
+// namespace so both live beside each other in the catalogue.
 const LEGEND: {
-  feedback: "exact" | "historical" | "miss" | "higher" | "lower";
+  key: "exact" | "historical" | "miss" | "close";
+  feedback: "exact" | "historical" | "miss" | "lower";
   value: string;
   closeness?: number;
-  label: string;
 }[] = [
-  { feedback: "exact", value: "Ferrari", label: "Exact match" },
-  { feedback: "historical", value: "McLaren", label: "Raced for them before" },
-  { feedback: "miss", value: "Italy", label: "No match" },
-  { feedback: "lower", value: "2007", closeness: 0.85, label: "Close numeric miss" },
+  { key: "exact", feedback: "exact", value: "Ferrari" },
+  { key: "historical", feedback: "historical", value: "McLaren" },
+  { key: "miss", feedback: "miss", value: "Italy" },
+  { key: "close", feedback: "lower", value: "2007", closeness: 0.85 },
 ];
 
 export function HowToPlayTeaser() {
+  const t = useTranslations("marketing.howToPlay");
+
   return (
     <section id="how-to-play" className="flex flex-col gap-4">
-      <h2 className="text-2xl font-bold text-text">How to play</h2>
+      <h2 className="text-2xl font-bold text-text">{t("heading")}</h2>
 
-      <p className="text-sm text-text-muted">
-        Guess the mystery Formula 1 driver in six tries. Every guess compares five attributes —
-        nationality, team, age, debut year, career wins — with tiles that shade toward orange the
-        closer a numeric guess was.
-      </p>
+      <p className="text-sm text-text-muted">{t("teaserIntro")}</p>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {LEGEND.map((item) => (
-          <div key={item.label} className="flex flex-col gap-1.5">
+          <div key={item.key} className="flex flex-col gap-1.5">
             <Tile feedback={item.feedback} closeness={item.closeness}>
               {item.value}
             </Tile>
-            <p className="text-xs text-text-muted">{item.label}</p>
+            <p className="text-xs text-text-muted">{t(`teaserLegend.${item.key}`)}</p>
           </div>
         ))}
       </div>
 
-      <MoreLink href="/how-to-play">Full how-to-play guide</MoreLink>
+      <MoreLink href="/how-to-play">{t("teaserMore")}</MoreLink>
     </section>
   );
 }

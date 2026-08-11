@@ -20,6 +20,13 @@ export default defineConfig({
   // follows tsconfig, so without this it hands vitest raw JSX.
   esbuild: { jsx: "automatic" },
   test: {
+    // next-intl ships ESM that imports `next/server` extensionless, and `next`
+    // has no `exports` map -- so Node's own resolver, which is what vitest uses
+    // for externalized dependencies, refuses it ("did you mean next/server.js").
+    // Inlining hands it to vite's resolver instead, which does what the bundler
+    // in a real Next build does. Without this the middleware suite cannot even
+    // load.
+    server: { deps: { inline: ["next-intl"] } },
     // Two tiers, split by environment rather than by directory (audit
     // 2026-07-29 §2.6). Everything under `lib/` and `scripts/` is pure logic and
     // runs in node, as it always has; `.test.tsx` files render real components

@@ -11,11 +11,11 @@ import { nextCurrentStreak } from "./streak";
 // "use server" export taking a user id would be a client-callable action that
 // lets anyone write any user's stats -- so the only way in is the
 // cookie-resolved recordDailyResult() action, which supplies the caller's own
-// id. /daily invokes that action once, on the guess that ends the day.
+// id. The daily board invokes that action once, on the guess that ends the day.
 //
 // NOTHING ABOUT THE OUTCOME IS A PARAMETER. `won`, `guessCount` and the UTC day
 // used to be arguments, which meant a "use server" export whose action id ships
-// in the /daily bundle would take `(true, 1)` from a devtools console and write
+// in the daily board's bundle would take `(true, 1)` from a devtools console and write
 // a win, a 1-guess distribution bucket and an extended streak for a day the
 // player never finished (audit 2026-07-27 §3.2). The daily_results PK guard did
 // not stop that -- it stops a *replay*, and a forgery is a different threat;
@@ -32,7 +32,7 @@ import { nextCurrentStreak } from "./streak";
 export type RecordDailyResultOutcome =
   | { ok: true; recorded: boolean }
   // No completed board to record. Not an error the player should ever see on
-  // the real path -- /daily only calls this on the guess that completed the day.
+  // the real path -- the board only calls this on the guess that completed the day.
   | { ok: false; reason: "no-completed-day" | "no-stats-row" };
 
 export async function recordDailyResultForUser(userId: string): Promise<RecordDailyResultOutcome> {

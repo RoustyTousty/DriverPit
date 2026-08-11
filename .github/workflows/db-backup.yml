@@ -1,0 +1,211 @@
+name: Database backup
+
+# WHY THIS EXISTS. The Supabase free plan includes no backups of any kind. This
+# database holds every account, every streak, every duel rating and every day of
+# `daily_progress` -- none of which exists anywhere else and none of which can be
+# reconstructed. `drizzle/` is a complete, replayable definition of the SCHEMA
+# (every table, function, policy and grant), so the schema was never the thing at
+# risk; the rows are. Losing them loses the players.
+#
+# WHAT IT PRODUCES. One `pg_dump` custom-format archive per run, GPG-encrypted,
+# uploaded as a workflow artifact with 90-day retention. Custom format rather
+# than plain SQL because `pg_restore` can then take the whole thing, or only the
+# data, or only one table, out of the same file -- which is what a real restore
+# into a fresh Supabase project needs (re-run the migrations for the schema and
+# the grants, then restore data only).
+#
+# THE ENCRYPTION IS NOT OPTIONAL, AND THIS REPOSITORY IS WHY. Artifacts inherit
+# repository visibility: on a PUBLIC repo, anyone can download them. The dump
+# contains `auth.users` -- email addresses and password hashes. So the job
+# REFUSES TO RUN without a passphrase rather than falling back to a plaintext
+# upload, and the plaintext dump is shredded in the same step that encrypts it.
+# If this repo is ever made private, keep the encryption anyway: an artifact is
+# still a copy of the user table sitting in someone else's cloud.
+#
+# SETUP -- two repository secrets (Settings -> Secrets and variables -> Actions):
+#
+#   BACKUP_DATABASE_URL           Supabase SESSION-mode pooler connection string
+#   BACKUP_ENCRYPTION_PASSPHRASE  a long random passphrase -- STORE IT SOMEWHERE
+#                                 OUTSIDE THIS REPO AND OUTSIDE GITHUB. Actions
+#                                 secrets are write-only; you cannot read it back,
+#                                 and a backup you cannot decrypt is not a backup.
+#
+# WHY A THIRD CONNECTION SECRET, AND WHY PORT 5432. `pg_dump` cannot run through
+# PgBouncer in transaction mode, which is what the pooler serves on 6543 -- the
+# port `DATABASE_URL` and `PRODUCTION_DATABASE_URL` both use. It needs the
+# SESSION-mode pooler, same host, port 5432. (Not the direct `db.<ref>.supabase.co`
+# host either: that is IPv6-only and Actions runners are not -- the same
+# constraint roster-refresh.yml documents.) A separate, deliberately-named secret
+# also means this job cannot inherit the scratch database the CI tier writes into
+# and quietly back THAT up instead, which would look exactly like working.
+#
+# RESTORING (rehearse this at least once -- an untested backup is a hope):
+#
+#   gpg --batch --decrypt --passphrase "$PASSPHRASE" \
+#       --output driverpit.dump driverpit-YYYY-MM-DD.dump.gpg
+#   pg_restore --list driverpit.dump                  # confirm it is intact
+#   npm run db:migrate                                # schema, policies, grants
+#   pg_restore --data-only --disable-triggers \
+#              --no-owner --no-privileges \
+#              --dbname "$TARGET_URL" driverpit.dump
+
+on:
+  schedule:
+    # 03:00 UTC: clear of the 00:00 UTC daily rollover (when daily_progress and
+    # daily_results are at their busiest) and clear of Monday's 06:00 roster
+    # refresh, which holds a transaction over every row in `drivers`.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  # Two dumps at once would just be two identical reads, but there is no reason
+  # to pay for both, and a queued run is a better signal than a cancelled one.
+  group: db-backup
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    name: Dump, encrypt, upload
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # ci.yml self-skips on absent secrets, on the grounds that a tier nobody
+      # can run should not train people to ignore red. The opposite rule applies
+      # here, exactly as it does in roster-refresh.yml: a silent skip IS the
+      # failure mode -- backups quietly not happening looks identical to backups
+      # happening, right up until the day it matters.
+      - name: Require both secrets
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
+        run: |
+          missing=0
+          if [ -z "$BACKUP_DATABASE_URL" ]; then
+            echo "::error title=BACKUP_DATABASE_URL is not set::Add the Supabase SESSION-mode pooler string (port 5432) as a repository secret. Deliberately NOT the 6543 URL the other jobs use -- pg_dump cannot run through PgBouncer transaction mode."
+            missing=1
+          fi
+          if [ -z "$BACKUP_ENCRYPTION_PASSPHRASE" ]; then
+            echo "::error title=BACKUP_ENCRYPTION_PASSPHRASE is not set::Refusing to dump. Artifacts on a public repository are downloadable by anyone and this dump contains auth.users (emails, password hashes). There is deliberately no unencrypted fallback."
+            missing=1
+          fi
+          exit $missing
+
+      # The runner image ships an older postgresql-client than Supabase runs, and
+      # pg_dump refuses to dump a server newer than itself. Newer client against
+      # older server is always fine, so pin forward: PGDG's 17 covers every
+      # Postgres version Supabase currently provisions. If Supabase moves the
+      # project to 18, this step is the one to bump -- and the failure will say so
+      # in as many words rather than producing a partial dump.
+      - name: Install pg_dump 17
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          pg_dump --version
+
+      # Both schemas in one archive. `public` is the game; `auth` is who the game
+      # belongs to -- profiles.id is auth.users.id, so a public-only dump restores
+      # every stat in the database and can no longer say whose it is.
+      #
+      # Owners and ACLs are deliberately KEPT in the archive (no --no-owner /
+      # --no-privileges here). They are noise on a restore into a fresh project,
+      # where pg_restore can drop them with its own flags, but they are the only
+      # forensic record of what the live grant surface actually looked like on the
+      # day -- and this schema's security model IS its grants (CLAUDE.md,
+      # "Schema"). Strip at restore, never at capture.
+      - name: pg_dump
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: |
+          set -o pipefail
+          echo "STAMP=$(date -u +%Y-%m-%dT%H-%M-%SZ)" >> "$GITHUB_ENV"
+          pg_dump "$BACKUP_DATABASE_URL" \
+            --format=custom \
+            --compress=9 \
+            --schema=public \
+            --schema=auth \
+            --file=driverpit.dump \
+            --verbose 2> dump.log || {
+              echo "::error title=pg_dump failed::See the log below. If it is a permission error inside the auth schema, replace '--schema=auth' with '--table=auth.users' -- that row set is the irreplaceable part; the rest of auth is Supabase-managed and is recreated by a new project."
+              tail -40 dump.log
+              exit 1
+            }
+
+      # MIN_DUMP_BYTES is a floor, not a checksum, and it is here for the one
+      # failure mode pg_dump reports as success: a connection that authenticates,
+      # sees an empty or wrong database, and dumps almost nothing. The roster
+      # alone is ~800 rows, so a healthy archive clears this by a wide margin
+      # while a pointed-at-the-wrong-project one cannot. Same reasoning as the
+      # seed's MIN_ROSTER_RATIO.
+      - name: Sanity-check the archive
+        run: |
+          MIN_DUMP_BYTES=20000
+          size=$(stat -c%s driverpit.dump)
+          echo "dump size: ${size} bytes"
+          if [ "$size" -lt "$MIN_DUMP_BYTES" ]; then
+            echo "::error title=Dump is implausibly small::${size} bytes, floor is ${MIN_DUMP_BYTES}. pg_dump reported success, so this is most likely the wrong database or an empty one -- check which project BACKUP_DATABASE_URL points at."
+            exit 1
+          fi
+          # Proves the archive's table of contents parses, which a truncated or
+          # half-written file would not. Cheap, and it is the only check here that
+          # looks at the contents rather than the size.
+          pg_restore --list driverpit.dump > toc.txt
+          echo "objects in archive: $(wc -l < toc.txt)"
+
+      # Symmetric AES-256: one passphrase, no keyring to lose alongside the
+      # backup. `shred` rather than `rm` so the plaintext cannot be recovered from
+      # the runner's disk image, and it happens in this step rather than a later
+      # one so there is no ordering in which an upload could pick it up.
+      - name: Encrypt
+        env:
+          BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
+        run: |
+          gpg --batch --yes --symmetric \
+            --cipher-algo AES256 \
+            --passphrase "$BACKUP_ENCRYPTION_PASSPHRASE" \
+            --output "driverpit-${STAMP}.dump.gpg" \
+            driverpit.dump
+          shred -u driverpit.dump
+          ls -la "driverpit-${STAMP}.dump.gpg"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: driverpit-backup-${{ env.STAMP }}
+          path: driverpit-${{ env.STAMP }}.dump.gpg
+          # The ceiling GitHub allows on a public repo. Ninety daily backups is
+          # enough history to notice and undo a slow corruption, not only a
+          # sudden loss.
+          retention-days: 90
+          if-no-files-found: error
+
+      # The size trend is the part worth reading at a glance: a dump that stops
+      # growing means writes stopped, and a dump that jumps means something is
+      # inserting rows nobody asked for (guest rows from crawlers being the
+      # likeliest candidate here).
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "## Database backup — \`${STAMP:-unknown}\`"
+            echo ""
+            if [ -f "driverpit-${STAMP}.dump.gpg" ]; then
+              echo "| | |"
+              echo "|---|---|"
+              echo "| Encrypted archive | \`driverpit-${STAMP}.dump.gpg\` |"
+              echo "| Size | $(stat -c%s "driverpit-${STAMP}.dump.gpg") bytes |"
+              echo "| SHA-256 | \`$(sha256sum "driverpit-${STAMP}.dump.gpg" | cut -d' ' -f1)\` |"
+              echo "| Objects in archive | $(wc -l < toc.txt 2>/dev/null || echo '?') |"
+              echo ""
+              echo "Decrypt with the passphrase in \`BACKUP_ENCRYPTION_PASSPHRASE\`; restore steps are in the header comment of \`.github/workflows/db-backup.yml\`."
+            else
+              echo "**No archive was produced — this run failed.** The database is unchanged; nothing here writes."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

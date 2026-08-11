@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -11,6 +10,7 @@ import { getDuelCommitments } from "@/lib/duel/duelCommitments";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 import { AvatarPicker } from "./AvatarPicker";
+import { Link } from "@/lib/i18n/navigation";
 
 // Settings -> Profile: the things about an account that genuinely are settings
 // -- avatar, display name, which state you're in, and the way out.
@@ -181,7 +181,7 @@ export function ProfileSection() {
                   setJustSaved(false);
                 }}
                 disabled={pending}
-                className="flex-1 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text outline-none transition focus:border-accent focus:ring-2 focus:ring-accent disabled:opacity-50"
+                className="flex-1 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text outline-none transition focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50"
               />
               <button
                 type="submit"

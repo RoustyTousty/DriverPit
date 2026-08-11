@@ -20,7 +20,11 @@
 //   3. a per-response nonce CSP set by the route -- so an injected script
 //      still doesn't execute.
 
-const DEFAULT_NEXT = "/daily";
+// Where an auth round trip lands when it has nowhere better to go: the game
+// itself, which is `/` (roadmap Pass 5). Exported because /auth/sign-in needs
+// the same value as the initial state of its own `next`, and two spellings of
+// "the default destination" is one more than the number that can be right.
+export const DEFAULT_NEXT = "/";
 const DEFAULT_ERROR_CODE = "oauth_callback_failed";
 
 // Real values are always `window.location.pathname` (OAuthErrorHandler,
@@ -37,7 +41,31 @@ const NEXT_MAX_LENGTH = 512;
 // worth nothing to forward and is dropped for the generic default.
 const SAFE_ERROR_CODE = /^[A-Za-z0-9_.-]{1,64}$/;
 
-// Falls back to `/daily` rather than throwing: `next` only decides where the
+// The human-readable half of a GoTrue failure (`error_description` in the hash,
+// or the `message` on a failed exchange). It gets no allowlist because it is
+// free text by nature -- what it gets instead is a length cap and whitespace
+// collapsing, and the guarantee that it is never rendered into markup: it
+// travels as a query param (so `encodeURIComponent` neutralises anything that
+// would matter in a URL or a Location header) and is only ever logged or shown
+// as toast text.
+//
+// It exists because "Something went wrong signing in with Google" is the same
+// sentence for a project that is rate limiting you, a redirect URL missing from
+// the allow list, and a disabled provider -- three different problems with three
+// different fixes, none of which the player or the developer could tell apart.
+const DESCRIPTION_MAX_LENGTH = 200;
+
+export function sanitizeErrorDescription(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  // `\s` covers the CR/LF that are the only characters worth worrying about in
+  // a redirect, and GoTrue descriptions arrive `+`-encoded and sometimes
+  // multi-line, so collapsing is what makes them readable in one log line.
+  const collapsed = raw.replace(/\s+/g, " ").trim();
+  if (!collapsed) return null;
+  return collapsed.slice(0, DESCRIPTION_MAX_LENGTH);
+}
+
+// Falls back to DEFAULT_NEXT rather than throwing: `next` only decides where the
 // user lands after signing in, and sending them to the default beats failing
 // an otherwise-successful auth round trip.
 export function sanitizeNextPath(raw: string | null | undefined): string {
@@ -96,6 +124,13 @@ export type HashForwardHtmlInput = {
 // It reads both values off its own `data-*` attributes via
 // `document.currentScript`, which is set for the whole synchronous execution
 // of a classic inline script.
+//
+// It also forwards `error_description` straight out of the hash. That costs
+// nothing in the model above precisely because it never passes through here as
+// a value: the script reads it from `window.location.hash` at runtime and
+// encodes it into the URL it navigates to, so there is no interpolation site
+// for it to escape from. Without it, the only thing a failed Google round trip
+// ever tells anyone is a coarse code like `server_error`.
 export function buildHashForwardHtml({ next, errorCode, nonce }: HashForwardHtmlInput): string {
   const safeNext = escapeHtmlAttribute(next);
   const safeErrorCode = escapeHtmlAttribute(errorCode);
@@ -111,7 +146,10 @@ export function buildHashForwardHtml({ next, errorCode, nonce }: HashForwardHtml
   var el = document.currentScript;
   var hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
   var code = hashParams.get("error_code") || hashParams.get("error") || el.dataset.fallbackCode;
-  window.location.replace(el.dataset.next + "?error_code=" + encodeURIComponent(code));
+  var description = hashParams.get("error_description") || "";
+  var query = "?error_code=" + encodeURIComponent(code);
+  if (description) query += "&error_description=" + encodeURIComponent(description.slice(0, 200));
+  window.location.replace(el.dataset.next + query);
 })();
 </script>
 </body>

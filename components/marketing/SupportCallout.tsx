@@ -21,6 +21,8 @@
 // were tried; both are the kind of annotation that reads as hedging on an ask
 // that works better stated plainly, and the block already says what it is three
 // times over before anyone reaches the button.
+import { useTranslations } from "next-intl";
+
 const BUY_ME_A_COFFEE_URL = "https://buymeacoffee.com/ecozo";
 
 function CoffeeIcon() {
@@ -43,9 +45,11 @@ function CoffeeIcon() {
 }
 
 export function SupportCallout() {
+  const t = useTranslations("marketing.support");
+
   return (
     <section id="support" className="flex flex-col gap-4">
-      <h2 className="text-2xl font-bold text-text">Support me</h2>
+      <h2 className="text-2xl font-bold text-text">{t("heading")}</h2>
 
       <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface-2 p-4 sm:flex-row sm:items-center sm:gap-4">
         <span
@@ -56,11 +60,8 @@ export function SupportCallout() {
         </span>
 
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-text">DriverPit is free, and stays free</p>
-          <p className="mt-1 text-xs text-text-muted">
-            It&rsquo;s built and run by one person in their spare time — hosting, the domain and the hours all come
-            out of the same pocket. A coffee helps keep it going; nothing in the game changes either way.
-          </p>
+          <p className="text-sm font-bold text-text">{t("lead")}</p>
+          <p className="mt-1 text-xs text-text-muted">{t("body")}</p>
         </div>
 
         <a
@@ -69,7 +70,7 @@ export function SupportCallout() {
           rel="noopener noreferrer"
           className="shrink-0 self-start rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:brightness-110 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:self-auto"
         >
-          Buy me a coffee
+          {t("cta")}
         </a>
       </div>
     </section>

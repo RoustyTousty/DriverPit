@@ -59,7 +59,7 @@ export function AuthPanel({
 }: {
   next: string;
 }) {
-  const { refresh, signInWithPassword } = useAuth();
+  const { refresh, signInWithPassword, ensureIdentity } = useAuth();
   const toast = useToast();
   const [supabase] = useState(() => createSupabaseBrowserClient());
   const [tab, setTab] = useState<EmailTab>("signup");
@@ -113,6 +113,18 @@ export function AuthPanel({
     const address = normalizeEmail(email);
     setFormError(null);
     setPending(true);
+    // THE ONE PLACE deferred identity (roadmap Pass 4a) is a hard precondition
+    // rather than a head start. `updateUser` upgrades the anonymous row that is
+    // already signed in -- with no session there is nothing to update, and the
+    // call fails. Reaching /auth/sign-in without ever touching the game is an
+    // ordinary way to arrive (six places link here), so this is a normal path,
+    // not an edge case. Creating the guest first keeps "upgrade, don't replace"
+    // true even for someone whose very first action on the site is signing up.
+    if (!(await ensureIdentity())) {
+      setPending(false);
+      setFormError("Couldn't reach the server. Check your connection and try again.");
+      return;
+    }
     const { data, error } = await supabase.auth.updateUser(
       { email: address, password },
       { emailRedirectTo: callbackUrl("email", next) },
@@ -217,6 +229,17 @@ export function AuthPanel({
   async function handleGoogle() {
     setFormError(null);
     setPending(true);
+    // linkIdentity() links to the session that exists, so it needs one for the
+    // same reason handleCreateAccount does. Minting the guest first is also
+    // what keeps this button's whole rationale intact for a visitor arriving
+    // cold: there has to be a guest for Google to link TO, or the "silently
+    // orphans the guest's progress" trade the comment above describes has no
+    // meaning on this path.
+    if (!(await ensureIdentity())) {
+      setPending(false);
+      setFormError("Couldn't reach the server. Check your connection and try again.");
+      return;
+    }
     const { error } = await supabase.auth.linkIdentity({
       provider: "google",
       options: { redirectTo: callbackUrl("google", next) },
@@ -292,7 +315,7 @@ export function AuthPanel({
             disabled={pending}
             aria-invalid={formError !== null}
             aria-describedby={formError ? "auth-panel-error" : undefined}
-            className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text outline-none transition focus:border-accent focus:ring-2 focus:ring-accent disabled:opacity-50"
+            className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text outline-none transition focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50"
           />
 
           <label
@@ -318,7 +341,7 @@ export function AuthPanel({
               disabled={pending}
               aria-invalid={formError !== null}
               aria-describedby={formError ? "auth-panel-error" : undefined}
-              className="w-full rounded-lg border border-border bg-surface-2 py-2 pr-16 pl-3 text-sm text-text outline-none transition focus:border-accent focus:ring-2 focus:ring-accent disabled:opacity-50"
+              className="w-full rounded-lg border border-border bg-surface-2 py-2 pr-16 pl-3 text-sm text-text outline-none transition focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50"
             />
             {/* A reveal toggle instead of a second "confirm password" field:
                 it catches the same typo with one control rather than two,
@@ -388,7 +411,17 @@ export function AuthPanel({
         type="button"
         onClick={() => void handleGoogle()}
         disabled={pending}
-        className="flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-semibold text-text transition hover:border-text-muted/40 hover:bg-surface motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+        // Hover draws an ACCENT outline and leaves the fill alone. It used to add
+        // `hover:bg-surface` on top of a `bg-surface-2` rest state, which is
+        // *darker* -- surface-2 is the raised token and surface is the window
+        // behind it -- so this button got dimmer on hover while every other one
+        // on the site gets lighter. With the fill already at the raised token
+        // there is no lighter step to move to, so the feedback is the border.
+        //
+        // Accent rather than a neutral brighten, and it stays within the orange
+        // discipline: this is a momentary state on the one interactive control
+        // in the block, matching the ring its own focus state already draws.
+        className="flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-semibold text-text transition hover:border-accent motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
       >
         <GoogleLogo />
         Continue with Google

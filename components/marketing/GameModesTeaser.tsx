@@ -1,3 +1,5 @@
+import { useTranslations } from "next-intl";
+
 import { MoreLink } from "./MoreLink";
 import { ModeIcon, type GameModeId } from "./ModeIcon";
 
@@ -6,29 +8,24 @@ import { ModeIcon, type GameModeId } from "./ModeIcon";
 // actually start one -- but not in the home page's summary, which exists to
 // answer "what is there to play here?" in one glance.
 //
-// Summaries are one clause per fact, in the same clipped register across all
-// three places a mode list appears. "Race a matchmade opponent across 3 rounds"
-// described the matchmaking rather than the game; what a player wants to know
-// first is the shape of the contest.
-const MODES: { id: GameModeId; name: string; tag?: string; summary: string }[] = [
-  { id: "daily", name: "Daily", summary: "One driver a day, the same for everyone, 6 guesses." },
-  { id: "infinite", name: "Infinite", summary: "Unlimited rounds, your own driver pool, 6 guesses." },
-  { id: "duel", name: "Duel", summary: "1v1, one target, 3 rounds — highest score wins." },
-  {
-    id: "knockout",
-    name: "Knockout",
-    tag: "Coming soon",
-    summary: "20 players, one target, 3 rounds — the bottom 5 go out each round.",
-  },
+// Shares `marketing.gameModes` with the full page, so a mode's name and one-line
+// summary are written once and cannot say two different things in one language.
+const MODES: { id: GameModeId; comingSoon?: boolean }[] = [
+  { id: "daily" },
+  { id: "infinite" },
+  { id: "duel" },
+  { id: "knockout", comingSoon: true },
 ];
 
 export function GameModesTeaser() {
+  const t = useTranslations("marketing.gameModes");
+
   return (
     <section id="game-modes" className="flex flex-col gap-4">
-      <h2 className="text-2xl font-bold text-text">Game modes</h2>
+      <h2 className="text-2xl font-bold text-text">{t("heading")}</h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {MODES.map((mode) => (
-          <div key={mode.name} className="flex gap-3 rounded-lg border border-border bg-surface-2 p-4">
+          <div key={mode.id} className="flex gap-3 rounded-lg border border-border bg-surface-2 p-4">
             <span
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-weak text-accent"
               aria-hidden="true"
@@ -37,19 +34,19 @@ export function GameModesTeaser() {
             </span>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-text">{mode.name}</span>
-                {mode.tag && (
+                <span className="text-sm font-bold text-text">{t(`modes.${mode.id}.name`)}</span>
+                {mode.comingSoon && (
                   <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold tracking-wide text-text-muted uppercase">
-                    {mode.tag}
+                    {t("comingSoon")}
                   </span>
                 )}
               </div>
-              <p className="mt-1 text-xs text-text-muted">{mode.summary}</p>
+              <p className="mt-1 text-xs text-text-muted">{t(`modes.${mode.id}.summary`)}</p>
             </div>
           </div>
         ))}
       </div>
-      <MoreLink href="/game-modes">More about game modes</MoreLink>
+      <MoreLink href="/game-modes">{t("teaserMore")}</MoreLink>
     </section>
   );
 }

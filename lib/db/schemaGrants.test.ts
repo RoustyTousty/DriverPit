@@ -84,6 +84,8 @@ const FUNCTION_POLICY: Record<string, { grantees: Grantee[]; open?: boolean; why
     { grantees: [], why: "takes the forfeited player as a parameter; trusted connection only" },
   "duel_state(p_match_id integer)":
     { grantees: [], why: "no auth check inside; trusted connection only" },
+  "sweep_abandoned_guests(p_older_than_days integer, p_limit integer)":
+    { grantees: [], why: "DELETEs from auth.users (drizzle/0059); no caller identity involved and no auth check inside, so a client grant would be a mass-delete one anon-key call away. Monthly workflow on the trusted connection only" },
 
   // -- Client-callable, correctly narrowed. `authenticated` and nothing else:
   //    every visitor is signed in (anonymously at minimum), so the `anon` role

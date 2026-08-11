@@ -1,6 +1,6 @@
-import Link from "next/link";
 
 import { signInHref } from "@/lib/auth/routes";
+import { Link } from "@/lib/i18n/navigation";
 
 // The "Save your progress" nudge, in one place. It existed as four hand-copied
 // cards (Settings, the leaderboard, /online, the duel results panel) that had

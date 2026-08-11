@@ -76,7 +76,7 @@ export const OpponentPanel = memo(function OpponentPanel({
               -- never their guessed driver, just how warm they're running. */}
           <div
             aria-hidden="true"
-            className="absolute inset-0 -z-10 rounded-full transition-all duration-300 motion-reduce:transition-none"
+            className="absolute inset-0 -z-10 rounded-lg transition-all duration-300 motion-reduce:transition-none"
             style={{
               boxShadow: `0 0 ${6 + opponentBestHeat * 18}px ${opponentBestHeat * 3}px rgba(255,106,0,${0.15 + opponentBestHeat * 0.55})`,
             }}
@@ -91,7 +91,7 @@ export const OpponentPanel = memo(function OpponentPanel({
           {bursting && (
             <span
               aria-hidden="true"
-              className="absolute inset-0 rounded-full border-2 border-accent motion-safe:animate-ping motion-reduce:hidden"
+              className="absolute inset-0 rounded-lg border-2 border-accent motion-safe:animate-ping motion-reduce:hidden"
             />
           )}
         </div>

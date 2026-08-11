@@ -1,11 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 
 import driverpitBanner from "@/public/driverpit-banner.png";
 
 import { useSettingsModal } from "./SettingsModalContext";
+import { useTranslations } from "next-intl";
+
+import { Link } from "@/lib/i18n/navigation";
 
 function SettingsIcon() {
   return (
@@ -47,6 +49,7 @@ const iconButtonClass =
 // them, same as any other descendant (e.g. the duel results panel's guest
 // upgrade prompt).
 export function TopBar() {
+  const t = useTranslations("nav");
   const { openSettings, openLeaderboard } = useSettingsModal();
 
   return (
@@ -54,7 +57,7 @@ export function TopBar() {
       <div className="mx-auto grid w-full max-w-[960px] grid-cols-[auto_1fr_auto] items-center gap-2 px-4 py-3">
         <button
           type="button"
-          aria-label="Leaderboard"
+          aria-label={t("leaderboard")}
           className={iconButtonClass}
           onClick={openLeaderboard}
         >
@@ -62,15 +65,15 @@ export function TopBar() {
         </button>
 
         <Link
-          href="/daily"
+          href="/"
           className="flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          <Image src={driverpitBanner} alt="DriverPit" priority className="h-12 w-auto" />
+          <Image src={driverpitBanner} alt={t("logoAlt")} priority className="h-12 w-auto" />
         </Link>
 
         <button
           type="button"
-          aria-label="Settings"
+          aria-label={t("settings")}
           className={`${iconButtonClass} justify-self-end`}
           onClick={() => openSettings("general")}
         >

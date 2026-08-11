@@ -21,6 +21,15 @@ import { useSettingsModal } from "./SettingsModalContext";
 // "simplification" removes on sight. The real modals are stubbed: what is
 // asserted is GameModals' own mounting rule, not the dialogs' contents.
 
+// Opening either modal now also acquires an identity if the visitor has none
+// (roadmap Pass 4a), which makes GameModals a consumer of AuthProvider. Stubbed
+// rather than wrapped in a real provider: what is under test is the mounting
+// rule, and a real provider would put a Supabase client behind it.
+const ensureIdentity = vi.hoisted(() => vi.fn());
+vi.mock("@/components/auth/AuthProvider", () => ({
+  useAuthIdentity: () => ({ ensureIdentity }),
+}));
+
 vi.mock("@/components/settings/SettingsModal", () => ({
   SettingsModal: ({ open, initialSection }: { open: boolean; initialSection: string }) => (
     <div data-testid="settings-modal" data-open={String(open)} data-section={initialSection} />

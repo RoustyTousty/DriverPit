@@ -1,20 +1,16 @@
 import type { ExactFeedback, GuessResult, OrderedFeedback, TeamFeedback } from "./compare";
+import { PALETTE } from "./palette";
 
 type Feedback = ExactFeedback | OrderedFeedback | TeamFeedback;
 
 // Mirrors components/game/GuessGrid.tsx's Tile exactly (base green/grey +
 // an orange overlay scaled by closeness) so the shared image is a faithful
 // echo of the real board, not a simplified re-interpretation of it. Colors
-// and closeness range straight from CLAUDE.md's design system section.
-const COLORS = {
-  bg: "#0b0d10",
-  border: "#262c35",
-  text: "#e7eaee",
-  textMuted: "#8a929e",
-  accent: "#ff6a00",
-  correct: "#2e7d46",
-  miss: "#2a2f37",
-};
+// come from lib/game/palette.ts, which is the shared literal-hex copy of the
+// design tokens for the renderers that cannot read CSS variables -- this canvas
+// and Satori (next/og). The closeness range below stays here: it is a property
+// of how a tile is drawn, not of the palette.
+const COLORS = PALETTE;
 const HISTORICAL_OPACITY = 0.35;
 const MIN_ORANGE_OPACITY = 0.12;
 const MAX_ORANGE_OPACITY = 0.68;

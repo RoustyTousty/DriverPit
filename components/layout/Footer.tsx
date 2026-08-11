@@ -1,4 +1,7 @@
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+
+import { Link } from "@/lib/i18n/navigation";
+
 
 // Fill in real profile URLs when ready -- icon-only for now, so the row is
 // in place before any account exists to link to.
@@ -41,17 +44,28 @@ const SOCIAL_LINKS: { label: string; href: string; icon: React.ReactNode }[] = [
   },
 ];
 
+// Paths stay UNPREFIXED and the label is a message key, not a string: `Link`
+// here is lib/i18n/navigation's, which adds the current locale's prefix at
+// render time. It used to be `next/link` with English labels, which meant every
+// footer link on a Spanish page walked the reader back to the English site --
+// silently, because the page it landed on was a real page.
 const INFO_LINKS = [
-  { href: "/about", label: "About" },
-  { href: "/faq", label: "FAQ" },
-  { href: "/game-modes", label: "Game modes" },
-  { href: "/how-to-play", label: "How to play" },
-  { href: "/privacy-policy", label: "Privacy" },
-  { href: "/terms-of-service", label: "Terms" },
-  { href: "/daily", label: "Play now" },
-];
+  // The footer is on every page in both route groups, which makes it the one
+  // place that gives the archive index a site-wide inbound link. Without it the
+  // index is reachable only from the sitemap and from a finished daily board,
+  // and an index nobody links to cannot do the job it exists for.
+  { href: "/archive", key: "archive" },
+  { href: "/about", key: "about" },
+  { href: "/faq", key: "faq" },
+  { href: "/game-modes", key: "gameModes" },
+  { href: "/how-to-play", key: "howToPlay" },
+  { href: "/privacy-policy", key: "privacy" },
+  { href: "/terms-of-service", key: "terms" },
+] as const;
 
 export function Footer() {
+  const t = useTranslations("nav");
+
   return (
     <footer className="border-t border-border">
       <div className="mx-auto flex w-full max-w-240 flex-col items-center gap-4 px-4 py-6">
@@ -72,7 +86,7 @@ export function Footer() {
           ))}
         </div>
 
-        <nav aria-label="Info pages" className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+        <nav aria-label={t("infoPages")} className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
           {INFO_LINKS.map((link, index) => (
             <span key={link.href} className="flex items-center gap-2">
               {index > 0 && (
@@ -81,14 +95,17 @@ export function Footer() {
                 </span>
               )}
               <Link href={link.href} className="text-xs text-text-muted transition hover:text-text">
-                {link.label}
+                {t(`links.${link.key}`)}
               </Link>
             </span>
           ))}
         </nav>
 
         <p className="text-center text-xs text-text-muted">
-          © {new Date().getFullYear()} DriverPit. Not affiliated with Formula 1, the FIA, or any team.
+          {/* A string, not a number: a bare `{year}` placeholder is formatted by
+              the locale, and 2026 renders as "2,026" in English and "2.026" in
+              four of the other five. Same trap the driver page's `debut` documents. */}
+          {t("disclaimer", { year: String(new Date().getFullYear()) })}
         </p>
       </div>
     </footer>

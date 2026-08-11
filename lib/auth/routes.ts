@@ -24,7 +24,7 @@ export const RESET_PASSWORD_PATH = "/auth/reset-password";
 // A link to the sign-in screen that remembers where the player was. `next` is
 // only a *destination* -- nothing is auto-submitted on arrival -- and it comes
 // back through sanitizeNextPath on the far side, so an unusable value degrades
-// to /daily rather than going anywhere surprising.
+// to its DEFAULT_NEXT rather than going anywhere surprising.
 export function signInHref(next?: string | null): string {
   if (!next) return SIGN_IN_PATH;
   return `${SIGN_IN_PATH}?next=${encodeURIComponent(next)}`;

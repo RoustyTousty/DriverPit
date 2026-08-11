@@ -1,0 +1,707 @@
+{
+  "site": {
+    "title": "DriverPit — Juego diario de adivinar pilotos de Fórmula 1",
+    "description": "Adivina el piloto misterioso de Fórmula 1 en seis intentos. Un juego diario de F1 gratuito, con rondas de práctica ilimitadas y duelos 1v1 en tiempo real contra otros jugadores.",
+    "tagline": "El juego diario de adivinar pilotos de Fórmula 1"
+  },
+  "og": {
+    "headline": "Adivina el piloto misterioso de F1 en seis intentos",
+    "features": "Reto diario · Práctica ilimitada · Duelos 1v1 en tiempo real",
+    "free": "Gratis para jugar",
+    "tiles": {
+      "nationality": "NACIONALIDAD",
+      "team": "EQUIPO",
+      "age": "EDAD",
+      "debut": "DEBUT",
+      "wins": "VICTORIAS"
+    }
+  },
+  "meta": {
+    "daily": {
+      "title": "Reto diario de pilotos de F1 n.º {number}",
+      "description": "El reto de hoy (n.º {number}, {date}): adivina el piloto misterioso de Fórmula 1 en seis intentos. Juego diario de F1 gratuito: un piloto nuevo cada día a medianoche UTC."
+    },
+    "infinite": {
+      "title": "Adivina pilotos de F1 sin límite — Modo infinito",
+      "description": "Juega tantas rondas como quieras, sin límite diario. Crea tu propio grupo de pilotos por temporada, nacionalidad, equipo o palmarés: desde 1950 hasta hoy, de campeones del mundo a pilotos de una sola carrera."
+    },
+    "online": {
+      "title": "Duelos de pilotos de F1 — Juega 1v1 con amigos o desconocidos",
+      "description": "Compite contra otro jugador por el mismo piloto misterioso de Fórmula 1 en tiempo real. Encuentra un rival al azar, o envía un código a un amigo y elige las rondas, el tiempo y el grupo de pilotos."
+    },
+    "howToPlay": {
+      "title": "Cómo jugar",
+      "description": "Las reglas completas del juego de adivinar pilotos de F1: qué significa el color de cada casilla, cómo funciona el sombreado de proximidad y un ejemplo comentado."
+    },
+    "gameModes": {
+      "title": "Modos de juego — Diario, Infinito, Duelo y Personalizado",
+      "description": "Cómo se juega cada modo (Diario, Infinito, Duelo y salas personalizadas), cómo puntúan los duelos y qué traerá el modo Eliminación."
+    },
+    "faq": {
+      "title": "Preguntas frecuentes",
+      "description": "Respuestas a las dudas más habituales sobre las adivinanzas, los grupos de pilotos, los duelos y las cuentas de DriverPit."
+    },
+    "about": {
+      "title": "Acerca de",
+      "description": "Qué es DriverPit, las cuatro formas de jugarlo y quién lo desarrolla: un juego de Fórmula 1 gratuito e independiente."
+    },
+    "privacy": {
+      "title": "Política de privacidad",
+      "description": "Qué datos recoge DriverPit, por qué lo hace y qué opciones tienes al respecto."
+    },
+    "terms": {
+      "title": "Términos del servicio",
+      "description": "Las condiciones que se aplican al jugar a DriverPit y al crear una cuenta."
+    }
+  },
+  "nav": {
+    "leaderboard": "Clasificación",
+    "settings": "Ajustes",
+    "logoAlt": "DriverPit",
+    "playNow": "Jugar ahora",
+    "menu": "Menú",
+    "modes": {
+      "label": "Modo de juego",
+      "daily": "Diario",
+      "infinite": "Infinito",
+      "online": "En línea"
+    },
+    "infoPages": "Páginas de información",
+    "links": {
+      "archive": "Archivo",
+      "about": "Acerca de",
+      "faq": "Preguntas frecuentes",
+      "gameModes": "Modos de juego",
+      "howToPlay": "Cómo jugar",
+      "privacy": "Privacidad",
+      "terms": "Términos"
+    },
+    "language": {
+      "label": "Idioma",
+      "description": "El idioma del sitio. Los nombres de pilotos y equipos no cambian.",
+      "choose": "Elige un idioma"
+    },
+    "disclaimer": "© {year} DriverPit. Sin relación con la Fórmula 1, la FIA ni ningún equipo."
+  },
+  "faq": {
+    "heading": "Preguntas frecuentes",
+    "items": {
+      "dailyReset": {
+        "q": "¿Cada cuánto cambia el reto diario?",
+        "a": "Se elige un piloto misterioso nuevo una vez al día, a las 00:00 UTC, el mismo para todo el mundo. La cuenta atrás que aparece al terminar convierte ese reinicio a tu hora local."
+      },
+      "unknownDriver": {
+        "q": "¿Por qué no puedo adivinar un piloto que no está en la lista?",
+        "a": "Cada intento tiene que ser un piloto real, para que la comparación siempre muestre algo con sentido. Empieza a escribir un nombre y elige una de las coincidencias: los errores de escritura no se aceptan como intento. El autocompletado solo sugiere nombres del grupo de pilotos activo, pero si conoces a un piloto de fuera, escribir su nombre completo y seleccionarlo también funciona."
+      },
+      "teamMeaning": {
+        "q": "¿Qué cuenta como el «equipo» de un piloto?",
+        "a": "Sobre todo el constructor con el que corrió más recientemente: eso es lo que tiene que coincidir exactamente para que la casilla se ponga verde. Pero si adivinas un equipo con el que el piloto misterioso ha corrido en algún momento de su carrera, la casilla se vuelve naranja tenue en lugar de gris, así que sigues teniendo una pista aunque tu respuesta esté desactualizada."
+      },
+      "shading": {
+        "q": "¿Qué significa el sombreado en Edad, Debut y Victorias?",
+        "a": "Además de la flecha arriba/abajo, esas tres casillas pasan del gris al naranja intenso según lo cerca que estuviera tu intento: un intento a ciegas se queda apagado, uno casi acertado brilla. Es una pista sobre la magnitud, no solo sobre la dirección."
+      },
+      "ageBasis": {
+        "q": "¿«Edad» es la edad del piloto al debutar o la actual?",
+        "a": "Su edad actual (o la edad a la que falleció, en el caso de los pilotos que ya no están con nosotros), no la que tenía al empezar a competir."
+      },
+      "driverCode": {
+        "q": "¿Qué es el código pequeño que aparece junto a cada intento?",
+        "a": "La abreviatura oficial de tres letras del piloto, la misma que se usa en los gráficos de tiempos de televisión, como VER o HAM. No está garantizado que sea única entre todos los pilotos de la historia, pero siempre se muestra junto a una fila concreta, así que nunca hay ambigüedad sobre a quién se refiere."
+      },
+      "pool": {
+        "q": "¿Qué pilotos hay en el grupo y puedo cambiarlo?",
+        "a": "La base de datos incluye a todos los pilotos que han tomado la salida en un Gran Premio, y los modos Diario y Duelo siempre eligen entre quienes han competido en las últimas 20 temporadas. El modo Infinito te deja construir el grupo tú mismo: mueve el control de temporadas a cualquier rango entre 1950 y hoy, y afínalo por nacionalidad, por equipo (cualquiera que corriera para ellos en algún momento) o por lo que un piloto logró: podios, victorias, poles o títulos mundiales. El panel te muestra cuántos pilotos encajan mientras ajustas, y tu filtro se recuerda para la próxima vez."
+      },
+      "multiplayer": {
+        "q": "¿Hay alguna forma de jugar contra otra persona?",
+        "a": "El modo Duelo enfrenta a dos jugadores al mismo piloto misterioso, elegido entre las últimas 20 temporadas, en una sala compartida. Verás los colores y las flechas de los intentos de tu rival, pero nunca a quién ha adivinado."
+      },
+      "personalData": {
+        "q": "¿Guardáis información personal?",
+        "a": "Cada visitante recibe automáticamente una identidad anónima de invitado, solo para que funcionen las estadísticas y el emparejamiento de duelos; no hay información personal de por medio. Si creas una cuenta completa (correo o Google), guardamos tu correo, nombre de usuario, avatar y estadísticas para que te acompañen entre dispositivos. Consulta la Política de privacidad para todos los detalles y para saber qué hacer si prefieres que no."
+      },
+      "accountNeeded": {
+        "q": "¿Necesito una cuenta para jugar?",
+        "a": "No: cualquier visitante puede jugar a Diario, Infinito y Duelo al momento como invitado, sin registrarse. Solo necesitas una cuenta completa (correo o Google) para aparecer en la clasificación global y elegir tu propio nombre de usuario, nombre visible o avatar."
+      },
+      "duelRating": {
+        "q": "¿Cómo funcionan el emparejamiento y la puntuación de los duelos?",
+        "a": "Al entrar en la cola te empareja con otro jugador en espera, aproximadamente por puntuación de duelo cuando es posible: cuanto más esperas, más se amplía la diferencia de puntuación admitida. Un duelo son 3 rondas, un piloto en cada una, con intentos ilimitados contra un cronómetro; resolver más rápido puntúa más, e incluso un abandono da algunos puntos según lo cerca que estuviera tu mejor intento. Tu puntuación se actualiza al terminar el duelo."
+      },
+      "duelSpam": {
+        "q": "¿Puedo ganar un duelo lanzando intentos sin parar?",
+        "a": "No: es la estrategia perdedora. Los intentos siguen siendo ilimitados, pero solo los tres primeros son gratis: cada intento fallido a partir de ahí reduce lo que vale resolver la ronda, y reduce igualmente los puntos de consuelo de un abandono. Además hay un segundo de espera entre intentos, así que recorrer la lista entera de pilotos no es algo que pueda hacer dentro de una ronda ni alguien que escriba muy rápido (ni un script). El tablero te muestra cuánto vale resolver en cada momento, para que veas el coste antes de gastarlo: cuatro intentos meditados ganan siempre a cuarenta lanzados al azar."
+      },
+      "ads": {
+        "q": "¿Por qué veo anuncios?",
+        "a": "DriverPit es gratis y se financia con anuncios a través de Google AdSense; los anuncios solo aparecen fuera de un duelo activo, nunca en mitad de una carrera. Si estás en el EEE, el Reino Unido o Suiza, verás una opción de consentimiento antes de que se active cualquier personalización publicitaria."
+      },
+      "profile": {
+        "q": "¿Puedo cambiar mi avatar o mi nombre visible?",
+        "a": "Sí, en Ajustes → Perfil: las cuentas completas pueden elegir un avatar nuevo en el selector (con un botón para ver más opciones) y editar su nombre visible cuando quieran. Los invitados tienen un avatar aleatorio y un alias generado hasta que se registran."
+      },
+      "knockout": {
+        "q": "¿Qué es el modo Eliminación?",
+        "a": "Un modo de eliminación para 20 jugadores que está previsto, pero aún no disponible: lo verás en la lista (marcado como «próximamente») al abrir la pantalla de emparejamiento de Duelo. Reutilizará el mismo motor de partidas en directo que Duelo, con todo el mundo adivinando el mismo piloto mientras se revelan pistas automáticamente y los jugadores más lentos quedan eliminados cada ronda."
+      }
+    }
+  },
+  "marketing": {
+    "about": {
+      "heading": "Acerca de DriverPit",
+      "teaser": "Un juego diario de adivinar pilotos de Fórmula 1, creado y mantenido por una sola persona como proyecto paralelo. Gratis, sin necesidad de cuenta, y un proyecto independiente de aficionados: sin relación con la F1, la FIA ni ningún equipo.",
+      "teaserMore": "Más sobre DriverPit",
+      "whatItIs": "DriverPit es un juego de adivinar pilotos de Fórmula 1. Hay un piloto misterioso al día, el mismo para todo el mundo, y seis intentos para encontrarlo: cada intento vuelve comparado con la respuesta en cinco aspectos: nacionalidad, equipo, edad, año de debut y victorias en su carrera. Sin preguntas de trivia ni opciones múltiples. Vas acotando.",
+      "modes": "Empezó como una idea simple —un piloto misterioso al día, seis intentos para encontrarlo— y creció hasta cuatro formas de jugar. <b>Diario</b> es el reto que comparte todo el mundo. <b>Infinito</b> es práctica ilimitada sobre un grupo que compones tú: cualquier rango de temporadas, afinado por nacionalidad, equipo o por lo que un piloto llegó a ganar. <b>Duelo</b> te enfrenta a un rival real en una carrera en directo a tres rondas donde la velocidad da puntos y puedes verlo acercarse. Y una partida <b>Personalizada</b> es ese mismo duelo alojado con un código, para enviárselo a quien quieras y poner tú las reglas. Consulta <howToPlay>Cómo jugar</howToPlay> para las reglas y <gameModes>Modos de juego</gameModes> para ver qué ofrece cada uno.",
+      "whoBuildsIt": "Lo desarrolla y mantiene una sola persona de forma independiente: un proyecto por gusto, para quien disfruta a partes iguales de la Fórmula 1 y de los juegos de palabras, no un producto comercial. Eso marca lo que es: gratis, sin muro de pago ni versión premium, jugable sin cuenta (crearla solo sirve para llevar tu racha entre dispositivos y aparecer en la clasificación) y sin tener que rendir cuentas a nadie sobre qué llega después.",
+      "support": "Mantenerlo no sale gratis, eso sí, y aquí nada está patrocinado. Si DriverPit se ha vuelto parte de tus mañanas y quieres que siga adelante, puedes <coffee>invitarme a un café</coffee>. Totalmente opcional: el juego es exactamente el mismo de una forma u otra.",
+      "disclaimer": "DriverPit es un proyecto independiente de aficionados. No está afiliado ni respaldado por la Fórmula 1, la FIA, ni ningún equipo o piloto mencionado en el juego, ni tiene relación con ellos."
+    },
+    "howToPlay": {
+      "heading": "Cómo jugar",
+      "intro": "Adivina el piloto misterioso de Fórmula 1 en seis intentos. Las sugerencias se limitan al grupo de pilotos activo, pero un nombre de fuera también vale si lo escribes entero: tras cada intento, el código de tres letras del piloto aparece a la izquierda de la fila.",
+      "steps": {
+        "type": {
+          "title": "Escribe un intento",
+          "body": "Empieza a escribir el nombre de un piloto en la caja y elige entre las sugerencias. Cada intento tiene que ser un piloto real."
+        },
+        "read": {
+          "title": "Lee las cinco casillas",
+          "body": "Cada intento compara nacionalidad, equipo, edad, año de debut y victorias con el piloto misterioso."
+        },
+        "narrow": {
+          "title": "Ve acotando",
+          "body": "El color, las flechas y el sombreado te dicen lo cerca que estuviste: úsalo para elegir el siguiente intento."
+        },
+        "solve": {
+          "title": "Resuélvelo",
+          "body": "Tienes seis intentos. Pon las cinco casillas en verde y lo tienes."
+        }
+      },
+      "legendHeading": "Leyenda de casillas",
+      "legend": {
+        "exact": "Coincidencia exacta",
+        "historical": "Corrió ahí antes, pero no ahora",
+        "miss": "Ninguna coincidencia",
+        "wide": "Fallo numérico, muy lejos",
+        "close": "Fallo numérico, cerca"
+      },
+      "columnsHeading": "Qué significa cada columna",
+      "columnRules": {
+        "nationality": {
+          "label": "Nacionalidad",
+          "rule": "Solo coincidencia exacta: verde o gris, sin término medio."
+        },
+        "team": {
+          "label": "Equipo",
+          "rule": "Verde para su equipo actual, naranja tenue si corrió ahí antes, gris en cualquier otro caso."
+        },
+        "age": {
+          "label": "Edad",
+          "rule": "Numérica. Un fallo muestra una flecha de más/menos, y se acerca al naranja cuanto más cerca estuviste."
+        },
+        "debut": {
+          "label": "Año de debut",
+          "rule": "Las mismas reglas numéricas que la edad."
+        },
+        "wins": {
+          "label": "Victorias",
+          "rule": "Las mismas reglas numéricas que la edad."
+        }
+      },
+      "exampleHeading": "Ejemplo comentado",
+      "exampleLead": "Has probado con Sebastian Vettel:",
+      "exampleExplanation": "Fallo de nacionalidad: el piloto misterioso no es alemán. El equipo es un casi acierto histórico: corrió para Aston Martin antes, pero no ahora. La flecha hacia arriba significa que el piloto misterioso es mayor que Vettel; las flechas hacia abajo, que debutó antes y tiene menos victorias. Y como la casilla de Debut brilla más, ese intento quedó más cerca que el apagado de Victorias.",
+      "teaserIntro": "Adivina el piloto misterioso de Fórmula 1 en seis intentos. Cada intento compara cinco atributos —nacionalidad, equipo, edad, año de debut y victorias— con casillas que tiran al naranja cuanto más cerca estuvo un valor numérico.",
+      "teaserLegend": {
+        "exact": "Coincidencia exacta",
+        "historical": "Corrió ahí antes",
+        "miss": "Sin coincidencia",
+        "close": "Fallo numérico cercano"
+      },
+      "teaserMore": "Cómo jugar al completo",
+      "tipsHeading": "Consejos",
+      "tips": {
+        "broad": "Empieza con algo amplio: divide el campo aunque falle, porque cada casilla aporta información.",
+        "historical": "Una casilla de equipo en naranja tenue es una pista real, no un fallo: seguramente tienes al piloto correcto y la temporada equivocada.",
+        "brightest": "Cuanto más brilla una casilla numérica, más cerca estuvo ese intento: persigue primero la más brillante.",
+        "pace": "Seis intentos se van rápido. Guarda uno o dos para afinar, no solo para primeras impresiones."
+      }
+    },
+    "gameModes": {
+      "heading": "Modos de juego",
+      "teaserMore": "Más sobre los modos de juego",
+      "comingSoon": "Próximamente",
+      "modes": {
+        "daily": {
+          "name": "Diario",
+          "summary": "Un piloto al día, el mismo para todos, 6 intentos.",
+          "points": {
+            "1": "Un piloto, elegido para todo el mundo, cada día",
+            "2": "Se reinicia a las 00:00 UTC en todo el mundo",
+            "3": "Se elige entre las últimas 20 temporadas",
+            "4": "6 intentos, que cuentan para tus estadísticas y tu racha",
+            "5": "Tu progreso acompaña a tu cuenta entre dispositivos"
+          }
+        },
+        "infinite": {
+          "name": "Infinito",
+          "summary": "Rondas ilimitadas, tu propio grupo de pilotos, 6 intentos.",
+          "points": {
+            "1": "Rondas ilimitadas: juega todo lo que quieras",
+            "2": "Cualquier rango de temporadas desde 1950 hasta hoy, con un control deslizante",
+            "3": "Afínalo por nacionalidad, equipo o palmarés: campeones, ganadores, poles",
+            "4": "6 intentos por ronda",
+            "5": "Solo práctica: nada de aquí cuenta para tus estadísticas ni tu racha"
+          }
+        },
+        "duel": {
+          "name": "Duelo",
+          "summary": "1v1, un objetivo, 3 rondas: gana la puntuación más alta.",
+          "points": {
+            "1": "Te empareja con otro jugador de puntuación parecida",
+            "2": "3 rondas, un piloto distinto en cada una",
+            "3": "Los dos corréis contra el mismo reloj, con intentos ilimitados",
+            "4": "Resolver puntúa por velocidad: cuanto antes des con el piloto, más paga la ronda",
+            "5": "Si fallas la ronda, tu intento más cercano todavía suma algo",
+            "6": "Piensa los intentos: a partir del tercer fallo, cada uno más reduce lo que vale resolver",
+            "7": "El total más alto de las 3 rondas gana el duelo, y tu puntuación se mueve con el resultado"
+          }
+        },
+        "knockout": {
+          "name": "Eliminación",
+          "summary": "20 jugadores, un objetivo, 3 rondas: los 5 últimos caen cada ronda.",
+          "points": {
+            "1": "20 jugadores adivinan el mismo piloto a la vez",
+            "2": "Se revelan pistas nuevas automáticamente cada pocos segundos",
+            "3": "Los 5 jugadores más lentos quedan eliminados cada ronda",
+            "4": "3 rondas, un ganador"
+          }
+        },
+        "custom": {
+          "name": "Personalizado",
+          "summary": "El mismo duelo, por invitación, con tus reglas.",
+          "points": {
+            "1": "Crea una partida y comparte un código de seis caracteres o un enlace",
+            "2": "1, 3 o 5 rondas, con un reloj de 30, 60 o 90 segundos",
+            "3": "Elige tú el grupo de pilotos: temporadas, nacionalidad, equipo o palmarés",
+            "4": "El mismo tablero, reloj y puntuación que el Duelo, con la penalización por intentos incluida",
+            "5": "Sin clasificar: nada cuenta para tu puntuación, tu historial ni la clasificación"
+          }
+        }
+      }
+    },
+    "faqTeaser": {
+      "heading": "Preguntas frecuentes",
+      "more": "Ver todas las preguntas",
+      "items": {
+        "dailyReset": {
+          "q": "¿Cada cuánto cambia el reto diario?",
+          "a": "Se elige un piloto misterioso nuevo una vez al día, a las 00:00 UTC, el mismo para todo el mundo."
+        },
+        "unknownDriver": {
+          "q": "¿Por qué no puedo adivinar un piloto que no está en la lista?",
+          "a": "Cada intento tiene que ser un piloto real. Empieza a escribir un nombre y elige entre las coincidencias: los errores de escritura no se aceptan."
+        },
+        "teamMeaning": {
+          "q": "¿Qué cuenta como el «equipo» de un piloto?",
+          "a": "Su constructor más reciente para que la casilla sea verde, pero un equipo con el que corrió en algún momento se pone naranja tenue en vez de gris."
+        },
+        "shading": {
+          "q": "¿Qué significa el sombreado en Edad, Debut y Victorias?",
+          "a": "Esas casillas pasan del gris al naranja intenso según lo cerca que estuviera tu intento: una pista sobre la magnitud, no solo sobre la dirección."
+        },
+        "pool": {
+          "q": "¿Qué pilotos hay en el grupo y puedo cambiarlo?",
+          "a": "Diario y Duelo siempre eligen entre las últimas 20 temporadas. Infinito te deja construir el grupo: cualquier rango de temporadas, filtrado por nacionalidad, equipo o palmarés."
+        },
+        "multiplayer": {
+          "q": "¿Hay alguna forma de jugar contra otra persona?",
+          "a": "El modo Duelo os enfrenta a ti y a un rival al mismo piloto misterioso: verás los colores de sus intentos, pero nunca a quién ha adivinado."
+        }
+      }
+    },
+    "support": {
+      "heading": "Apóyame",
+      "lead": "DriverPit es gratis, y seguirá siéndolo",
+      "body": "Lo hace y lo mantiene una sola persona en su tiempo libre: el alojamiento, el dominio y las horas salen del mismo bolsillo. Un café ayuda a que siga adelante; nada del juego cambia en ningún caso.",
+      "cta": "Invítame a un café"
+    }
+  },
+  "game": {
+    "columns": {
+      "nationality": "País",
+      "team": "Equipo",
+      "age": "Edad",
+      "debut": "Debut",
+      "wins": "Victorias"
+    },
+    "guessPlaceholder": "Adivina un piloto…",
+    "suggestions": "Sugerencias de pilotos",
+    "noDrivers": "No se encontraron pilotos.",
+    "alreadyGuessed": "{driver} ya se ha intentado."
+  },
+  "leaderboard": {
+    "title": "Clasificación",
+    "streak": "Racha diaria",
+    "duel": "Puntuación de duelo",
+    "rating": "Puntuación",
+    "streakMetric": "Racha",
+    "you": "Tú",
+    "guestPrompt": "Crea una cuenta para aparecer en la clasificación."
+  },
+  "ui": {
+    "close": "Cerrar",
+    "dismiss": "Descartar",
+    "loading": "Cargando…"
+  },
+  "legal": {
+    "translationNotice": "Esta es una traducción del original en inglés, ofrecida por comodidad. Si algo aquí difiere de la versión en inglés, prevalece la versión en inglés.",
+    "lastUpdated": "Última actualización: {date}.",
+    "date": "julio de 2026",
+    "privacy": {
+      "heading": "Política de privacidad",
+      "sections": {
+        "overview": {
+          "title": "Resumen",
+          "p1": "DriverPit es un pequeño juego de adivinar pilotos de F1, gestionado de forma independiente. Esta página explica qué datos recogemos cuando juegas, por qué los recogemos y qué opciones tienes al respecto. Recogemos lo mínimo posible: lo justo para que funcionen las cuentas, las estadísticas y la clasificación de duelos, y nada más."
+        },
+        "accounts": {
+          "title": "Cuentas y datos de juego",
+          "p1": "Cada visitante recibe una cuenta real desde el momento en que llega, aunque nunca se registre: se crea una identidad de <b>invitado</b> anónima y aleatoria (mostrada como un alias del tipo <code>user482913</code>) para que los invitados puedan jugar a Diario, Infinito y Duelo y tener estadísticas sin entregar ninguna información personal.",
+          "p2": "Si decides crear una cuenta completa con un correo electrónico, o iniciar sesión con Google, guardamos: tu correo (o el que Google nos comparta), un nombre de usuario y un nombre visible opcional, un avatar y tus estadísticas de juego: partidas jugadas, porcentaje de victorias, rachas, distribución de intentos y tu puntuación de duelo, victorias y derrotas. Registrarte enlaza con tu identidad de invitado en lugar de sustituirla, así que no se pierde nada de lo que ya habías jugado.",
+          "p3": "No pedimos tu nombre real, tu fecha de nacimiento ni datos de pago: aquí no hay nada que comprar."
+        },
+        "cookies": {
+          "title": "Cookies y almacenamiento local",
+          "p1": "Una cookie de sesión te mantiene con la sesión iniciada entre visitas. Tus preferencias de visualización —modo para daltónicos, si las casillas muestran banderas y tu filtro de pilotos en Infinito— viven en el almacenamiento local de tu navegador, junto con cualquier estadística guardada ahí antes de que existieran las cuentas. Nada de eso sale de tu dispositivo.",
+          "p2": "También guardamos un identificador aleatorio de tu navegador en el almacenamiento local. Solo se envía cuando entras en la cola de emparejamiento de duelos, donde evita que un mismo navegador se empareje consigo mismo. Identifica un navegador, no a una persona, y borrar los datos del sitio lo sustituye por uno nuevo.",
+          "p3": "Cuando los anuncios estén activos, también usaremos cookies con fines publicitarios: consulta <b>Publicidad</b> más abajo para ver cómo depende de tu consentimiento."
+        },
+        "advertising": {
+          "title": "Publicidad",
+          "p1": "DriverPit se financia con Google AdSense. Si nos visitas desde el EEE, el Reino Unido o Suiza, las cookies publicitarias y la personalización están desactivadas por defecto (Google Consent Mode v2) hasta que respondas activamente al aviso de consentimiento: puedes aceptar, rechazar o abrir «Gestionar opciones» para elegir con más detalle, y puedes cambiar de opinión más adelante reabriendo ese aviso.",
+          "p2": "Los anuncios se ocultan por completo durante un duelo en directo: una carrera no es el momento para un banner."
+        },
+        "sharing": {
+          "title": "Con quién compartimos los datos",
+          "p1": "No vendemos tus datos. Solo se comparten con los servicios que hacen funcionar el sitio:",
+          "items": {
+            "1": "Supabase: aloja la base de datos, la autenticación y las conexiones en tiempo real de emparejamiento y duelo.",
+            "2": "Vercel: aloja y sirve el sitio.",
+            "3": "Google AdSense / la gestión de consentimiento de Google (Funding Choices): sirve los anuncios y registra tu elección de consentimiento, cuando los anuncios estén activos."
+          },
+          "p2": "Los datos de los pilotos —nacionalidad, equipo, edad, año de debut, victorias— provienen de la base de datos pública <f1db>F1DB</f1db> y de la API Jolpica-F1, y el carrusel de noticias usa fuentes RSS públicas de medios del motor. Nada de eso implica enviar ningún dato tuyo a ninguna parte: es solo cómo se construye el contenido del juego."
+        },
+        "retention": {
+          "title": "Cuánto tiempo los conservamos",
+          "p1": "Los datos de la cuenta y las estadísticas se conservan mientras exista tu cuenta. Las identidades de invitado que nunca se convierten en cuenta completa quedan abandonadas más que borradas activamente, pero de entrada no contienen información personal."
+        },
+        "choices": {
+          "title": "Tus opciones",
+          "items": {
+            "1": "Invitados: tus estadísticas viven solo en tu sesión hasta que te registres; borrar los datos del navegador o usar Ajustes → Restablecer estadísticas locales las elimina definitivamente.",
+            "2": "Cuentas completas: Ajustes → Perfil muestra exactamente qué se guarda y te deja editar tú mismo tu avatar y tu nombre visible.",
+            "3": "El consentimiento publicitario se puede cambiar en cualquier momento reabriendo el aviso de consentimiento."
+          }
+        },
+        "children": {
+          "title": "Privacidad de los menores",
+          "p1": "DriverPit no está dirigido a menores y no recogemos conscientemente datos de nadie menor de 13 años."
+        },
+        "changes": {
+          "title": "Cambios en esta política",
+          "p1": "Si la forma en que tratamos los datos cambia de manera significativa, actualizaremos esta página y la fecha de abajo."
+        }
+      }
+    },
+    "terms": {
+      "heading": "Términos del servicio",
+      "sections": {
+        "agreement": {
+          "title": "Aceptación",
+          "p1": "Al jugar a DriverPit, aceptas estos términos. Si no estás de acuerdo, puedes simplemente no usar el sitio: no hace falta cuenta para probarlo, ni hay obligación de mantener una."
+        },
+        "service": {
+          "title": "El servicio",
+          "p1": "DriverPit es un juego de adivinar pilotos de Fórmula 1, gratuito y de gestión independiente. No está afiliado ni respaldado por la Fórmula 1, la FIA, ni ningún equipo o piloto mencionado en el juego, ni tiene relación con ellos. Los datos de los pilotos provienen de <f1db>F1DB</f1db>, una base de datos abierta y mantenida por la comunidad."
+        },
+        "accounts": {
+          "title": "Cuentas",
+          "p1": "Puedes jugar a Diario, Infinito y Duelo como invitado anónimo, sin registrarte. Solo se necesita una cuenta completa (correo o Google) para aparecer en la clasificación o configurar un perfil propio. Eres responsable de mantener tu cuenta segura y de todo lo que ocurra con ella.",
+          "p2": "Debes tener al menos 13 años para crear una cuenta. Si sabemos que una cuenta pertenece a alguien menor, la eliminaremos."
+        },
+        "acceptableUse": {
+          "title": "Uso aceptable",
+          "items": {
+            "1": "Nada de automatizar intentos, programar el emparejamiento ni usar bots o herramientas para obtener ventaja injusta en Duelo o en la clasificación.",
+            "2": "Nada de acoso, discurso de odio o abusos hacia otros jugadores, tampoco a través de nombres de usuario o nombres visibles.",
+            "3": "Nada de intentar interrumpir el servicio —emparejamiento, base de datos o el propio sitio— para otros jugadores.",
+            "4": "Nada de extraer ni revender los datos de pilotos que sirve el juego."
+          }
+        },
+        "usernames": {
+          "title": "Nombres de usuario y perfiles",
+          "p1": "Tu nombre de usuario, tu nombre visible y tu avatar son visibles para otros jugadores en Duelo y en la clasificación. No suplantes a nadie ni uses nombres ofensivos: podemos renombrar o suspender una cuenta que lo haga."
+        },
+        "advertising": {
+          "title": "Publicidad",
+          "p1": "DriverPit se financia con anuncios servidos a través de Google AdSense, mostrados fuera de las partidas activas. Consulta nuestra <privacy>Política de privacidad</privacy> para ver cómo funciona el consentimiento publicitario."
+        },
+        "noWarranty": {
+          "title": "Sin garantías",
+          "p1": "DriverPit se ofrece «tal cual», creado y mantenido por una sola persona como proyecto por gusto. No garantizamos que esté siempre disponible, libre de errores, ni que los datos de los pilotos estén perfectamente al día, aunque intentamos mantenerlos precisos."
+        },
+        "liability": {
+          "title": "Limitación de responsabilidad",
+          "p1": "En la medida máxima permitida por la ley, DriverPit y quien lo desarrolla no se hacen responsables de daños indirectos, incidentales o consecuentes derivados de tu uso del servicio. Es un juego gratuito, no un servicio del que dependa nada crítico."
+        },
+        "termination": {
+          "title": "Terminación",
+          "p1": "Podemos suspender o eliminar una cuenta que incumpla estos términos. Puedes dejar de jugar, o pedirnos que borremos tu cuenta, cuando quieras: consulta la Política de privacidad para saber cómo."
+        },
+        "changes": {
+          "title": "Cambios en estos términos",
+          "p1": "Si estos términos cambian de manera significativa, actualizaremos esta página y la fecha de abajo."
+        }
+      }
+    }
+  },
+  "archive": {
+    "meta": {
+      "indexTitle": "Respuestas anteriores — Todos los retos diarios de F1",
+      "indexDescription": "Todos los retos de DriverPit ya terminados, del más reciente al más antiguo: la respuesta, cuántos jugadores la encontraron y cómo le fue al conjunto ese día.",
+      "pageTitle": "Respuestas anteriores — Página {page}",
+      "pageDescription": "Retos anteriores de DriverPit, página {page}: la respuesta de cada día terminado y cómo le fue al conjunto de jugadores.",
+      "notFound": "Reto no encontrado",
+      "dayTitle": "Reto n.º {number} — {date}",
+      "dayDescription": "La respuesta del reto n.º {number} de DriverPit ({date}) era {driver}.{outcome} Consulta la distribución de intentos y los pilotos más nombrados del día.",
+      "dayOutcome": " Lo encontró el {percent} de los tableros terminados.",
+      "cardAlt": "Resumen diario de DriverPit del {date}"
+    },
+    "breadcrumb": {
+      "home": "Inicio",
+      "archive": "Archivo",
+      "page": "Página {page}"
+    },
+    "dayHeading": "{date} — {driver}",
+    "driverLink": "Más sobre {driver}",
+    "puzzleNumber": "Reto n.º {number}",
+    "playToday": "Jugar el reto de hoy",
+    "notFound": "Ese reto todavía no está en el archivo.",
+    "index": {
+      "heading": "Archivo de retos",
+      "intro": "Todos los retos diarios ya terminados, con la respuesta y cómo fue el día. Se añade uno cada medianoche UTC, cuando el día al que pertenece ha acabado.",
+      "empty": "Todavía no ha terminado ningún reto. La primera entrada del archivo aparece el día después del primer reto.",
+      "playToday": "Jugar el reto de hoy →",
+      "noPlayers": "sin jugadores",
+      "solved": "{percent} lo resolvió",
+      "players": "{count, plural, one {# jugador} other {# jugadores}}",
+      "pagination": {
+        "label": "Páginas del archivo",
+        "newer": "← Más recientes",
+        "older": "Más antiguos →",
+        "position": "Página {page} de {total}"
+      }
+    },
+    "stats": {
+      "players": "Jugadores",
+      "solveRate": "Tasa de acierto",
+      "avgGuesses": "Intentos de media",
+      "solvedIn": "Resuelto en",
+      "mostGuessed": "Más adivinados",
+      "smallSample": "Solo {count, plural, one {# jugador participó} other {# jugadores participaron}} en este, así que son una muestra pequeña más que un veredicto."
+    }
+  },
+  "driverPage": {
+    "meta": {
+      "title": "{driver} — Respuestas de DriverPit y palmarés",
+      "description": "{appearances} {driver} empezó su carrera en la Fórmula 1 en {debut}, con {wins, plural, =0 {ninguna victoria} one {# victoria} other {# victorias}}, {podiums, plural, =0 {ningún podio} one {# podio} other {# podios}} y {titles, plural, =0 {ningún título mundial} one {# título mundial} other {# títulos mundiales}}.",
+      "appearedOnce": "Fue la respuesta de DriverPit el {date}.",
+      "appearedMany": "Ha sido la respuesta de DriverPit {count} veces."
+    },
+    "notFound": "Piloto no encontrado",
+    "jobTitle": "Piloto de Fórmula 1",
+    "breadcrumbHome": "Inicio",
+    "backToArchive": "Volver al archivo",
+    "playToday": "Jugar el reto de hoy",
+    "career": {
+      "wins": "Victorias",
+      "podiums": "Podios",
+      "poles": "Poles",
+      "titles": "Títulos",
+      "nationality": "Nacionalidad",
+      "age": "Edad",
+      "ageAtDeath": "Edad al fallecer",
+      "seasons": "Temporadas",
+      "lastTeam": "Último equipo",
+      "code": "Código"
+    },
+    "appearances": {
+      "heading": "{count, plural, one {El día que fue la respuesta} other {Los días que fue la respuesta}}"
+    }
+  },
+  "recapSummary": {
+    "ordinal": {
+      "1": "primer",
+      "2": "segundo",
+      "3": "tercer",
+      "4": "cuarto",
+      "5": "quinto",
+      "6": "sexto"
+    },
+    "number": {
+      "0": "cero",
+      "1": "uno",
+      "2": "dos",
+      "3": "tres",
+      "4": "cuatro",
+      "5": "cinco",
+      "6": "seis"
+    },
+    "numberCap": {
+      "0": "Cero",
+      "1": "Uno",
+      "2": "Dos",
+      "3": "Tres",
+      "4": "Cuatro",
+      "5": "Cinco",
+      "6": "Seis"
+    },
+    "opening": {
+      "nobody": "Nadie registró ningún intento en el reto n.º {number}. La respuesta era {driver}.",
+      "noneFinishedOne": "El reto n.º {number} era {driver}. Un jugador lo abrió y no llegó a terminarlo.",
+      "noneFinished": "El reto n.º {number} era {driver}. {players} jugadores lo abrieron y ninguno llegó a terminarlo.",
+      "soloFirstGuess": "El único jugador que terminó el reto n.º {number} encontró a {driver} al primer intento.",
+      "soloNthGuess": "El único jugador que terminó el reto n.º {number} encontró a {driver} al {ordinal} intento.",
+      "soloFailed": "El único jugador que terminó el reto n.º {number} no encontró a {driver}.",
+      "bothSolved": "Los dos jugadores que terminaron el reto n.º {number} encontraron a {driver}.",
+      "allSolved": "Los {completed} jugadores que terminaron el reto n.º {number} encontraron a {driver}.",
+      "noneSolved": "Ninguno de los {completed} jugadores que terminaron el reto n.º {number} encontró a {driver}.",
+      "veryEasy": "{driver} pilló a muy pocos: {fraction} tableros terminados acertaron.",
+      "easy": "La respuesta era {driver}, y {fraction} tableros terminados acertaron.",
+      "even": "{driver} dividió al personal casi por la mitad: {fraction} tableros terminados acertaron.",
+      "hard": "{driver} se resistió: solo {fraction} tableros terminados acertaron.",
+      "veryHard": "Casi nadie dio con {driver}: apenas {fraction} tableros terminados acertaron."
+    },
+    "fraction": {
+      "words": "{solved} de los {completed}",
+      "digits": "{solved} de {completed}"
+    },
+    "difficulty": {
+      "muchHarder": "Eso está muy por debajo del {average} que promedia el resto del archivo.",
+      "muchEasier": "Eso está muy por encima del {average} que promedia el resto del archivo.",
+      "slightlyHarder": "Eso está algo por debajo del {average} de media del archivo.",
+      "slightlyEasier": "Eso está algo por encima del {average} de media del archivo."
+    },
+    "firstGuess": {
+      "one": "Un tablero lo consiguió al primer intento.",
+      "many": "{count} tableros lo consiguieron al primer intento."
+    },
+    "upset": "Más jugadores probaron con {leader} que con {driver}.",
+    "distribution": {
+      "uniformOne": "El único tablero ganador necesitó {guesses} intentos.",
+      "uniformTwo": "Los dos tableros ganadores necesitaron {guesses} intentos.",
+      "uniformAll": "Todos los tableros ganadores necesitaron los mismos {guesses} intentos.",
+      "averageAndMode": "Los tableros ganadores promediaron {average} intentos, y el {ordinal} fue el más habitual.",
+      "mode": "La mayoría de los tableros ganadores lo consiguió al {ordinal} intento."
+    },
+    "approach": {
+      "openerWasAnswer": "{count} jugadores abrieron con la propia respuesta.",
+      "bothOpened": "Los dos tableros abrieron con {opener}.",
+      "allOpened": "Los {players} tableros abrieron con {opener}.",
+      "mostOpened": "La mayoría de los tableros abrió con {opener}.",
+      "popularOpener": "El primer intento más habitual fue {opener}.",
+      "bothOpenedWithWrong": "Los dos tableros abrieron con {opener}, y el nombre equivocado que más se repitió fue {wrong}.",
+      "allOpenedWithWrong": "Los {players} tableros abrieron con {opener}, y el nombre equivocado que más se repitió fue {wrong}.",
+      "mostOpenedWithWrong": "La mayoría de los tableros abrió con {opener}, y el nombre equivocado que más se repitió fue {wrong}.",
+      "popularOpenerWithWrong": "El primer intento más habitual fue {opener}, y el nombre equivocado que más se repitió fue {wrong}.",
+      "wrongOnly": "El nombre equivocado que más se repitió fue {wrong}."
+    }
+  },
+  "driverSummary": {
+    "number": {
+      "0": "ninguna",
+      "1": "una",
+      "2": "dos",
+      "3": "tres",
+      "4": "cuatro",
+      "5": "cinco",
+      "6": "seis",
+      "7": "siete",
+      "8": "ocho",
+      "9": "nueve",
+      "10": "diez",
+      "11": "once",
+      "12": "doce"
+    },
+    "times": {
+      "once": "una vez",
+      "twice": "dos veces",
+      "many": "{count} veces"
+    },
+    "span": {
+      "single": "en {year}",
+      "since": "desde {from}",
+      "between": "entre {from} y {to}"
+    },
+    "career": {
+      "titlesAndWins": {
+        "active": "{driver} ha ganado {titles} {titlesRaw, plural, one {campeonato del mundo} other {campeonatos del mundo}} y {wins} {wins, plural, one {gran premio} other {grandes premios}} {when}.",
+        "past": "{driver} ganó {titles} {titlesRaw, plural, one {campeonato del mundo} other {campeonatos del mundo}} y {wins} {wins, plural, one {gran premio} other {grandes premios}} {when}."
+      },
+      "titles": {
+        "active": "{driver} ha ganado {titles} {titlesRaw, plural, one {campeonato del mundo} other {campeonatos del mundo}} {when}, sin ninguna victoria en carrera.",
+        "past": "{driver} ganó {titles} {titlesRaw, plural, one {campeonato del mundo} other {campeonatos del mundo}} {when}, sin ninguna victoria en carrera."
+      },
+      "winsAndPodiums": {
+        "active": "{driver} ha ganado {wins} {wins, plural, one {gran premio} other {grandes premios}} y ha subido al podio {podiums} {when}.",
+        "past": "{driver} ganó {wins} {wins, plural, one {gran premio} other {grandes premios}} y subió al podio {podiums} {when}."
+      },
+      "wins": {
+        "active": "{driver} ha ganado {wins} {wins, plural, one {gran premio} other {grandes premios}} {when}.",
+        "past": "{driver} ganó {wins} {wins, plural, one {gran premio} other {grandes premios}} {when}."
+      },
+      "podiumsNoWin": {
+        "active": "{driver} nunca ha ganado un gran premio, pero ha subido al podio {podiums} {when}.",
+        "past": "{driver} nunca ganó un gran premio, pero subió al podio {podiums} {when}."
+      },
+      "polesOnly": {
+        "active": "{driver} ha salido desde la pole {poles} {when}, sin subir al podio.",
+        "past": "{driver} salió desde la pole {poles} {when}, sin subir al podio."
+      },
+      "none": {
+        "active": "{driver} compite {when} sin haber subido al podio.",
+        "past": "{driver} compitió {when} sin subir al podio."
+      }
+    },
+    "teams": {
+      "single": {
+        "active": "Ha pasado toda su carrera hasta ahora en {team}.",
+        "past": "Pasó toda su carrera en {team}."
+      },
+      "few": {
+        "active": "Ha corrido para {list}.",
+        "past": "Corrió para {list}."
+      },
+      "many": {
+        "active": "Ha corrido para {count} constructores distintos hasta ahora: {list}.",
+        "past": "Corrió para {count} constructores distintos: {list}."
+      }
+    },
+    "archive": {
+      "single": {
+        "soloSolved": "Fue la respuesta el {date}, y el único jugador que la terminó acertó.",
+        "soloFailed": "Fue la respuesta el {date}, y el único jugador que la terminó no acertó.",
+        "bothSolved": "Fue la respuesta el {date}, y los dos jugadores que la terminaron acertaron.",
+        "allSolved": "Fue la respuesta el {date}, y los {completed} jugadores que la terminaron acertaron.",
+        "noneSolved": "Fue la respuesta el {date}, y ninguno de los {completed} jugadores que la terminaron acertó.",
+        "someSolved": "Fue la respuesta el {date}, y {solved} de los {completed} jugadores que la terminaron acertaron."
+      },
+      "multiRate": "Ha salido como respuesta {appearances}, y acertó el {percent} % de los {completed} tableros terminados esos días.",
+      "multiCounts": "Ha salido como respuesta {appearances}, y acertaron {solved} de los {completed} tableros terminados esos días."
+    }
+  }
+}

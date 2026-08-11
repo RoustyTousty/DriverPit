@@ -2,7 +2,7 @@ import type { GuessResult } from "./compare";
 
 // The wire contract for the daily board, shared by the two RPC wrappers
 // (lib/game/dailyStateRpc.ts, lib/game/submitDailyGuessRpc.ts) and the board
-// itself (app/(game)/daily/DailyGame.tsx).
+// itself (app/(game)/DailyGame.tsx).
 //
 // Types only. This module used to also hold the TypeScript board *builder*
 // (buildDailyBoard / dailyCompletion / replayLocalGuesses) from when hydration

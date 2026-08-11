@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { useAuthIdentity } from "@/components/auth/AuthProvider";
 import type { DriverWithActivity } from "@/lib/db/queries";
 import { createCustomLobby } from "@/lib/duel/customLobby";
 import type { MatchResult } from "@/lib/duel/matchmaking";
@@ -43,6 +44,7 @@ export function CustomLobby({
   onMatchFound: (match: MatchResult) => void;
   onBack: () => void;
 }) {
+  const { ensureIdentity } = useAuthIdentity();
   const [subPhase, setSubPhase] = useState<SubPhase>("compose");
   const [tab, setTab] = useState<Tab>(initialJoinCode ? "join" : "create");
   // Just the code: the waiting screen no longer restates the config, so there
@@ -54,6 +56,16 @@ export function CustomLobby({
   async function handleCreate(config: { rounds: number; roundSeconds: number; filter: DriverFilter }) {
     setCreating(true);
     setCreateError(null);
+
+    // duel_lobby_create authorizes through auth.uid(). DuelRoot has already
+    // started the sign-in on the way into this phase, so this normally resolves
+    // off a local getSession -- it is the guard for someone who lands straight
+    // on /online?join=CODE and submits before that lands (roadmap Pass 4a).
+    if (!(await ensureIdentity())) {
+      setCreating(false);
+      setCreateError("Couldn't reach the server. Check your connection and try again.");
+      return;
+    }
 
     const result = await createCustomLobby(config);
     setCreating(false);

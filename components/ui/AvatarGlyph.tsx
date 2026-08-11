@@ -21,7 +21,14 @@ export function AvatarGlyph({
 
   return (
     <div
-      className={`shrink-0 overflow-hidden rounded-full bg-surface-2 [&>svg]:block [&>svg]:h-full [&>svg]:w-full ${SIZE_CLASSES[size]}`}
+      // rounded-lg, not rounded-full: an avatar is a tile like everything else
+      // on the site, and it carries the same radius as every card, input and
+      // button rather than being the one circle in the layout. This is the ONLY
+      // place the avatar's shape is decided -- anything that draws a ring, glow
+      // or placeholder around one (OpponentPanel, AvatarPicker, the empty
+      // leaderboard and matchmaking slots) has to match it, or the decoration
+      // and the avatar disagree.
+      className={`shrink-0 overflow-hidden rounded-lg bg-surface-2 [&>svg]:block [&>svg]:h-full [&>svg]:w-full ${SIZE_CLASSES[size]}`}
       aria-hidden="true"
       dangerouslySetInnerHTML={{ __html: svg }}
     />

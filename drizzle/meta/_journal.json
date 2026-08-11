@@ -414,6 +414,13 @@
       "when": 1785003993415,
       "tag": "0058_duel_guess_discipline",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1785003994415,
+      "tag": "0059_guest_cleanup_sweep",
+      "breakpoints": true
     }
   ]
 }

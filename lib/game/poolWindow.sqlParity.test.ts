@@ -18,7 +18,7 @@ import { DAILY_POOL_WINDOW, poolCutoffYear } from "./poolWindow";
 // driver is the ANSWER (daily_target_id for the day's target, duel_begin_round
 // for each duel round's) and one that decides which driver is a legal GUESS
 // (daily_submit_guess, drizzle/0051). Change the constant and only the
-// autocomplete moves: the target keeps coming from the old window, so /daily can
+// autocomplete moves: the target keeps coming from the old window, so the daily page can
 // serve a driver the player cannot type, and the guess check refuses one it
 // does offer. Nothing errors, nothing looks broken, and it is unreportable as a
 // bug. The compare ladder has compare.sqlParity, the scoring weights have

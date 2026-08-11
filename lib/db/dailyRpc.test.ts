@@ -156,7 +156,7 @@ describe.skipIf(!RUN)("daily_state / daily_submit_guess (integration)", () => {
   });
 
   // drizzle/0051 (audit 2026-07-30 §3.9 residual). Existence was the whole
-  // check, so every driver who ever started a race was accepted while /daily
+  // check, so every driver who ever started a race was accepted while the daily board
   // only ever autocompletes DAILY_POOL_WINDOW -- the rejection message ("pick a
   // driver from the suggestions list") was a promise the function didn't keep,
   // and the day's stored guess list could hold rows the board would never have

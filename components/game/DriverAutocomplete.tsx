@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { memo, useId, useMemo, useState } from "react";
 
 import { Flag } from "@/components/ui/Flag";
@@ -21,6 +23,7 @@ interface DriverAutocompleteProps {
   drivers: DriverOption[];
   onSelect: (driver: DriverOption) => void;
   disabled?: boolean;
+  /** Overrides the translated default. */
   placeholder?: string;
   // Drivers this round has already had guessed. They're withheld from the
   // suggestions and named back to the player when they type one -- a duplicate
@@ -64,10 +67,11 @@ export const DriverAutocomplete = memo(function DriverAutocomplete({
   drivers,
   onSelect,
   disabled = false,
-  placeholder = "Guess a driver…",
+  placeholder,
   guessedDriverIds,
   inputRef,
 }: DriverAutocompleteProps) {
+  const t = useTranslations("game");
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -244,7 +248,7 @@ export const DriverAutocomplete = memo(function DriverAutocomplete({
         autoCapitalize="off"
         autoCorrect="off"
         disabled={disabled}
-        placeholder={placeholder}
+        placeholder={placeholder ?? t("guessPlaceholder")}
         value={query}
         onChange={(event) => {
           setQuery(event.target.value);
@@ -253,7 +257,7 @@ export const DriverAutocomplete = memo(function DriverAutocomplete({
         }}
         onFocus={openList}
         onKeyDown={handleKeyDown}
-        className="w-full rounded-lg border border-border bg-surface-2 px-4 py-3 text-base text-text outline-none transition placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent disabled:opacity-50"
+        className="w-full rounded-lg border border-border bg-surface-2 px-4 py-3 text-base text-text outline-none transition placeholder:text-text-muted focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50"
       />
 
       {/* The panel stays mounted on a no-match query so the dropdown doesn't
@@ -266,7 +270,7 @@ export const DriverAutocomplete = memo(function DriverAutocomplete({
           <ul
             id={listboxId}
             role="listbox"
-            aria-label="Driver suggestions"
+            aria-label={t("suggestions")}
             className="max-h-64 overflow-y-auto"
           >
             {matches.map((driver, index) => (
@@ -324,9 +328,9 @@ export const DriverAutocomplete = memo(function DriverAutocomplete({
         {!isPanelOpen
           ? ""
           : alreadyGuessed
-            ? `${alreadyGuessed.fullName} is already guessed.`
+            ? t("alreadyGuessed", { driver: alreadyGuessed.fullName })
             : noMatches
-              ? "No drivers found."
+              ? t("noDrivers")
               : ""}
       </span>
     </div>

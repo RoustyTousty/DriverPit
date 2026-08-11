@@ -1,6 +1,6 @@
 # DriverPit
 
-A daily Wordle-style game where you guess a Formula 1 driver in six tries. Each guess is compared
+A daily guessing game where you find the mystery Formula 1 driver in six tries. Each guess is compared
 to the target across five attributes — nationality, team, age, debut year and career wins — and the
 tiles tell you how close you got.
 
@@ -8,7 +8,7 @@ Four modes, three of them built:
 
 | Mode | Route | What it is |
 |---|---|---|
-| **Daily** | `/daily` | One driver a day, the same for everyone, resets at UTC midnight. Progress is stored per account and follows you across devices. |
+| **Daily** | `/` | One driver a day, the same for everyone, resets at UTC midnight. Progress is stored per account and follows you across devices. |
 | **Infinite** | `/infinite` | Unlimited rounds from a driver pool you choose (current season → the entire historical roster). |
 | **Duel** | `/online` | Real-time 1v1. Three rounds, matchmade opponent, tug-of-war scoring, Elo. |
 | **Knockout** | `/online` | 20-player elimination. Planned, not built — shown as "coming soon". |
@@ -133,7 +133,7 @@ when the three repository secrets are absent**, so fork pull requests stay green
 ## Where things are
 
 ```
-app/(game)/       /daily, /infinite, /online -- the persistent game shell
+app/(game)/       / (daily), /infinite, /online -- the persistent game shell
 app/(info)/       /about, /faq, /how-to-play, ... -- standalone content pages
 components/game/  the shared board: tiles, guess rows, autocomplete, pool select
 components/duel/  live-match UI: staging, countdown, tug-of-war, results

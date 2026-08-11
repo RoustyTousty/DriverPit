@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { useAuthIdentity } from "@/components/auth/AuthProvider";
+import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
 import { readSettings, writeSettings, type Settings } from "@/lib/settings/store";
 import { resetUserStats } from "@/lib/stats/actions";
 
@@ -153,6 +154,15 @@ export function GeneralSection() {
         onChange={(next) => update({ colorblindMode: next })}
         preview={<ColorblindPreview colorblind={settings.colorblindMode} />}
       />
+
+      {/* Language is the third thing in this deliberately short section, and it
+          is not the "filler toggle" the note above refuses: it is a real
+          setting with nowhere else to live now that the footer row is gone,
+          and every visitor who needs it needs it before they can read
+          anything else. */}
+      <div className="border-t border-border pt-4">
+        <LanguageSwitcher />
+      </div>
 
       <div className="flex flex-col gap-2 border-t border-border pt-4">
         <p className="text-sm font-semibold text-text">Stats</p>

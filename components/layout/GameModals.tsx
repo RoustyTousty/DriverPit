@@ -3,12 +3,13 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
+import { useAuthIdentity } from "@/components/auth/AuthProvider";
 import type { SettingsSection } from "@/components/settings/SettingsModal";
 
 import { SettingsModalProvider } from "./SettingsModalContext";
 
 // Audit 2026-07-29 §1.4. Both modals used to be static imports, and this
-// component sits in the (game) layout -- so /daily and /infinite paid for the
+// component sits in the (game) layout -- so the daily board and /infinite paid for the
 // whole Settings tree and, through LeaderboardModal -> AvatarGlyph, DiceBear
 // (~67 KB) on first load, to render nothing at all until a top-bar button is
 // pressed and for an avatar that is never visible on either route.
@@ -57,19 +58,27 @@ export function GameModals({ children }: { children: React.ReactNode }) {
   const [settingsMounted, setSettingsMounted] = useState(false);
   const [leaderboardMounted, setLeaderboardMounted] = useState(false);
 
+  // Both modals render this visitor's own profile and stats, so opening either
+  // is one of the moments an identity is genuinely needed (roadmap Pass 4a).
+  // Fired here rather than inside the modals because this is the click: the
+  // sign-in overlaps the chunk render and the profile fetch instead of
+  // following them, and there is one place to look rather than two.
+  const { ensureIdentity } = useAuthIdentity();
   const value = useMemo(
     () => ({
       openSettings: (section: SettingsSection) => {
+        void ensureIdentity();
         setSettingsSection(section);
         setSettingsMounted(true);
         setOpenModal("settings");
       },
       openLeaderboard: () => {
+        void ensureIdentity();
         setLeaderboardMounted(true);
         setOpenModal("leaderboard");
       },
     }),
-    [],
+    [ensureIdentity],
   );
 
   // Warm both chunks once the page has gone idle. The split above is about

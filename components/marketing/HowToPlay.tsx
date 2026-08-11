@@ -1,151 +1,127 @@
+import { useTranslations } from "next-intl";
+
 import { Tile } from "@/components/game/GuessGrid";
 
-const STEPS: { title: string; body: string }[] = [
-  {
-    title: "Type a guess",
-    body: "Start typing a driver's name in the box and pick from the suggestions. Every guess has to be a real driver.",
-  },
-  {
-    title: "Read the five tiles",
-    body: "Each guess compares nationality, team, age, debut year, and career wins to the mystery driver.",
-  },
-  {
-    title: "Narrow it down",
-    body: "Color, arrows, and shading tell you how close you were — use that to pick your next guess.",
-  },
-  {
-    title: "Solve it",
-    body: "You get six guesses. Match all five tiles green and you've got it.",
-  },
-];
+// Structure (order, tile colours, sample values) stays in TypeScript; the prose
+// lives in messages/*.json. Same split as lib/marketing/faqContent.ts, for the
+// same reason: a visual decision is not a translatable string, and a reworded
+// sentence must not be able to reorder the legend.
+const STEP_KEYS = ["type", "read", "narrow", "solve"] as const;
+const TIP_KEYS = ["broad", "historical", "brightest", "pace"] as const;
+const COLUMN_RULE_KEYS = ["nationality", "team", "age", "debut", "wins"] as const;
 
+// Sample VALUES are deliberately not translated. Team names are proper nouns,
+// and a nationality on a real board is the English string out of `drivers`, so a
+// translated example would show something the game never actually shows.
 const LEGEND: {
+  key: "exact" | "historical" | "miss" | "wide" | "close";
   feedback: "exact" | "historical" | "miss" | "higher" | "lower";
   value: string;
   closeness?: number;
-  label: string;
 }[] = [
-  { feedback: "exact", value: "Ferrari", label: "Exact match" },
-  { feedback: "historical", value: "McLaren", label: "Raced for them before, not currently" },
-  { feedback: "miss", value: "Italy", label: "No match at all" },
-  { feedback: "higher", value: "39", closeness: 0.15, label: "Numeric miss, wide off" },
-  { feedback: "lower", value: "2007", closeness: 0.85, label: "Numeric miss, close" },
-];
-
-const COLUMN_RULES: { label: string; rule: string }[] = [
-  { label: "Nationality", rule: "Exact match only — green or grey, no in-between." },
-  { label: "Team", rule: "Green for their current team, dim orange if they've raced for it before, grey otherwise." },
-  { label: "Age", rule: "Numeric. A miss shows an arrow for higher/lower, shading toward orange the closer you were." },
-  { label: "Debut year", rule: "Same numeric rules as age." },
-  { label: "Career wins", rule: "Same numeric rules as age." },
+  { key: "exact", feedback: "exact", value: "Ferrari" },
+  { key: "historical", feedback: "historical", value: "McLaren" },
+  { key: "miss", feedback: "miss", value: "Italy" },
+  { key: "wide", feedback: "higher", value: "39", closeness: 0.15 },
+  { key: "close", feedback: "lower", value: "2007", closeness: 0.85 },
 ];
 
 const EXAMPLE_COLUMNS: {
-  label: string;
+  key: "nationality" | "team" | "age" | "debut" | "wins";
   feedback: "miss" | "historical" | "higher" | "lower";
   closeness?: number;
   value: string | number;
 }[] = [
-  { label: "Nation", feedback: "miss", value: "German" },
-  { label: "Team", feedback: "historical", value: "Aston Martin" },
-  { label: "Age", feedback: "higher", closeness: 0.2, value: 39 },
-  { label: "Debut", feedback: "lower", closeness: 0.75, value: 2007 },
-  { label: "Wins", feedback: "lower", closeness: 0.3, value: 53 },
-];
-
-const TIPS: string[] = [
-  "Guess something broad first — it splits the field even if it misses, since every tile carries some information.",
-  "A dim orange team tile is a real clue, not a miss — you've probably got the right driver, just the wrong season.",
-  "The brighter a numeric tile glows, the closer that guess was — chase the brightest tile first.",
-  "Six guesses goes fast. Save at least one or two for narrowing down, not just first impressions.",
+  { key: "nationality", feedback: "miss", value: "German" },
+  { key: "team", feedback: "historical", value: "Aston Martin" },
+  { key: "age", feedback: "higher", closeness: 0.2, value: 39 },
+  { key: "debut", feedback: "lower", closeness: 0.75, value: 2007 },
+  { key: "wins", feedback: "lower", closeness: 0.3, value: 53 },
 ];
 
 export function HowToPlay() {
+  const t = useTranslations("marketing.howToPlay");
+  // The example's headers are the BOARD's column labels, read from the shared
+  // `game.columns` namespace so the worked example cannot drift from the board
+  // it exists to explain.
+  const columns = useTranslations("game.columns");
+
   return (
     <section id="how-to-play" className="flex flex-col gap-8">
       <div className="flex flex-col gap-4">
-        <h2 className="text-2xl font-bold text-text">How to play</h2>
-        <p className="text-sm text-text-muted">
-          Guess the mystery Formula 1 driver in six tries. Suggestions are scoped to the active
-          driver pool, but a name from outside it still works if you type the whole thing —
-          after each guess, the driver&apos;s three-letter code appears on the left of the row.
-        </p>
+        <h2 className="text-2xl font-bold text-text">{t("heading")}</h2>
+        <p className="text-sm text-text-muted">{t("intro")}</p>
       </div>
 
       <ol className="flex flex-col gap-3">
-        {STEPS.map((step, index) => (
-          <li key={step.title} className="flex gap-3">
+        {STEP_KEYS.map((step, index) => (
+          <li key={step} className="flex gap-3">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-weak text-xs font-bold text-accent">
               {index + 1}
             </span>
             <p className="text-sm text-text-muted">
-              <span className="font-semibold text-text">{step.title}.</span> {step.body}
+              <span className="font-semibold text-text">{t(`steps.${step}.title`)}.</span>{" "}
+              {t(`steps.${step}.body`)}
             </p>
           </li>
         ))}
       </ol>
 
       <div className="flex flex-col gap-3">
-        <p className="text-sm font-semibold text-text">Tile legend</p>
+        <p className="text-sm font-semibold text-text">{t("legendHeading")}</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {LEGEND.map((item) => (
-            <div key={item.label} className="flex flex-col gap-1.5">
+            <div key={item.key} className="flex flex-col gap-1.5">
               <Tile feedback={item.feedback} closeness={item.closeness}>
                 {item.value}
               </Tile>
-              <p className="text-xs text-text-muted">{item.label}</p>
+              <p className="text-xs text-text-muted">{t(`legend.${item.key}`)}</p>
             </div>
           ))}
         </div>
       </div>
 
       <div className="flex flex-col gap-3">
-        <p className="text-sm font-semibold text-text">What each column means</p>
+        <p className="text-sm font-semibold text-text">{t("columnsHeading")}</p>
         <dl className="grid grid-cols-1 gap-3 rounded-lg border border-border bg-surface-2 p-4 sm:grid-cols-2">
-          {COLUMN_RULES.map((column) => (
-            <div key={column.label}>
-              <dt className="text-sm font-semibold text-text">{column.label}</dt>
-              <dd className="text-sm text-text-muted">{column.rule}</dd>
+          {COLUMN_RULE_KEYS.map((column) => (
+            <div key={column}>
+              <dt className="text-sm font-semibold text-text">{t(`columnRules.${column}.label`)}</dt>
+              <dd className="text-sm text-text-muted">{t(`columnRules.${column}.rule`)}</dd>
             </div>
           ))}
         </dl>
       </div>
 
       <div className="flex flex-col gap-2">
-        <p className="text-sm font-semibold text-text">Worked example</p>
-        <p className="text-xs text-text-muted">You guessed Sebastian Vettel:</p>
+        <p className="text-sm font-semibold text-text">{t("exampleHeading")}</p>
+        <p className="text-xs text-text-muted">{t("exampleLead")}</p>
         <div className="flex flex-col gap-1">
           <div className="flex gap-1.5 px-0.5 text-[10px] font-semibold tracking-wide text-text-muted uppercase">
             {EXAMPLE_COLUMNS.map((column) => (
-              <div key={column.label} className="flex-1 text-center">
-                {column.label}
+              <div key={column.key} className="flex-1 text-center">
+                {columns(column.key)}
               </div>
             ))}
           </div>
           <div className="flex gap-1.5">
             {EXAMPLE_COLUMNS.map((column) => (
-              <Tile key={column.label} feedback={column.feedback} closeness={column.closeness}>
+              <Tile key={column.key} feedback={column.feedback} closeness={column.closeness}>
                 {column.value}
               </Tile>
             ))}
           </div>
         </div>
-        <p className="text-xs text-text-muted">
-          Nationality miss — the mystery driver isn&apos;t German. Team is a historical near-miss —
-          they&apos;ve raced for Aston Martin before, just not currently. The up arrow means the
-          mystery driver is older than Vettel; the down arrows mean they debuted earlier and have
-          fewer career wins — and the brighter Debut tile means that guess landed closer than the
-          dim Wins guess did.
-        </p>
+        <p className="text-xs text-text-muted">{t("exampleExplanation")}</p>
       </div>
 
       <div className="flex flex-col gap-3">
-        <p className="text-sm font-semibold text-text">Tips</p>
+        <p className="text-sm font-semibold text-text">{t("tipsHeading")}</p>
         <ul className="flex flex-col gap-1.5">
-          {TIPS.map((tip) => (
+          {TIP_KEYS.map((tip) => (
             <li key={tip} className="flex gap-2 text-sm text-text-muted">
               <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-text-muted" aria-hidden="true" />
-              {tip}
+              {t(`tips.${tip}`)}
             </li>
           ))}
         </ul>

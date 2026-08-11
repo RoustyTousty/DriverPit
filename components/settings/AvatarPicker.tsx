@@ -166,7 +166,10 @@ export function AvatarPicker({
         aria-haspopup="true"
         aria-expanded={open}
         aria-label="Change avatar"
-        className="group relative rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        // Matches AvatarGlyph's radius so the focus ring hugs the tile rather
+        // than describing a circle around a square. The little "+" badge below
+        // stays round on purpose -- it is a badge, not the avatar.
+        className="group relative rounded-lg transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         <AvatarGlyph avatarUrl={currentAvatarUrl} size="lg" />
         <span className="absolute -right-0.5 -bottom-0.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-surface bg-accent text-bg transition group-hover:brightness-110">

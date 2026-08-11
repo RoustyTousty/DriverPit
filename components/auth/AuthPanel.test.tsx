@@ -35,9 +35,12 @@ vi.mock("@/components/ui/Toast", () => ({ useToast: () => toastMock }));
 vi.mock("@/lib/duel/duelCommitments", () => ({ getDuelCommitments: commitmentsMock }));
 
 const signInWithPassword = vi.fn();
+// Every path in this panel now mints the guest it is about to upgrade before
+// calling GoTrue -- see AuthPanel.handleCreateAccount.
+const ensureIdentity = vi.fn();
 
-function renderPanel(next = "/daily") {
-  useAuthMock.mockReturnValue({ refresh: vi.fn(), signInWithPassword });
+function renderPanel(next = "/") {
+  useAuthMock.mockReturnValue({ refresh: vi.fn(), signInWithPassword, ensureIdentity });
   return render(<AuthPanel next={next} />);
 }
 
@@ -50,6 +53,7 @@ beforeEach(() => {
   supabaseMock.auth.resetPasswordForEmail.mockResolvedValue({ error: null });
   supabaseMock.auth.linkIdentity.mockResolvedValue({ error: null });
   signInWithPassword.mockResolvedValue(undefined);
+  ensureIdentity.mockResolvedValue("guest-1");
 });
 
 describe("AuthPanel", () => {

@@ -72,13 +72,13 @@ The three achievement counts are columns on `drivers` (`championship_wins`, `pod
 
 **With nothing typed, the dropdown offers a random eight rather than the head of the pool.** An empty query isn't a search, so it isn't answered like one: `fuzzyFilter` hands back the first N in pool order, and the pool arrives alphabetical, so every player in every mode opened the box on the same eight A-names. `sampleSearchIndex` (`lib/game/fuzzyMatch.ts`) draws them instead — a partial Fisher-Yates over a sparse map, so it stays O(8) on an ~800-driver pool and reuses the same prebuilt index as everything else. It is **seeded**, and that is the load-bearing part: the draw happens during render, and `DriverAutocomplete` re-renders on things that have nothing to do with it (the duel's 10Hz round clock, daily's 1Hz countdown), so a `Math.random()` in that path would reshuffle the list under the player's cursor ten times a second. The seed is state, re-rolled *only* when the list opens — so the eight change between guesses but never while they're being read, and deleting a query back to empty returns the same eight rather than silently swapping them. A typed query goes back to the fuzzy ranking untouched.
 
-**The cutoff is mirrored in plpgsql and pinned to the TypeScript by a parity suite.** A Postgres function can't import `DAILY_POOL_WINDOW`, so three live functions carry their own copy: `daily_target_id` picks the day's answer, `duel_begin_round` picks each unfiltered duel round's, and `daily_submit_guess` is the one that uses it to *reject* rather than to pick — all three last carried the same cutoff into **drizzle/0052**, which is what moving the window means in practice (the constant and every plpgsql copy in one migration, never a TypeScript-only edit). `duel_begin_round` has been replaced twice since, by drizzle/0055 and drizzle/0056, each reproducing that cutoff verbatim — which is exactly why the parity suite reads the LIVE definition rather than trusting the newest migration that happens to mention the function. `infinite_start_round` used to be a fourth site mirroring the whole `poolCutoffYear` ladder; drizzle/0053 replaced that mode's window with a composed filter, so it no longer carries a copy of this constant at all (its own TS↔SQL pair is pinned separately — see "Infinite's driver filter"). Change the constant alone and **only the autocomplete moves** — the target keeps coming from the old window, so `/daily` can serve a driver the player cannot type, and the guess check refuses one it does offer, with nothing erroring and nothing looking broken. `lib/game/poolWindow.sqlParity.test.ts` (database CI tier) closes that, and pins `MAX_GUESSES`'s three plpgsql copies in the same pass (audit 2026-07-29 §2.5). The daily cutoff is checked **behaviourally** — `daily_target_id` takes the date as a parameter, so a far-future probe day brackets its cutoff year from both sides with no string matching; the other sites are extracted from `pg_get_functiondef()` and executed, same as the scoring suite. Both probe days must be in the future, and the suite refuses to run rather than pin-and-delete a live day's answer. The guess check needs **both tiers to be complete**, and deliberately: the parity suite pins the *cutoff*, `lib/db/dailyRpc.test.ts` pins the *predicate* behaviourally (an out-of-pool driver is refused, an in-pool one is not), and an extraction alone would never notice a `<` becoming a `>`.
+**The cutoff is mirrored in plpgsql and pinned to the TypeScript by a parity suite.** A Postgres function can't import `DAILY_POOL_WINDOW`, so three live functions carry their own copy: `daily_target_id` picks the day's answer, `duel_begin_round` picks each unfiltered duel round's, and `daily_submit_guess` is the one that uses it to *reject* rather than to pick — all three last carried the same cutoff into **drizzle/0052**, which is what moving the window means in practice (the constant and every plpgsql copy in one migration, never a TypeScript-only edit). `duel_begin_round` has been replaced twice since, by drizzle/0055 and drizzle/0056, each reproducing that cutoff verbatim — which is exactly why the parity suite reads the LIVE definition rather than trusting the newest migration that happens to mention the function. `infinite_start_round` used to be a fourth site mirroring the whole `poolCutoffYear` ladder; drizzle/0053 replaced that mode's window with a composed filter, so it no longer carries a copy of this constant at all (its own TS↔SQL pair is pinned separately — see "Infinite's driver filter"). Change the constant alone and **only the autocomplete moves** — the target keeps coming from the old window, so the daily page can serve a driver the player cannot type, and the guess check refuses one it does offer, with nothing erroring and nothing looking broken. `lib/game/poolWindow.sqlParity.test.ts` (database CI tier) closes that, and pins `MAX_GUESSES`'s three plpgsql copies in the same pass (audit 2026-07-29 §2.5). The daily cutoff is checked **behaviourally** — `daily_target_id` takes the date as a parameter, so a far-future probe day brackets its cutoff year from both sides with no string matching; the other sites are extracted from `pg_get_functiondef()` and executed, same as the scoring suite. Both probe days must be in the future, and the suite refuses to run rather than pin-and-delete a live day's answer. The guess check needs **both tiers to be complete**, and deliberately: the parity suite pins the *cutoff*, `lib/db/dailyRpc.test.ts` pins the *predicate* behaviourally (an out-of-pool driver is refused, an in-pool one is not), and an extraction alone would never notice a `<` becoming a `>`.
 
 ## Accounts & auth
 
 Uses **Supabase Auth**. Three entry points, one identity model:
 
-- **Anonymous (guest):** every first-time visitor is silently signed in anonymously (`supabase.auth.signInAnonymously()`) — a real `auth.users` row with no email. This gives guests an identity for duels, matchmaking, and stat-tracking from the first visit. Displayed as an auto-generated handle like `user482913` with a preset avatar.
+- **Anonymous (guest):** a visitor is signed in anonymously (`supabase.auth.signInAnonymously()`) the first time they do something that needs an identity — a real `auth.users` row with no email. **Not on page load**: see "Identity is acquired on the first interaction that needs one" below, which is the whole of why. Displayed as an auto-generated handle like `user482913` with a preset avatar.
 - **Email + password** and **Google OAuth** for full accounts.
 - **Upgrade, don't replace:** a guest signing in with email/Google **links** to their existing anonymous identity so their stats and duel rating carry over. Never create a fresh row that orphans guest progress.
 
@@ -90,7 +90,7 @@ Standalone, in **neither route group**, exactly like its sibling `/auth/reset-pa
 
 **Three states, and the fork is `isGuest` — never "is there a session".** Every visitor has one (`AuthProvider` signs first-time visitors in anonymously), so a session test would show a signed-in visitor the sign-up form and a guest the "you're signed in" card. Same trap, same answer, as `/auth/reset-password`'s gate. A full account landing here has confirmed an email address or typed the URL; what it needs is the way out, not a form. The third state is `identityStatus === "loading"` — gated on the **identity** half only, not on `profile`, so the form isn't held behind a fetch it doesn't use (and doesn't hang forever if that fetch fails).
 
-**`?next=` is a destination, not an action.** Read in a mount effect from `window.location.search` — the same pattern as `/online?join=`, for the same two reasons (a `searchParams` page prop opts the route out of static rendering; `useSearchParams()` drags in a Suspense boundary for a client-only value) — and put through `sanitizeNextPath`, because it ends up inside the `redirectTo` handed to Supabase. Deliberately **not** stripped from the URL afterwards, unlike `?join=`: nothing fires on arrival, so a refresh should still know where the player was going. `signInHref(next)` (`lib/auth/routes.ts`) is the other half; `routes.test.ts` pins the round trip, since a broken one silently returns everyone to `/daily` with no symptom anybody would connect to an encoding rule.
+**`?next=` is a destination, not an action.** Read in a mount effect from `window.location.search` — the same pattern as `/online?join=`, for the same two reasons (a `searchParams` page prop opts the route out of static rendering; `useSearchParams()` drags in a Suspense boundary for a client-only value) — and put through `sanitizeNextPath`, because it ends up inside the `redirectTo` handed to Supabase. Deliberately **not** stripped from the URL afterwards, unlike `?join=`: nothing fires on arrival, so a refresh should still know where the player was going. `signInHref(next)` (`lib/auth/routes.ts`) is the other half; `routes.test.ts` pins the round trip, since a broken one silently returns everyone to `DEFAULT_NEXT` with no symptom anybody would connect to an encoding rule.
 
 One thing it does **not** carry: a password sign-in lands on `/` regardless, because `AuthProvider.signInWithPassword` hard-navigates there by design (see "Auth state is reactive, everywhere"). That is a clean boot into a different account, which is the point; `next` applies to the two flows that come back through `/auth/callback`.
 
@@ -109,6 +109,10 @@ The page shows a guest a **Create account / Sign in** tablist (`SettingsModal`'s
 
 Three `dom`-tier suites pin the observable half. `components/auth/AuthPanel.test.tsx`: that a password field exists at all, that the create call carries both attributes, that sign-in goes through `AuthProvider`, that a live match is confirmed before either, and that the email/Google redirects carry the panel's `next` rather than the current pathname (they were built from `window.location.pathname`, which on a dedicated sign-in page would land a player who just confirmed their address back on the sign-in page). `app/auth/sign-in/page.test.tsx`: the three-state fork and the `?next=` handling above. `components/settings/ProfileSection.test.tsx`: that a guest gets a **link** there and that the form is *gone* rather than duplicated — two live copies of an auth form is what this extraction exists to prevent, since one of them stops being the copy that gets fixed.
 
+**A failed round trip names its cause, because "please try again" is sometimes the wrong advice.** `/auth/callback` forwards `error_code` *and* a bounded `error_description` (`sanitizeErrorDescription`), the hash-forward script reads the description straight out of the hash at runtime (so it never becomes an interpolation site — see `lib/auth/oauthCallback.ts`), and `OAuthErrorHandler` logs both before stripping the URL, which is the only record that outlives the redirect. Two codes get their own copy: a **rate limit** (`over_request_rate_limit` and friends) says to wait, because retrying spends another request against an empty bucket — and this app is unusually exposed to that, since every first-time visitor is signed in anonymously and the limit is per **IP**, so a developer testing in a loop or a CI run of the database tier drains the same bucket real visitors draw from. Everything else keeps its sentence plus the code in parentheses; an unnamed failure is a bug report nobody can act on.
+
+**Auth emails are branded in the dashboard, and the templates live in `docs/email-templates/`.** Body styling is the Templates panel; the *sender* (`DriverPit <…>` instead of `noreply@mail.app.supabase.io`) requires **custom SMTP**, and the built-in service's ~2-emails-per-hour cap is not raisable without it — so a project on the built-in sender has unbranded mail *and* mail that mostly doesn't arrive. Brand **both** "Confirm signup" and "Change Email Address": a guest upgrading calls `updateUser({ email, password })` on an existing anonymous row, so which of the two GoTrue sends depends on how it classifies that and on "Secure email change". `{{ .ConfirmationURL }}` must stay verbatim — hand-building a link from `{{ .Token }}` breaks the PKCE exchange and the `?auth=<flow>` arrival message with it.
+
 Gating:
 - Playing daily / infinite / **duel**: available to anyone, including anonymous guests. (Guests can matchmake; they just show as `userXXXXXX`.)
 - Appearing on the **global leaderboard** and editing a public profile: full accounts only. Guests can *view* the leaderboard but aren't ranked on it. Prompt guests to upgrade at the moments it matters (after a duel win, opening the leaderboard).
@@ -119,7 +123,7 @@ The login/upgrade UI is the page above; **Settings → Profile** (`components/se
 
 **Every "Save your progress" nudge is `GuestUpgradePrompt` (`components/auth/`), and every one of them is a link.** There were four hand-copied cards — Settings, the leaderboard, `/online`, the duel results panel — which had already drifted apart in their focus rings and each reached the auth UI its own way: two through `openSettings("profile")`, one through an `onUpgrade` prop threaded down from `GameModals`. One component with one `description` prop replaced all of it, which is what let `LeaderboardModal.onUpgrade` be deleted outright. Only the sentence varies per site, because only the sentence should: the stake differs ("appear on the leaderboard" vs "keep your duel rating"), and a generic line in all four is the version nobody acts on. It has no client hooks — a nudge is a card and a link.
 
-One accepted consequence: following a nudge is a **navigation**, so a guest who does it from inside a live match leaves the match (presence drops, the opponent's grace timer runs out, forfeit). That escape hatch already existed and is not new — the top bar stays visible mid-match and its logo has always linked to `/daily` — so this adds a second door to a room that was never locked, rather than a new class of bug. The in-match-reachable nudge is Settings' banner; if that ever needs guarding, guard the logo in the same change.
+One accepted consequence: following a nudge is a **navigation**, so a guest who does it from inside a live match leaves the match (presence drops, the opponent's grace timer runs out, forfeit). That escape hatch already existed and is not new — the top bar stays visible mid-match and its logo has always linked to the daily board — so this adds a second door to a room that was never locked, rather than a new class of bug. The in-match-reachable nudge is Settings' banner; if that ever needs guarding, guard the logo in the same change.
 
 Daily results write to `user_stats` via `recordDailyResult` (`lib/stats/actions.ts`), guarded by the `daily_results` idempotency table so replaying the action can't inflate stats. **It takes no arguments**: `won`, `guessCount` and the UTC day are all read back from the `daily_progress` row `daily_submit_guess` just wrote. See "Server Actions never accept an outcome" below for why that isn't optional. Pre-existing localStorage stats (`lib/stats/store.ts`, from before this feature existed) are folded in once via `migrateLocalStats`, triggered by `AuthProvider` the moment a guest's `profiles.is_guest` flips to `false`.
 
@@ -141,6 +145,18 @@ A PK guard stops a **replay**, not a **forgery** — they are different threats 
 `AuthProvider` subscribes to `supabase.auth.onAuthStateChange` and exposes `{ userId, isGuest, identityStatus, status }`, each `loading | ready`. **Every game window is a function of `userId`** — no leftover board from a previous identity, ever. Nothing may key persistent game state off anything but the current `userId`.
 
 **It publishes two contexts, and `identityStatus`/`status` is the seam** (audit 2026-07-30 §1.1). `useAuthIdentity()` gives `{ userId, isGuest, identityStatus, refresh, signOutAndReset }` — **primitives and stable callbacks only**; `useAuth()` gives that merged with `{ user, session, profile, stats, status, loading }`. Because the provider wraps the whole app, one context value made `userId` and `stats` a single subscription: `refresh()` after a completed daily, whose only job is to pull the new `user_stats` into Settings, re-rendered the board that had just finished — for data it doesn't display. Memoizing the value can't fix that; profile/stats genuinely changed. Two rules keep it working: **the identity value must stay free of object-valued fields** (`user`/`session` are re-materialized by every `supabase-js` `getSession()`, so they belong on the account side, where all three of their readers want profile/stats anyway), and a component that only destructures identity fields uses `useAuthIdentity()` — `DailyGame`/`DailyBoard` and `GeneralSection` do. There is no stale-half hazard: both values are computed in the same render of the same provider from the same state, so the split is about *who subscribes*, never about *when*. `AuthProvider.test.tsx` (`dom` tier) pins the pair — an identity consumer must not re-render on a stats change, and must re-render on an identity change.
+
+**Identity is acquired on the first interaction that needs one, never on mount** (roadmap Pass 4a). `AuthProvider` used to call `signInAnonymously()` for any visitor with no session as it mounted; Googlebot executes JavaScript and carries no cookies between renders, so **every crawl of every URL minted a permanent `auth.users` + `profiles` + `user_stats` row** — multiplied by the archive's several hundred pages, against a 50k-MAU free tier. Measured 2026-08-08: **692 of 694 profiles were guests**, for a handful of real players. `ensureIdentity()` on the identity context replaced it, called from ten event handlers (the guess input taking focus, opening Settings or the leaderboard, picking a mode on `/online`, hosting or joining a lobby, the two auth-panel submits) and from nothing that runs on render. One `signInAnonymously()` call remains in the repo, inside it.
+
+Three things make that safe rather than merely cheaper:
+
+- **`identityStatus` is three-valued: `loading | anonymous | ready`, and the first two are not the same question.** `anonymous` means `getSession()` came back *empty* after `withRetry` — proven no stored session. `loading` covers the retryable-failure branch, where a real session may exist and we could not reach it. Only `anonymous` licenses a game window to render a fresh **playable** board, and it does so honestly: "how much of today is already played" has a known answer, none. Collapsing the two would let a returning player whose token refresh was slow see an empty board and replay their day — the exact bug the no-replay-flash gate exists to prevent.
+- **It is called on interaction, not in an effect.** An effect is indistinguishable from a render to anything automated, which is the whole cost being removed. Calling it a beat early — a focus, a menu click — also keeps the sign-in off the critical path, so a first guess is still one warm hop rather than a sign-in followed by one.
+- **One in-flight sign-in at most**, latched in a ref so it is observable synchronously. Two entry points can fire within a frame (focusing the input while a modal opens) and two concurrent calls would mint two rows and orphan one.
+
+`AuthPanel` is where this is a hard precondition rather than a head start: `updateUser({ email, password })` upgrades the anonymous row that is *already signed in*, so with no session there is nothing to upgrade — and arriving at `/auth/sign-in` without touching the game is ordinary, since six places link there. Both it and the Google `linkIdentity()` path mint the guest first, which is what keeps "upgrade, don't replace" true for someone whose first action on the site is signing up. `components/auth/AuthProvider.test.tsx` pins the pair that matters: no sign-in for a visitor who never interacts, exactly one under concurrent callers; `DailyGame.test.tsx` pins that `anonymous` renders a playable board and fires no `daily_state`, while `loading` still holds the skeleton.
+
+**The rows it already produced are swept monthly.** `sweep_abandoned_guests` (drizzle/0059) deletes guests older than 60 days with no daily result, no board, no infinite round, no duel match, no queue row, no lobby and untouched stats — anything at all keeps the row, because a few hundred wasted bytes is nothing against somebody's streak. It deletes from **`auth.users`**, not `profiles`: everything else cascades from there, and `auth.users` is the row the MAU meter counts. Batched, because one unbounded `DELETE` holds locks on a table GoTrue reads on every token refresh. `EXECUTE` is revoked from `PUBLIC, anon, authenticated` by name and declared in `lib/db/schemaGrants.test.ts` — a client grant here is a mass delete one anon-key call away. `.github/workflows/guest-cleanup.yml` runs it on the 1st via `PRODUCTION_DATABASE_URL`, fails loudly on a missing secret (a sweep silently not happening looks exactly like one happening), and **a manual run is a dry run**: deletion is opt-in by the exact string `"false"` in an env var, never a forwarded flag — `scripts/sweepGuests.test.ts` exists for that default alone.
 
 Sign-in and sign-out are **deliberately asymmetric, and the axis is `userId`, not which button was pressed**:
 
@@ -168,7 +184,7 @@ The daily board must be **the same board on every device**. This is a correctnes
 - **One warm hop, no Next.js in the path.** Both `daily_state()` (hydrate) and `daily_submit_guess(driver_id)` (append + evaluate) are Postgres RPCs the browser calls directly via `supabase.rpc()` (PostgREST is always warm), not Next.js Server Actions. This is the whole fix for the slow board load and slow guesses — a Server Action is a serverless invocation per call, cold-starting on Vercel and route-compiling on `next dev`. Same path duel's guesses already use; see "Fast guess evaluation".
 - **The server owns the append.** `daily_submit_guess` resolves the UTC date and the guess index server-side and returns the full authoritative board. The client renders what comes back. Two devices guessing at once therefore converge instead of forking, and "one playthrough per day" is enforced where it can't be bypassed.
 - **The day's target is pinned, not recomputed per call.** `daily_targets(date, driver_id)` records the day's driver, lazily pinned by the first caller; everyone else reads it. This removes the per-guess pool scan + pick that made guesses slow, and fixes a latent bug where a mid-day pool change silently changed the target. Every path that needs the target (hydrate, guess, reveal) reads this one row — one source of truth.
-- **The pick is random, and that is a security property.** It used to be a deterministic FNV-1a hash of the date over the id-sorted pool — and `/daily` ships the whole pool *with ids* to the browser for autocomplete, so anyone could recompute the day's driver in a devtools console with no network call, forever. Pinning a value only makes it a secret if the value is unpredictable. `daily_target_id` (drizzle/0038) picks with `ORDER BY … random() LIMIT 1` and writes it once via `INSERT … ON CONFLICT (date) DO UPDATE SET driver_id = daily_targets.driver_id RETURNING driver_id` — the no-op update exists so `RETURNING` fires on the conflict path too, which is what makes two racing first-callers converge on one answer now that their picks differ. **Never reintroduce a TypeScript (or otherwise reproducible) "which driver is today" helper**; that is the leak, not the transport. A soft cooldown orders recently-used drivers last — an `ORDER BY`, never a `WHERE`, so it can degrade to plain random instead of emptying the pool.
+- **The pick is random, and that is a security property.** It used to be a deterministic FNV-1a hash of the date over the id-sorted pool — and the daily page ships the whole pool *with ids* to the browser for autocomplete, so anyone could recompute the day's driver in a devtools console with no network call, forever. Pinning a value only makes it a secret if the value is unpredictable. `daily_target_id` (drizzle/0038) picks with `ORDER BY … random() LIMIT 1` and writes it once via `INSERT … ON CONFLICT (date) DO UPDATE SET driver_id = daily_targets.driver_id RETURNING driver_id` — the no-op update exists so `RETURNING` fires on the conflict path too, which is what makes two racing first-callers converge on one answer now that their picks differ. **Never reintroduce a TypeScript (or otherwise reproducible) "which driver is today" helper**; that is the leak, not the transport. A soft cooldown orders recently-used drivers last — an `ORDER BY`, never a `WHERE`, so it can degrade to plain random instead of emptying the pool.
 - **It costs the player nothing.** Every call after the day's first returns off one indexed PK read — measured 12µs in-database, identical before and after the change. The pick + pin runs at most once per UTC day globally (~380µs). The pool still ships to the client, because local autocomplete is why typing a driver is instant; once the answer isn't a function of the pool, holding the pool tells you nothing.
 - **The date comes from the database**, never the client — `(now() at time zone 'utc')::date`. A client-supplied date is a trivial way to re-roll the day by changing a device clock.
 - **The target is not sent to the client until the day is over** (solved, or guesses exhausted), matching the daily rules. Hydration returns tiles + guessed driver display data; it returns the target only on a completed row.
@@ -183,10 +199,10 @@ The daily board must be **the same board on every device**. This is a correctnes
 
 The board hydrates from a single warm `daily_state()` RPC fired the moment `userId` is known. Two rules, one for correctness and one for speed:
 
-- **No replay flash.** While the daily fetch is in flight, `/daily` renders a skeleton board with the input disabled — never an empty *playable* board that later fills in, which reads as "you can play again" and invites a duplicate attempt. The same gate applies during sign-in/sign-out re-resolution.
+- **No replay flash.** While the daily fetch is in flight, the daily page renders a skeleton board with the input disabled — never an empty *playable* board that later fills in, which reads as "you can play again" and invites a duplicate attempt. The same gate applies during sign-in/sign-out re-resolution.
 - **The board must not wait on profile/stats.** Board readiness gates on exactly two things: the auth identity being resolved (`userId` known) and `daily_state()` returning. It must **not** gate on `loadProfileAndStats` — those feed Settings/Statistics/Leaderboard and load in parallel, never on the board's critical path. Firing them in series behind auth is what turned the load into ~3s. On a return visit the anon session is already in local storage, so identity resolves without a network hop; the only blocking call left is the one warm `daily_state()`.
 
-Where the Supabase session is cookie-backed (via `@supabase/ssr`), `daily_state()` may be run in the `/daily` Server Component and the board streamed already-hydrated, removing even that hop for returning users. If sessions are local-storage-only, the client-side parallel fetch above is the win. An audit decides which applies before building.
+Where the Supabase session is cookie-backed (via `@supabase/ssr`), `daily_state()` may be run in the daily page's Server Component and the board streamed already-hydrated, removing even that hop for returning users. If sessions are local-storage-only, the client-side parallel fetch above is the win. An audit decides which applies before building.
 
 ### Completion
 
@@ -217,7 +233,7 @@ Every mode's guess must feel instant (~150-260ms measured for duel on a prod bui
 
 Two site sections share one root layout but have different chrome, split via App Router route groups:
 
-- **`app/(game)/`** — `/`, `/daily`, `/infinite`, `/online`. The persistent game shell:
+- **`app/(game)/`** — `/` (the daily game), `/infinite`, `/online`, plus `/daily` as a 308 into `/`. The persistent game shell:
 
   ```
   +-----------------------------------------+
@@ -238,7 +254,11 @@ Two site sections share one root layout but have different chrome, split via App
   +-----------------------------------------+
   ```
 
-  `app/(game)/layout.tsx` holds the top bar, ad slot, marketing teasers and footer; `GameChrome` (client) holds the mode tabs. `/daily`, `/infinite`, `/online` render only their game window into `{children}`. Layouts persist across route changes, so switching modes swaps just the game window. `/` redirects to `/daily`. Mode tabs are `next/link`s highlighting the active route.
+  `app/(game)/layout.tsx` holds the top bar, ad slot, marketing teasers and footer; `GameChrome` (client) holds the mode tabs. `/`, `/infinite`, `/online` render only their game window into `{children}`. Layouts persist across route changes, so switching modes swaps just the game window. Mode tabs are `next/link`s highlighting the active route.
+
+  **The daily game is served at `/`, and the daily route's files live directly in `app/(game)/`** — `page.tsx`, `loading.tsx`, `DailyGame.tsx`, `NextPuzzleCountdown.tsx` — because this route *is* the group's root. `app/(game)/loading.tsx` is therefore the daily skeleton; it cannot leak onto the other two, because each has a `loading.tsx` of its own nested inside that boundary and React shows the nearest one. `app/(game)/daily/page.tsx` is now the 308 back into `/`, for inbound links only.
+
+  **`ModeTabs` decides the active tab with an exact match on `/` and a prefix match on everything else, and that split is load-bearing.** Every route on the site is "under" `/`, so any prefix test applied to the Daily tab lights it up on `/infinite` and `/online` too — two `aria-selected="true"` in one tablist, two accent fills, nothing erroring. The prefix arm is kept for a future nested route (`/online/...`) rather than collapsed into equality everywhere. `components/layout/ModeTabs.test.tsx` (`dom` tier) pins the property — exactly one active tab per route — not the cases.
 
   **The shell collapses during a live match — and only then.** `ActiveMatchContext` (a root-level provider) carries one `active` flag, raised for `DuelRoot`'s `MATCH_PHASES` (`found` | `countdown` | `in-match`) and by `DuelMatch` itself once a round starts. **Matchmaking and the custom-lobby screens are not in that set**: waiting for an opponent and composing a lobby are ordinary browsing, and a host pasting a code into Discord wants the rest of the page. It used to be `phase !== "landing"`, which collapsed the shell the moment someone pressed Duel. `MATCH_PHASES` is now the single predicate behind all three things keyed on it — the shell, `setLiveMatchId`, and the `duel_heartbeat` beat — which were previously spelled two different ways. `GameChrome` and `AdSlotGate` read it and hide the mode tabs, divider, marketing sections, footer and ad slot — leaving only the top bar and the match. A live race is the wrong moment for any of it, not just the banner. Two constraints if you touch `GameChrome`: `{children}` must stay at a **stable index** across the active/inactive branches (React otherwise remounts the whole game window and resets duel state mid-match), and `marketing`/`footer` are passed in as already-rendered elements rather than imported, because a `"use client"` module can't import the async Server Component inside `NewsSection`.
 
@@ -308,10 +328,11 @@ Intentional scale (e.g. 12 / 14 / 16 / 20 / 28 / 40).
 
 ### Surface, spacing, motion, quality floor
 
-- Radius consistent, small-to-medium (`rounded-lg`). Separators 1px `--border`.
+- Radius consistent, small-to-medium (`rounded-lg`). Separators 1px `--border`. **This includes avatars** — they are `rounded-lg` tiles, not circles, and `AvatarGlyph` is the only place that shape is decided. Anything that draws a ring, glow or empty-slot placeholder around one (`OpponentPanel`'s heat glow and solve ping, `AvatarPicker`'s focus ring, the leaderboard's open ranks, matchmaking's opponent slot) carries the same radius — a circular ping around a square avatar is the failure mode, and it is four files away from the component that changed.
 - Game window: single `--surface` card, centered, max-width ~640px. Marketing content wider (~720-960px) and calmer.
 - Motion minimal and purposeful: tile reveal, button press, modal enter/exit. Respect `prefers-reduced-motion`. No ambient loops — **except** the duel tug-of-war bar and countdown, which are live and must animate smoothly (still honor reduced-motion by snapping instead of easing).
-- Mobile-first (most players on phones). Visible `--accent` focus rings. Modals trap focus, close on Escape + backdrop.
+- Mobile-first (most players on phones). Modals trap focus, close on Escape + backdrop.
+- **A focus indicator is 2px of `--accent`, everywhere.** Buttons spell that `focus-visible:ring-2`; inputs and input-shaped triggers spell it `focus:border-accent focus:ring-1`, because their 1px border turns accent too and the ring sits directly outside it. Inputs used to carry `ring-2` *on top of* that border — 3px against the buttons' 2px, which read as two different design languages in one form. The rule is the total, not the class: anything that adds a ring to a control whose border already changes uses `ring-1`.
 - **A tile's meaning must exist in text, not only in colour.** Colour, opacity and the ↑/↓ glyph are the *visual* encoding; the spoken one is `lib/game/tileLabel.ts` (pure, unit-tested), applied by `Tile` as `role="img"` + `aria-label` — `role="img"` both because a bare `aria-label` on a `<div>` may be ignored and because it makes the tile atomic, so the value isn't announced twice. A comparison tile gets `guessTileLabels`; a reveal tile gets `tileValueLabel` (no verdict). The label is optional only where visible prose already states the rule (the marketing legend). Same reason `DriverCodeBadge` announces the driver's *name*, not "V E R".
 - **A readable board still isn't an audible game — the *event* has to be announced too.** Labelling the tiles made the grid navigable; submitting a guess was still silent, so a screen-reader user had to go back into the grid after every guess to find out what happened. `GuessAnnouncer` (`components/game/`) is one polite `role="status"` region rendered by `GuessGrid`, so daily and infinite get it identically and a later mode gets it by construction. Two rules it must keep: it composes `guessAnnouncement` from the same `guessTileLabels` the tiles use (so spoken row and spoken tile can't drift), and it announces **only guesses that passed through the pending row** — a resumable daily board hydrates a whole day of guesses at once, and reading the last one aloud on every page load is not an event the player caused. Focus works the same way: when a control disappears under the player (the duel input on solve) the thing that replaces it takes focus, and only if focus was genuinely lost (`document.activeElement` is `body`).
 - Themed scrollbar; `html` has `scrollbar-gutter: stable` so modal scroll-lock doesn't shift content. Don't remove without an equivalent fix.
@@ -328,7 +349,7 @@ One reusable `Modal` primitive (focus trap, Escape, backdrop close, scroll lock)
 
 **The two global ones are `next/dynamic`, and the shape around them is load-bearing.** `GameModals`
 sits in the `(game)` layout, so a static import put the whole Settings tree — and, through
-`LeaderboardModal` → `AvatarGlyph`, DiceBear — on `/daily`'s and `/infinite`'s critical path to
+`LeaderboardModal` → `AvatarGlyph`, DiceBear — on the daily page's and `/infinite`'s critical path to
 render nothing until a top-bar button is pressed, for an avatar never visible on either route
 (audit 2026-07-29 §1.4). Three things keep it working: `SettingsSection` is imported **as a type**
 (a value import drags the module straight back); each modal renders only behind a **one-way mount
@@ -644,6 +665,250 @@ Single responsive banner in the fixed-height slot under the game window.
 - **Two** env vars, both required before a real ad renders, both read only through `components/ads/adsenseConfig.ts` and never hardcoded: `NEXT_PUBLIC_ADSENSE_CLIENT` (account-level, `ca-pub-…`) and `NEXT_PUBLIC_ADSENSE_SLOT` (the specific unit, which only exists *after* approval). `getAdsenseUnit()` is the single "are real ads on?" check — it returns the `{ clientId, slotId }` pair or `null` rather than a boolean, so the caller that asks is also the caller that gets the ids to render with. (It replaced a boolean `isAdsenseConfigured()` that ended up with no callers precisely because it didn't narrow — audit §2.1.) Funding Choices (the CMP loader) wants the bare `pub-…` form — hence `getPublisherId()`, which strips the `ca-` prefix. Approval is external and needs the deployed site with real content; until both vars are set there is no slot on the page at all (see the first bullet). All ad logic stays isolated in `components/ads/`.
 - **Hide the ad slot during an active duel/knockout match** — a live race is the wrong moment for a banner; show it on daily/infinite, on the /online landing, **while matchmaking and while composing or hosting a custom lobby** (all ordinary browsing — see "Site architecture"), and again on the duel **results** screen, not from staging through intermission. `AdSlotGate` does this by reading `ActiveMatchContext` — the same flag `GameChrome` uses to hide the rest of the shell (see "Site architecture").
 
+## SEO & page metadata
+
+The site had none of this until 2026-08-06: no sitemap, no `robots.txt`, no `metadataBase`, not one `openGraph` tag, no canonical anywhere, and **no metadata at all on the three game routes** — `/daily`, `/infinite` and `/online` all inherited the root's `"DriverPit"` title, so the three most valuable pages on the site were indistinguishable in a result and every shared link rendered as a bare blue line of text.
+
+**One origin, resolved once.** `lib/seo/site.ts` owns `SITE_URL` (`NEXT_PUBLIC_SITE_URL` → Vercel's production domain → `localhost:3000`) and every canonical, the sitemap, `robots.txt` and the OG card read it. `normalizeOrigin` is pure and unit-tested because its failure mode is silent and total — a trailing slash or a leftover path on the env var is prepended to every URL on the site and the only symptom is Search Console reporting canonicals nobody can fetch, weeks later. It is **server-only**: the Vercel fallback is an unprefixed env var, so importing this into a client bundle would resolve the chain to localhost there and produce two answers to "what is our origin".
+
+**Every page's metadata comes from `buildPageMetadata` (`lib/seo/metadata.ts`), and the reason is a Next.js rule that fails quietly.** `title.template` applies to a page's `title` but **not** to `openGraph.title` or `twitter.title`. A page setting only `title` therefore looks right in the browser tab and inherits the *root's* headline on every social share — nine pages, one card headline, nobody notices. The builder composes all three from one input plus the canonical, so they cannot drift.
+
+**Nothing user-facing says "Wordle", and that is a decision, not an oversight.** It is a New York Times trademark, and while every competing F1 game leans on it in titles and descriptions, the ones that have drawn takedowns did so over exactly this kind of use. The searches it would target are reachable through "F1 driver guessing game", "daily F1 puzzle" and the mode-specific long tail instead, which is what the page copy is written for. It was removed from the `/daily` description, `AboutSection` and the README on 2026-08-06; the `docs/audit-*.md` files still contain it and are deliberately left alone, since those are dated records of past reviews rather than live copy. **Do not reintroduce it** — including in a page title, an OG description, or the GitHub repository description, which is set on GitHub and not in this repo.
+
+**The daily page uses `generateMetadata`, not a static export**, so the title and description carry the puzzle number and today's date — a real freshness signal on the one page whose content genuinely changes daily, at no cost (the number is pure, no query, same 60s ISR cycle). The puzzle *number* says which day it is, never who the driver is; that split is what `lib/game/dailySelection.ts` exists to preserve, and nothing in the metadata may cross it.
+
+**The game is served at `/`, and `/daily` is the 308** (roadmap Pass 5, 2026-08-08). It used to be the other way round, which spent a redirect on the bare domain — the most-linked URL the site has and the one people paste. The redirect survives in the new direction because `/daily` was the sitemap entry, the `VideoGame` entity's `url`, the manifest's `start_url` and whatever was already indexed; a 308 rather than a 307 for the same reason as before, since a temporary redirect tells a crawler the move may be undone.
+
+**Nothing internal may point at `/daily`.** Every link that did — the top-bar logo, `InfoTopBar`'s logo and "Play now", the mode tabs, the footer, the archive index and day pages' "play today", `sanitizeNextPath`'s `DEFAULT_NEXT`, `/auth/reset-password`'s post-save navigation, the manifest's `start_url`, `videoGameJsonLd`'s `url`, the sitemap's priority-1 entry — names `/`. A link to a redirect is a hop a player pays and a signal a crawler discounts, and `npm run seo:audit` fails a sitemap that lists one. `DEFAULT_NEXT` is exported from `lib/auth/oauthCallback.ts` so the sign-in page's initial `next` cannot spell it a second way.
+
+**There is no site-wide `alternates.canonical` any more.** The root layout carried one because `/` was a redirect with no page of its own; now it sets its own through `buildPageMetadata` like everything else. A layout-level canonical is *inherited*, and the only pages left inheriting it would be the two `/auth/*` ones — each then declaring itself a duplicate of the home page while also carrying `noindex`, which is a contradictory pair. No canonical is the honest state there; a wrong one is worse than none.
+
+**The OG card is generated (`app/opengraph-image.tsx`, `next/og`), not a static file.** Satori takes a CSS subset — flexbox only, explicit `display: flex` on anything with more than one child, **no CSS variables** — which is why `lib/game/palette.ts` exists: the literal-hex copy of the design tokens, shared with the share-image canvas (`lib/game/shareImage.ts`) so there are two copies of the palette in the repo (that file and `globals.css`) rather than one per renderer. The fonts are committed under `app/fonts/` as **ttf** (Satori cannot read woff2) and named in `next.config.ts`'s `outputFileTracingIncludes`, because Next traces static imports and a `readFile` path built at runtime is invisible to it — without that entry the card renders locally and 500s in production. **A layout that renders in Chrome is not evidence it renders in Satori**; check it by rendering a PNG, not by reading the JSX.
+
+**Every page names that card explicitly (`OG_IMAGE`, `lib/seo/site.ts`), because Next's file convention does not survive `buildPageMetadata`.** The convention attaches `opengraph-image.tsx` by merging it into the *segment's* resolved metadata — but a deeper segment that exports an `openGraph` object **replaces** the resolved one outright (`target.openGraph = resolveOpenGraph(source.openGraph, …)`), and the static-file merge only re-adds an image for a segment holding an image file of its own. Every page here sets `openGraph` for its per-page `og:title`, so all nine dropped the card and shipped with **no `og:image` at all**: the route existed, returned a correct PNG, and nothing referenced it. Found by `npm run seo:audit` on 2026-08-07 and fixed by defaulting `image` in the builder; `app/opengraph-image.tsx` derives its own `size`/`alt` from the same constant, so the declared dimensions can't drift from the rendered PNG. **Anything that sets `openGraph` outside the builder inherits this trap.**
+
+**`npm run seo:audit` (`scripts/seoAudit.ts`) reads the deployed site back and checks all of the above.** Not one of these tags fails loudly when wrong — the pages render and the markup is simply incorrect, and Search Console reports it weeks later or never. It takes its target from `SEO_AUDIT_URL` (falling back to `NEXT_PUBLIC_SITE_URL`) and **refuses to run rather than default to localhost**, since an audit that silently retargets itself reports green about the wrong site. The rules are pure and unit-tested in `scripts/seoAuditChecks.ts`; the load-bearing one is that every URL the deployment declares about itself — sitemap `<loc>`, canonical, `og:image` — must be on the origin the *operator* named, because a deployment with the wrong `NEXT_PUBLIC_SITE_URL` is perfectly self-consistent and entirely wrong. Two things its parser knows that a reader will not: **Next 15 streams metadata**, so the whole block lands ~30KB past `</head>` for anything outside Next's `htmlLimitedBots` list (reading `<head>` alone reported all nine pages as untagged), and a sitemap URL is fetched with `redirect: "manual"`, since following redirects makes a sitemap full of 308s look like one full of 200s. Deliberately **not** in `ci.yml`: it needs a deployed origin, and a job that goes red because a deploy is in flight is a job people learn to ignore.
+
+**`noindex` and a robots disallow are not interchangeable, and `/auth/*` is where that bites.** Those pages are `"use client"` and cannot export metadata, so the directive comes from `app/auth/layout.tsx`, whose only job is to carry it. They are deliberately **not** disallowed in `robots.ts`: a disallowed URL can still be indexed contentless from its inbound links — `/auth/sign-in` has six — and a crawler forbidden from fetching the page can never read a noindex on it, so setting both cancels out. Allow the crawl, refuse the index.
+
+**The FAQ's questions live in `lib/marketing/faqContent.ts`, as data.** `/faq` renders that array visibly *and* as `FAQPage` JSON-LD, and Google requires those to match — one array is the only way to guarantee it. `FaqTeaser` keeps its own shorter list and is not folded in: its answers are rewritten short for the home page rather than truncated, so it is different content, and the structured data belongs on the full page anyway.
+
+Two honest limits on the structured data, recorded so nobody expands it expecting more: Google restricted FAQ rich results to government and health sites in 2023, so that block is worth its ~1KB for Bing and for entity resolution, not for a snippet; and **`aggregateRating` must never be added** — there are no ratings, and fabricated ones are a manual-action offence rather than a grey area. `lib/seo/structuredData.test.ts` asserts its absence.
+
+### The daily recap
+
+**A finished day is a publishable object, and `getDailyRecap(date)` (`lib/db/dailyRecap.ts`) is the only way to get one.** Nothing new is recorded for it: `daily_progress.guesses` has been the ordered `int[]` of every guess by every player since drizzle/0029, so the players, the solve rate, the 1–6 distribution, the five most-guessed drivers and the most common opener are all one query with CTEs away. It is the foundation for Pass 3's `/archive/[date]` pages, and it is deliberately **a plain query on the trusted Drizzle connection, not an RPC** — both consumers are server-side, and a `SECURITY DEFINER` "everything about a day" function would be one PostgREST call from the browser, needing a grant decision to be its own defence.
+
+**Its date check is the security boundary and it lives in SQL.** `t.date < (now() at time zone 'utc')::date`, against the **database** clock — the same one `daily_submit_guess` resolves the UTC day from. In Node it would be a second clock, and a server running a few minutes fast would hand today's answer to everyone for those minutes. Malformed, unknown and unfinished all return `null` and are deliberately indistinguishable from outside. `lib/db/dailyRecap.test.ts` (database tier) pins it with a **fully populated fixture day 400 days in the future**, not merely with "today": asserting only on today passes on any database where today's target has not been pinned yet, which is most of them. Both halves were checked by deleting the comparison and watching the suite return the live answer.
+
+Two rules the numbers themselves carry. **Ties break deterministically** (count desc, then driver id) in `topGuesses` and `commonOpener`, or the same finished day renders two different images on two requests — a caching bug and a credibility one. And the most-guessed count is `DISTINCT (player, driver)`, so it means "players who guessed them" even for rows predating drizzle/0049's repeat-guess rejection; a share above 100% is the kind of error nobody thinks to look for.
+
+**`components/recap/RecapCard.tsx` renders it, and `/api/recap/[date]/image?format=portrait|wide` is the route.** Portrait (1080×1350) is the poster and carries everything; wide (1200×630) is the link-preview card Pass 3 will point its `og:image` at, and stops after the answer and the three headline numbers — a six-bar chart is not legible at feed size. `MIN_RECAP_SAMPLE` (25, exported from the card) withholds the distribution and most-guessed blocks below that many players; the space goes to an unboxed "a new driver every day" block rather than to a bordered panel, because an empty container reads as a failed render.
+
+**Satori will clip text rather than shrink it, and that is what `fitTextSize` (`lib/recap/format.ts`) exists for.** Every box on the card is fixed, so a value that does not fit is not squeezed — it is cut off, or centred so far that it overprints its own tile label. It searches downward through sizes doing an exact greedy monospace wrap, with two constraints, because the two failures are different: a **word is never broken** (that is "Ferrari" rendering as `Ferrar` / `i` at 36px in a 134px tile, which any height-only test accepts) and the **wrapped lines must fit the height** (that is "United States of America" printing over `NATION`). A closed-form area estimate was the first cut and is wrong in the direction that hurts — word wrapping wastes the tail of every line, so it under-counts lines for exactly the values that overflow. The driver name gets the same treatment against a fixed one-line box, so the card's vertical budget never depends on who won the day.
+
+### The archive
+
+**`/archive/[date]` is one indexable page per finished day, and it is the only asset here that compounds.** Everything else in the roadmap is a fixed amount of work; this grows by a page a night, forever, and each one carries data nobody else has. `/archive` is the paginated index — without it every day page is an orphan reachable only from the one before it — and the **footer** carries the site-wide link into it, since an index nothing links to cannot do its job. Pages live in the **`(info)` route group**, so they get InfoTopBar and the footer and no third kind of chrome; `InfoTopBar`'s active-link lookup now returns null rather than falling back to `LINKS[0]`, or the collapsed mobile trigger would read "About" on every archive page.
+
+**Page 1 is `/archive` and `parseArchivePage` refuses `"1"`.** `/archive/page/1` would be a second URL serving the same rows, which is the duplicate-content own-goal canonicals exist to prevent; the cheapest fix is not minting the second URL. A page past the end 404s rather than rendering an empty list — an empty 200 is a soft 404 and lets a crawler wander into `/archive/page/900`.
+
+**The date boundary is now six queries wide, and `UTC_TODAY` in `lib/db/dailyRecap.ts` is its one definition.** `getDailyRecap`, `listArchiveDays`, `listArchiveDates`/`countArchiveDays`, `getLatestArchiveDate` and the two driver-page queries (`listDriverArchiveEvidence`, `getDriverPage`) are each a way to ask "what was the answer on date X", so all six live in that one file under the comment explaining why, and each embeds the same fragment. A guard that held in one and not the others would put today's answer on the index, in the sitemap, and in the prev/next link off yesterday — and on a driver page under their own name, which is the sharpest of the six. `lib/db/dailyRecap.test.ts` pins every entry point against a fully populated fixture day 400 days in the *future*.
+
+**`getArchiveDayContext` averages the OTHER days' solve rates, and it is a mean of per-day rates rather than a pooled one.** The question the summary asks is "was this day harder than a typical day", so pooling would let one busy day set the baseline for all of them, and including the day itself would flatten exactly the difference being reported — badly, while the archive is small.
+
+**The auto-written paragraph (`lib/recap/summary.ts`) is what stops these being thin pages, and it is built around three rules in order of how much damage breaking them does.** (1) **Every sentence must be entailed by the numbers** — generated prose that sounds insightful and claims something the data does not support is worse than a bare table, because it is wrong at scale in a confident voice. (2) **A fact the sample cannot support is not said at all**; the first draft called one person's first guess "the most popular opening guess" and reported a 1–1 tie broken by driver id as "more players tried X than Y", so every population-level sentence now carries a minimum and a one-player day gets one sentence about that one board. (3) **No fact and no driver is named twice** — the first draft also produced "Most boards opened with Alexander Albon, and the wrong name that came up most often was Alexander Albon". Sentences are shapes *chosen by the data*, differing in what they lead with (the driver, the count, a clause), and the middle sentence is picked from ranked candidates so two days with the same solve rate still read differently. Both defects were found by running it against real days before anything was built on top of it; do that again after any change.
+
+**The day page's `og:image` points at Pass 2's `/api/recap/[date]/image?format=wide` rather than an `opengraph-image.tsx` of its own.** Next's file convention attaches a card by merging it into the segment's resolved metadata, and `buildPageMetadata` sets `openGraph`, which replaces that outright — so the URL has to be named explicitly either way, and naming the route that already exists beats a second Satori route with a second `outputFileTracingIncludes` entry rendering identical bytes.
+
+**`AnswerBoardRow` renders nationality as TEXT, never the `Flag` glyph.** This is a document whose job is to be the authoritative answer for "who was the driver on 31 July", so the country belongs in the HTML rather than in a background-image class readable only by a tooltip — and "show flags" is a per-player localStorage setting that a server-rendered cached page has no way to honour. Unlike the poster, `RecapStats` is **not** gated on `MIN_RECAP_SAMPLE`: the card's guard exists because a chart travels as an image with no context, whereas a page shows the raw counts beside every bar and says how big the sample was, and hiding a quiet day's only substance would leave an indexable page with nothing on it.
+
+**The sitemap is `revalidate = 3600` and its archive and driver halves both fail soft.** It reads `daily_targets`, so it can no longer be a build-time static file; and if either read throws it logs and returns what it has rather than propagating, because a sitemap that 500s takes the nine original pages down with it and teaches Search Console to distrust the file. Day entries carry a real `lastModified` and `changeFrequency: yearly` — a finished day is frozen, and saying so is the most useful thing a crawler can be told about hundreds of near-identical URLs. Driver entries carry **no** `lastModified`: a driver page changes when its subject is the answer again or when the seed refreshes their wins, neither of which that query knows, and a fabricated timestamp is how a sitemap's dates stop being believed at all.
+
+### Driver pages
+
+**`/drivers/[slug]` exists only for a driver this site has something of its own to say about, and `lib/drivers/pageEligibility.ts` is the whole of that rule.** Read it before widening anything: several hundred pages of F1DB career data on a domain with no authority is doorway content, and it would drag down the archive pages that are actually earning. The rule is **an appearance as the daily answer on a finished day at least one player completed**, and each half of that was chosen against measured numbers (2026-08-08, production): the ranked pool is 103 drivers, 47 of whom have a win/podium/pole/title and 14 of whom have been the answer — but 8 of the 14 finished days had *no players at all*, so a bare appearance is a date and a link to an equally empty archive page. Publishing on the career record instead would have shipped 47 pages whose every fact is F1DB's and Wikipedia's, which is the "name substituted into a template" test this pass has to pass. **It admits 5 drivers today, and that is the intended outcome** — the set grows on its own as finished days accumulate, with no code change.
+
+Three structural consequences:
+
+- **The threshold is a pure predicate, never a `HAVING` clause.** Four callers apply it — `generateStaticParams`, the page's own `notFound()`, the sitemap, and the archive day page deciding whether linking here would land on a 404 — and a rule in SQL would be four rules. The queries answer a broad, obviously-correct question ("which drivers have ever been an answer, and how did those days go") and the predicate decides. That also keeps it out of the TS↔SQL duplication class that would otherwise need a parity suite.
+- **The archive day page runs the same predicate over its own single day.** If that one day satisfies the rule then the driver's page exists, whatever else they have done — so the link is exact rather than approximate, and it moves with the rule instead of going stale. This is the only crawlable path into a driver page (there is deliberately no `/drivers` index at five pages), and the driver page links back to every day it lists.
+- **In `(info)`, not at `app/drivers/`.** `docs/seo-roadmap.md` sketches the latter; Pass 3 put the archive in that group and these are the same kind of document. A third kind of chrome is what "Site architecture" refuses. The group's parens are stripped, so the URL is still `/drivers/<slug>`. The slug is `drivers.f1db_id` verbatim — F1DB's own, never a second scheme — and both queries filter `f1db_id IS NOT NULL`, because the column is nullable for rows predating drizzle/0043 and the slug *is* the URL.
+
+**`lib/drivers/summary.ts` is the same three-rule generator as the archive's, plus one rule specific to this data: `careerWins` is computed by the seed from race results while `podiums`/`polePositions`/`championshipWins` come straight from F1DB's totals, and the two methodologies are deliberately not cross-checked — so no sentence may phrase one as containing the other unless the numbers in hand permit it.** It was run against the real roster before anything was built on it (the standing instruction from Pass 3), and that run is where four defects surfaced that were invisible in the code: "finished on the podium 1 time", "4 different constructors", "all of them got it" for two players, and present perfect on a driver who retired in 2017. Each has a test. Do it again after any change.
+
+**`driverPersonJsonLd` is `Person`, not `Athlete`** — schema.org has no Athlete type, and an invented one produces a block consumers silently ignore; `jobTitle` carries what the type cannot. `nationality` must be a `Country` entity rather than a string, `deathDate` is omitted rather than null for a living driver, and **`aggregateRating`/`review` are forbidden here more than anywhere else on the site**: this is markup about a real, named, mostly-living person, so a fabricated score is both the manual-action offence and a claim about someone who never asked to be scored. `structuredData.test.ts` asserts their absence on this block as well as the game's.
+
+**What is still open is planned in `docs/seo-roadmap.md`**, as eight passes each doable in one session with no memory of the others — production verification, the daily recap data layer and images, the `/archive/[date]` pages (one indexable page per finished day, built from `daily_progress`, and the only asset here that compounds), crawler hygiene, serving the game at `/`, driver pages, i18n, and the off-page launch kit. `docs/seo-prompts.md` is the paste-ready prompt per pass and holds no detail of its own, so the two cannot drift. That roadmap's "Standing constraints" section is the short list of repo rules that a fresh context otherwise breaks silently; read it before doing SEO work of any kind, including work not listed there.
+
+## Internationalisation
+
+Six locales, `next-intl`, added 2026-08-08 (roadmap Pass 7). `en` is served
+**unprefixed** and the other five carry a prefix — `/es`, `/pt-br`, `/it`, `/nl`,
+`/de` — so every URL Pass 5 established is unchanged and nothing already indexed
+moved. `LOCALES` and everything derived from it live in `lib/i18n/locales.ts`,
+which is pure and imports no runtime: five things have to agree about that list
+(routing, middleware, `hreflang`, the sitemap, the switcher) and a second copy is
+how a locale ends up served but not advertised, or advertised but not served.
+
+**`middleware.ts` composes two middlewares; it does not replace one.** The
+Supabase session refresh that predates this and next-intl's locale routing share
+one request, in `lib/i18n/composedMiddleware.ts`. **Refresh first, then route**,
+and the order is not interchangeable: Supabase refresh tokens *rotate*, so the new
+cookies must reach the browser or the session is dead rather than merely stale —
+and next-intl builds its response from scratch, discarding anything written to an
+earlier one. So the refresh is collected and re-attached to whatever the router
+returns, **including a redirect**, which is the case where dropping it is fatal.
+The refresh also writes back onto `request.cookies`, because the rewrite forwards
+`request.headers` to the route: a refresh that ran after the rewrite would render
+that page signed-out. Verified end to end against a real project (a real anonymous
+session, `expires_at` moved into the past, then checking the browser was handed a
+usable *new* refresh token) on `/`, `/es/faq`, `/de` and the `/en/faq` redirect.
+
+**The matcher's exclusions are load-bearing, in both directions.** Too narrow and
+sessions stop refreshing; too wide and next-intl rewrites a fixed-path file into a
+locale that serves it. `/sitemap.xml`, `/robots.txt` and `/manifest.webmanifest`
+are excluded **by name** because a crawler asks for those exact paths and there is
+no `/en/robots.txt` — all three 404'd until they were named, while every page still
+rendered. `api` and `auth/callback` are excluded too (fixed paths, and the OAuth
+return URL is in Supabase's allowlist). `composedMiddleware.test.ts` pins the
+matcher against both directions.
+
+**`localeDetection` and `localeCookie` are off, deliberately.** The URL is the only
+thing that decides the locale: no `accept-language` sniffing, no cookie. An
+automatic redirect off `/` would put a hop back on the most-linked URL the site
+has, and Google's own guidance warns it stops some versions being discovered.
+
+**Crawler discovery is `hreflang` plus the sitemap; the `LanguageSwitcher` is for
+people, and it lives in Settings → General.** It was in the footer first, where it
+was also a crawlable path between locales; moving it into a modal gives that up,
+which is acceptable only because `hreflang` on every page and one `<loc>` per
+locale in the sitemap are Google's documented mechanisms and neither depends on
+it. It is still **real anchors, not a `<select>`** — they work before hydration,
+and a native select renders in OS chrome this UI already rejected elsewhere. It
+links to the *same page* in the other language via `usePathname` from
+`lib/i18n/navigation`; landing the reader on a translated home page is what makes
+a switcher feel broken.
+
+**Every internal link goes through `lib/i18n/navigation`'s `Link`, never
+`next/link`.** Routes are stored unprefixed everywhere (the sitemap's list,
+`buildPageMetadata`'s `path`, the footer's) and the prefix is added at render.
+A hard-coded `/faq` inside a Spanish page is a link *out of* the locale and it
+fails silently, because the page it lands on is a real page. **That is the whole
+of the "switching language does nothing" bug**: the first pass converted only the
+footer, so the mode tabs, both top bars, every "See more →" and every archive row
+still used `next/link` and walked the reader straight back to English. The same
+applies to `usePathname` — `next/navigation`'s includes the locale prefix, so an
+active-tab test against `/` never matched on `/es` and no tab lit up.
+
+**The dom tier stands both of those in (`vitest.setup.dom.ts`).**
+`lib/i18n/navigation` calls `createNavigation()` at module scope and
+`useTranslations` throws with no provider, so importing almost any component blew
+up before its first test. The navigation double delegates `usePathname` to
+`next/navigation` — lazily and guarded, because several suites install *partial*
+mocks of it and vitest's proxy throws on an undeclared export — and the intl
+double resolves against the real English catalogue through `createTranslator`, so
+assertions keep naming real strings and a broken plural fails in the suite.
+
+**`hreflang` is emitted in one place, `buildPageMetadata`.** Every locale lists
+every other **including itself** (Google drops a cluster whose members omit their
+self-reference), plus `x-default` pointing at the unprefixed English URL. A
+`noIndex` page advertises no alternates at all — the two `/auth/*` pages would
+otherwise send a contradictory pair of signals. `next-intl`'s own
+`alternateLinks` header is off, because two emitters would be two answers.
+The sitemap emits one `<loc>` **per locale** carrying the same set, from the same
+`alternateLanguages` function.
+
+**Message catalogues are `messages/*.json`, and the summary generators are the
+interesting half.** `lib/recap/summary.ts` and `lib/drivers/summary.ts` still
+choose sentence *shapes* in TypeScript — that is arithmetic over a recap and is
+identical in every language — but return message keys plus values. Two rules
+follow: a branch **never concatenates translated fragments** (word order differs,
+and a clause glued on with ", and" lands in the wrong half of a German sentence),
+and **number words, ordinals and frequency forms are keys, not a table in TS** —
+"once"/"twice"/"five times" is three shapes in English and "finished on the podium
+1 time" is a defect that already shipped once. Sentence-initial casing gets its own
+`numberCap` keys rather than an uppercase step in TypeScript.
+
+**`intlLocale()` maps `en` to `en-GB`, for `Intl` only.** A bare `en` is *American*
+English to `Intl`, which rendered "August 7, 2026" and inserted an Oxford comma in
+the team list — while this site's own copy says "colour", and `formatRecapDate`
+wrote the date the other way on the page next to it. It is never used for
+`hreflang`: we format like British English, we do not claim to target the UK.
+
+**Do not translate driver names, team names, or anything from `drivers`.** They
+are proper nouns and "Lewis Hamilton" is what someone searches in every locale.
+`structuredData.test.ts` asserts it. The generated prose also avoids gendered
+agreement in the Romance locales and Dutch — the roster contains female drivers,
+so a masculine past participle is wrong rather than merely unidiomatic.
+
+**Every indexable page is translated.** About, How to play, Game modes, the FAQ,
+the Support callout and both legal pages are externalised and carried in all six
+catalogues. Two conventions those pages established, worth following for anything
+added later:
+
+- **A sentence with emphasis or a link inside it stays ONE message**, rendered
+  with `t.rich` and `<b>` / `<howToPlay>` / `<f1db>` markers. Splitting it into
+  fragments around the markup is the concatenation mistake `lib/recap/summary.ts`
+  documents: word order differs per language, and a clause that reads correctly
+  either side of a link in English lands in the wrong half of a German sentence.
+- **Structure stays in TypeScript, prose goes to the catalogue** — section order,
+  tile colours, sample values, and the *number* of bullets in a mode's list. A
+  translator rewording a line must not be able to reorder a legend or add a
+  bullet; on the legal pages a dropped section is a disclosure that stopped being
+  made. Same split as `lib/marketing/faqContent.ts`.
+
+**The legal pages carry `LegalTranslationNotice`**, which renders on every locale
+except `en` and says the English text is the operative version. It is above the
+content, not below it: a disclosure a reader reaches after relying on a liability
+clause has not been made. Keep it if those pages are ever re-translated.
+
+**Still English on every locale:** the in-app UI — the game board's surrounding
+chrome, duel, settings and auth (~1,100 words). None of it is indexable, so it
+costs nothing in search; it is an experience gap, not an SEO one.
+
+### The catalogues are generated — `npm run i18n:translate`
+
+**`messages/en.json` is the only catalogue a human edits.** The other five are
+regenerated from it by `scripts/translateMessages.ts`, and that is the whole
+reason they can be trusted: hand-maintained, they had already drifted into
+byte-identical copies of English before anyone noticed — six URLs of the same
+page under a full `hreflang` set, which is worse for search than not translating
+at all. A generated catalogue cannot drift.
+
+**Two things make machine translation safe to ship here, and neither is the model.**
+`validateTranslation` (`scripts/translationPlan.ts`) re-parses every returned
+string as ICU and compares its placeholder set to English — a translation that
+renames `{driver}`, drops a placeholder or breaks a plural block is **rejected and
+the previous text kept**, so the failure mode is a stale string rather than a page
+that throws. And the run is **incremental**: `messages/.translations.json` records
+the hash of the *English source* each translation came from — keyed on the source,
+because the only thing that can make a translation stale is the English changing.
+A one-word edit re-translates one key. **Commit that manifest**; without it every
+run re-translates everything.
+
+The validator deliberately compares placeholder **names**, not plural
+*categories* — categories are language-specific (Polish needs `few`, Spanish does
+not need English's split), so demanding identical ones would reject correct
+translations.
+
+**Dry run by default.** `npm run i18n:translate` plans and makes **no API calls**;
+`npm run i18n:translate:commit` translates and writes. The flag lives inside the
+package.json script string for the reason `db:seed` documents — PowerShell drops a
+bare `--`, so `npm run i18n:translate -- --commit` stays a dry run (measured).
+Unlike the seed, the dry run does not do the work and roll back: doing so would
+spend real money to show a diff. Missing `ANTHROPIC_API_KEY` is a hard failure,
+never a silent skip.
+
+`I18N_RETRANSLATE=all` regenerates every string rather than the stale ones — the
+switch for replacing a hand-written catalogue wholesale. Output is written in
+**English's key order** so the diff is readable; a file that reshuffles itself
+every run is a diff nobody reads, which is where a real change hides.
+
+**Read the diff before committing.** Google's spam guidance singles out
+machine-translated text published *without human review*; this script is the
+drafting step, not the publishing decision.
+
 ## Stack
 
 - Next.js 15 (App Router) + TypeScript, **Tailwind v4** (CSS-first `@theme` config in `app/globals.css`, no `tailwind.config.js`)
@@ -651,9 +916,10 @@ Single responsive banner in the fixed-height slot under the game window.
 - **Supabase Auth** (anonymous + email + Google), `@supabase/ssr` for the cookie-backed server client
 - **Supabase Realtime** (broadcast + presence) for matchmaking and live matches
 - **Vitest** for tests (`npm test`), in **two projects split by environment**: `node` (`lib/**`, `scripts/**` — pure logic, as it always was) and `dom` (`**/*.test.tsx` — real components rendered in jsdom with Testing Library; `npm run test:dom` for just those). DB integration suites live in the `node` project and are opt-in behind `RUN_DB_INTEGRATION_TESTS=1` so the default run needs no database. The `dom` project exists because six audit resolutions in a row closed with *"not verified in a browser"* — an ARIA promise, a live region's firing rule, a timer's rollover and a mount latch are all facts about a rendered DOM that `tsc` cannot see. **A component test earns its place by pinning behaviour a player or a screen reader can observe** (what the listbox offers, what gets announced, where focus lands, what stays mounted), never a component's internals; write it so it fails against the pre-fix code, and check that it does.
-- Avatars are **DiceBear** glyphs generated from a seed string (`lib/avatars.tsx`) — `profiles.avatar_url` stores the seed, not a URL. There is no upload or Storage path.
+- Avatars are **DiceBear** glyphs generated from a seed string (`lib/avatars.tsx`) — `profiles.avatar_url` stores the seed, not a URL. There is no upload or Storage path. **Storing the seed rather than the picture is what makes the style a one-line swap**: `clay` replaced `bottts-neutral` with no backfill, and seeds chosen under either style (plus `preset-N` values predating the whole system) still render. Two constraints: `clay` needs **`@dicebear/core` >= 10.4** — 10.3 rejects its animation component with a `StyleValidationError` thrown at *module scope*, so a pin-back takes the page down rather than the avatar — and `lib/avatars.test.ts` asserts the output is **static** across every curated seed plus 60 random ones. The style ships an animated variant at `weight: 0`; nothing but that weight keeps a dozen looping avatars off the leaderboard, and a `@dicebear/styles` bump can change it silently.
 - Deployed on Vercel. The checks are `tsc --noEmit` (`npm run typecheck`), `npm run lint`, `npm test` and `next build`.
 - **ESLint is adopted, and deliberately narrow** (`eslint.config.mjs`, 2026-07-30 — audit §0.5). Four rules and nothing else: `react-hooks/rules-of-hooks`, `react-hooks/exhaustive-deps`, `@typescript-eslint/no-explicit-any` (the "No `any`" convention below, enforced) and `@next/next`'s recommended set minus one Pages-Router rule that can only false-positive here. **No style or formatting rules** — `tsc` is the type authority and a house style invented inside a lint adoption is how a lint step becomes one people skip. The scope was chosen by *measuring* each candidate ruleset against the tree first; `eslint.config.mjs` records those numbers and names what was rejected (react-hooks v7's React Compiler preset, 30 violations on patterns this codebase chose on purpose). `reportUnusedDisableDirectives` is an **error**, so a suppression that stops being needed fails the build — the count of `eslint-disable` comments can now only fall unless someone writes one deliberately. Adding a rule means measuring it the same way; a new suppression means a reason at the call site.
+- **Backups: `.github/workflows/db-backup.yml`** (2026-08-06). The Supabase free plan has none, and `daily_progress`, every account and every duel rating exist nowhere else. `drizzle/` is already a complete replayable definition of the *schema*, so the rows are the only thing at risk: a nightly `pg_dump` (custom format, `public` + `auth`), GPG-encrypted, uploaded as a 90-day artifact. Three things about it are load-bearing. It takes its own secret, **`BACKUP_DATABASE_URL`, on the SESSION-mode pooler (port 5432)** — `pg_dump` cannot run through PgBouncer transaction mode, which is what 6543 serves, and a separately-named secret cannot silently inherit the scratch database CI writes into. **Encryption is not optional and has no fallback**: this repository is public, artifacts inherit repository visibility, and the dump contains `auth.users` — so a missing `BACKUP_ENCRYPTION_PASSPHRASE` fails the job rather than uploading plaintext. And it **fails loudly on a missing secret**, the opposite of `ci.yml`'s self-skip, for `roster-refresh.yml`'s reason: a backup silently not happening looks exactly like a backup happening. Restore steps are in the workflow header — **rehearse one**, because an untested backup is a hope.
 - **CI: `.github/workflows/ci.yml`**, two tiers. `static` (typecheck + lint + `npm test`, both vitest projects) needs nothing and runs everywhere, including fork PRs. `database` + `build` need three repository secrets (`DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, see `.env.example`) and **self-skip when they're absent** rather than failing red; point them at a **scratch** project, since those suites write real rows. The database tier is what actually runs the opt-in suites — the TS↔SQL parity tests, the RPC and matchmaking suites, the custom-lobby and unranked-stats suites, and the grant policy — so it's the difference between those rules being documented and being enforced. `static`'s lint step runs the narrow adopted scope described above and nothing wider; widening it means measuring the candidate ruleset against the tree first, in `eslint.config.mjs`, not adding a rule in CI.
 
 ## Data

@@ -1,3 +1,4 @@
+import { useTranslations } from "next-intl";
 import { memo } from "react";
 
 import { Flag } from "@/components/ui/Flag";
@@ -10,7 +11,10 @@ import { GuessAnnouncer } from "./GuessAnnouncer";
 
 type Feedback = ExactFeedback | OrderedFeedback | TeamFeedback;
 
-const COLUMN_LABELS = ["Nation", "Team", "Age", "Debut", "Wins"];
+// Keys, not labels: the words live in `game.columns` and are shared with the
+// worked example on /how-to-play, so the page explaining the board cannot
+// drift from the board.
+const COLUMN_KEYS = ["nationality", "team", "age", "debut", "wins"] as const;
 // As narrow as the rotated 3-letter code actually needs — the previous w-6/
 // w-7 was oversized and ate into the five data tiles' width more than
 // necessary. Module-local: every element that has to match this width (the
@@ -169,12 +173,14 @@ export function PendingGuessRow() {
 }
 
 export function ColumnLabels() {
+  const t = useTranslations("game.columns");
+
   return (
     <div className="flex gap-1 px-0.5 text-[10px] font-semibold tracking-wide text-text-muted uppercase sm:text-xs">
       <div className={`${CODE_COLUMN_WIDTH} shrink-0`} aria-hidden="true" />
-      {COLUMN_LABELS.map((label) => (
-        <div key={label} className="flex-1 text-center">
-          {label}
+      {COLUMN_KEYS.map((key) => (
+        <div key={key} className="flex-1 text-center">
+          {t(key)}
         </div>
       ))}
     </div>

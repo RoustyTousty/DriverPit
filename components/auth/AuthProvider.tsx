@@ -135,6 +135,29 @@ function toUserStats(row: UserStatsRow): UserStats {
 
 export type AuthStatus = "loading" | "ready";
 
+/**
+ * Identity has a third state that `status` does not, and it is the whole of the
+ * deferred-sign-in change (roadmap Pass 4a).
+ *
+ * - `loading`  — the session resolve is still running, OR it failed in a way
+ *                that means a real session may exist and we could not reach it.
+ *                Nothing may assume anything about the visitor.
+ * - `anonymous`— PROVEN no stored session: `getSession()` returned empty, not an
+ *                error, after `withRetry`. There is no identity and none has
+ *                been needed yet. A game window may render a fresh, playable
+ *                board here, because "how much of today is already played" has a
+ *                known answer: none.
+ * - `ready`    — `userId` is known.
+ *
+ * The distinction between the first two is load-bearing and is the reason this
+ * is not simply `userId === null`. CLAUDE.md's rule is that a playable board
+ * must never render before the day's state is known; `anonymous` is the one
+ * case where it IS known without asking the server, and `loading` is every case
+ * where it is not. Collapsing them would let a returning player whose token
+ * refresh was slow see an empty board and replay their day.
+ */
+export type IdentityStatus = "loading" | "anonymous" | "ready";
+
 // TWO contexts, not one, and the seam is the one `identityStatus`/`status`
 // already draw (audit 2026-07-30 §1.1). AuthProvider wraps the entire app, so
 // a single context value made every useAuth() consumer a subscriber to every
@@ -163,11 +186,28 @@ interface AuthIdentityValue {
   isGuest: boolean;
   // `identityStatus` is "ready" the moment `userId` is known and stable, with
   // NO regard for profile/stats. It's the signal a game window gates on: the
-  // only thing /daily needs before firing daily_state() is which account it's
+  // only thing the daily board needs before firing daily_state() is which account it's
   // fetching for. Chaining the board behind `status` below is what turned the
   // board load into seconds (CLAUDE.md: "The board's first paint never waits on
-  // profile/stats").
-  identityStatus: AuthStatus;
+  // profile/stats"). See IdentityStatus for the third value.
+  identityStatus: IdentityStatus;
+  /**
+   * Acquire an identity if this visitor does not have one yet, and resolve once
+   * `userId` is set. Idempotent, concurrency-safe, and a no-op for anyone who
+   * already has a session.
+   *
+   * THE ENTRY POINT FOR EVERY FEATURE THAT NEEDS A USER. Since Pass 4a nothing
+   * signs a visitor in on mount, so a page load — including a crawler's —
+   * creates no `auth.users` row at all. The row is minted at the first moment a
+   * human does something that genuinely needs one.
+   *
+   * Call it on INTERACTION, not in an effect. An effect is indistinguishable
+   * from a page render to anything automated, which is the whole cost this
+   * removes; and calling it early enough (a focus, a menu click) keeps the
+   * sign-in off the critical path of the action itself, so a first guess is
+   * still one warm hop.
+   */
+  ensureIdentity: () => Promise<string | null>;
   // Re-fetches profile/stats for the current user — call after an action
   // that's expected to have changed them (e.g. the signup trigger firing,
   // an upgrade completing). Lives here, on the side that does NOT re-render
@@ -247,6 +287,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // reports "loading" during later identity swaps, but this flag is only about
   // that very first resolution.
   const [initialLoading, setInitialLoading] = useState(true);
+  // PROOF that this visitor has no stored session -- set only on the branch of
+  // init() that saw an empty result rather than an error. A retryable failure
+  // leaves it false, so a returning player whose network was down for the
+  // session read stays in "loading" and never sees a fresh playable board.
+  const [noStoredSession, setNoStoredSession] = useState(false);
   // The id whose profile/stats are the ones currently in state. Drives the
   // reactive `status`: while it lags the live `user.id` (an identity just
   // changed), the current identity isn't resolved yet -> "loading".
@@ -337,22 +382,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // back) will pick the real session back up.
         console.error("Could not restore session after retries", sessionError);
       } else {
-        // Genuinely no session (not a fetch error, an actual empty
-        // result): first visit, or a session that's truly gone. Sign in
-        // anonymously so every visitor has a real identity (and a
-        // trigger-seeded profile/stats row) from the start. Retried the
-        // same way -- a first-time visitor on a flaky mobile connection
-        // deserves the same resilience as a returning one.
-        const { data, error } = await withRetry(() => supabase.auth.signInAnonymously());
-        if (error) {
-          console.error("Anonymous sign-in failed", error);
-        } else if (!cancelled) {
-          setSession(data.session);
-          setUser(data.user);
-          currentIdRef.current = data.user?.id ?? null;
-          // Same as above -- identity is what the board waits on, not this.
-          if (data.user) void loadProfileAndStats(data.user.id);
-        }
+        // Genuinely no session (not a fetch error, an actual empty result):
+        // a first visit, or a session that is truly gone.
+        //
+        // THIS USED TO CALL signInAnonymously() (roadmap Pass 4a). It no longer
+        // does, and the reason is that "a page was rendered" is not the same
+        // event as "a person is here". Googlebot executes JavaScript and keeps
+        // no cookies between renders, so a mount-time sign-in minted a
+        // permanent auth.users + profiles + user_stats row for every crawl of
+        // every URL -- which the archive has just multiplied by several hundred
+        // -- against a 50k MAU free tier, for rows representing nobody.
+        //
+        // Nothing about a real player changes: `ensureIdentity()` below signs
+        // them in the first time they touch something that needs an identity,
+        // which for a human is always before they can play and for a crawler is
+        // never. What DOES change is that this state is now representable at
+        // all, so anything reading `identityStatus` has to handle "anonymous"
+        // -- see the type.
+        if (!cancelled) setNoStoredSession(true);
       }
 
       if (!cancelled) setInitialLoading(false);
@@ -422,6 +469,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // One in-flight sign-in at most, shared by every caller. Several entry points
+  // can fire within a frame of each other -- focusing the guess input while a
+  // modal opens -- and two concurrent signInAnonymously() calls would mint two
+  // rows and leave one of them orphaned, which is the very thing this pass is
+  // removing. A ref rather than state: it must be observable synchronously by
+  // the next caller, before any re-render.
+  const signInInFlightRef = useRef<Promise<string | null> | null>(null);
+
+  const ensureIdentity = useCallback(async (): Promise<string | null> => {
+    // Read through the client rather than trusting `user` from a closure: a
+    // caller may be an event handler captured a render or two ago.
+    const {
+      data: { session: currentSession },
+    } = await supabase.auth.getSession();
+    if (currentSession?.user) return currentSession.user.id;
+
+    if (!signInInFlightRef.current) {
+      signInInFlightRef.current = (async () => {
+        try {
+          // Retried exactly as the session restore is, and for the same reason:
+          // a first-time visitor on a flaky mobile connection deserves the same
+          // resilience as a returning one.
+          const { data, error } = await withRetry(() => supabase.auth.signInAnonymously());
+          if (error || !data.user) {
+            console.error("Anonymous sign-in failed", error);
+            return null;
+          }
+          setSession(data.session);
+          setUser(data.user);
+          setNoStoredSession(false);
+          currentIdRef.current = data.user.id;
+          // Not awaited, same as the restore path: identity is what a board
+          // waits on, and profile/stats feed Settings.
+          void loadProfileAndStats(data.user.id);
+          return data.user.id;
+        } finally {
+          // Cleared whatever happened, so a failed attempt (offline) can be
+          // retried by the next interaction instead of latching this visitor
+          // out of the game forever.
+          signInInFlightRef.current = null;
+        }
+      })();
+    }
+    return signInInFlightRef.current;
+  }, [supabase, loadProfileAndStats]);
+
   const userId = user?.id ?? null;
   // profiles.is_guest is the canonical flag (flips on upgrade); fall back to
   // the auth user's anonymity while the profile row is still loading.
@@ -432,7 +525,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // running" -- it no longer waits on loadProfileAndStats (see init()). There
   // is no sign-out gap to cover any more: sign-out reloads the page, and the
   // fresh load resolves an anonymous identity through init()'s normal path.
-  const identityStatus: AuthStatus = initialLoading || !user ? "loading" : "ready";
+  // Three-valued since Pass 4a. The ORDER of these tests matters: `user` wins,
+  // then proven-absence, then loading -- so the instant a sign-in lands the
+  // status leaves "anonymous" rather than depending on a second state update.
+  const identityStatus: IdentityStatus = user
+    ? "ready"
+    : noStoredSession && !initialLoading
+      ? "anonymous"
+      : "loading";
   // Identity AND its profile/stats. Strictly stronger than identityStatus:
   // additionally "loading" whenever the live identity has outrun its loaded
   // profile/stats (a swap in progress, or a first load still fetching them).
@@ -606,8 +706,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // a profile/stats refetch untouched. Adding an object-valued field to it
   // silently undoes the split -- see the type's comment.
   const identityValue = useMemo<AuthIdentityValue>(
-    () => ({ userId, isGuest, identityStatus, refresh, signOutAndReset, signInWithPassword }),
-    [userId, isGuest, identityStatus, refresh, signOutAndReset, signInWithPassword],
+    () => ({ userId, isGuest, identityStatus, ensureIdentity, refresh, signOutAndReset, signInWithPassword }),
+    [userId, isGuest, identityStatus, ensureIdentity, refresh, signOutAndReset, signInWithPassword],
   );
 
   const accountValue = useMemo<AuthAccountValue>(

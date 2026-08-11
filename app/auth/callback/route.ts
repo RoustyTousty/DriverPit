@@ -4,6 +4,7 @@ import {
   buildHashForwardHtml,
   sanitizeAuthFlow,
   sanitizeErrorCode,
+  sanitizeErrorDescription,
   sanitizeNextPath,
 } from "@/lib/auth/oauthCallback";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest) {
   // ever trust it as a same-site path, never an absolute URL, so a crafted
   // `?next=` can't turn this into an open redirect or (in the no-code branch
   // below, which serves HTML) inject markup. See lib/auth/oauthCallback.ts
-  // for the rules; anything unexpected becomes `/daily`.
+  // for the rules; anything unexpected becomes its DEFAULT_NEXT.
   const next = sanitizeNextPath(searchParams.get("next"));
   // Which round trip this is -- Google, an email-address confirmation, or a
   // password reset. Set by whoever built the `redirectTo`, and carried through
@@ -43,15 +44,22 @@ export async function GET(request: NextRequest) {
       // which reads as "did that actually work?" even though it did.
       return NextResponse.redirect(`${origin}${next}?auth=${flow}`, { headers: NO_STORE });
     }
-    console.error("Auth code exchange failed", error);
+    console.error("Auth code exchange failed", { code: error.code, status: error.status, message: error.message });
     // Forward the real reason (e.g. "identity_already_exists" when a
     // guest tries to link a Google account already claimed by a different
     // DriverPit account) so OAuthErrorHandler can react to it specifically
     // instead of showing a generic failure.
-    return NextResponse.redirect(
-      `${origin}${next}?auth=${flow}&error_code=${encodeURIComponent(sanitizeErrorCode(error.code))}`,
-      { headers: NO_STORE },
-    );
+    //
+    // The message rides along beside the code, because the code alone is often
+    // a category rather than a cause -- an `unexpected_failure` whose message
+    // names a rate limit and one whose message names a missing redirect URL are
+    // the same code and different problems. It is Supabase's own text, bounded
+    // and encoded by sanitizeErrorDescription, and it is only ever logged or
+    // shown as text.
+    const params = new URLSearchParams({ auth: flow, error_code: sanitizeErrorCode(error.code) });
+    const description = sanitizeErrorDescription(error.message);
+    if (description) params.set("error_description", description);
+    return NextResponse.redirect(`${origin}${next}?${params}`, { headers: NO_STORE });
   }
 
   // No `code` -- some failures (notably a failed linkIdentity()) never make

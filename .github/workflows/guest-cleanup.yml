@@ -1,0 +1,102 @@
+name: Guest cleanup
+
+# WHY THIS EXISTS. Until roadmap Pass 4a, AuthProvider signed every visitor with
+# no session in anonymously on MOUNT. Googlebot executes JavaScript and carries
+# no cookies between renders, so each crawl of each URL minted a permanent
+# auth.users + profiles + user_stats row -- multiplied by the several hundred
+# archive pages Pass 3 added. Measured on 2026-08-08, before the sweep existed:
+# 694 profiles, 692 of them guests, against a handful of real players.
+#
+# That source is now closed (identity is acquired on first interaction, not on
+# render). This clears what it already left behind, and what a genuine visitor
+# who plays one guess and never returns will keep producing at a far lower rate.
+# The cost it removes is real: the Supabase free tier meters 50k monthly active
+# users and 500 MB, and every one of these rows is a person who does not exist.
+#
+# WHAT IT DELETES. public.sweep_abandoned_guests (drizzle/0059): guests older
+# than 60 days with no daily result, no daily board, no infinite round, no duel
+# match, no queue row, no lobby and untouched stats. Anything at all keeps the
+# row -- the cost of keeping a dead guest is a few hundred bytes, the cost of
+# deleting a live one is somebody's streak and rating with no way back.
+#
+# SETUP -- one repository secret, shared with roster-refresh.yml:
+#
+#   PRODUCTION_DATABASE_URL   the Supabase POOLER connection string (port 6543)
+#
+# Deliberately not the scratch `DATABASE_URL` the CI database tier writes into.
+# This job deletes rows from the live auth schema and must not be able to
+# inherit the wrong connection -- the same rule roster-refresh.yml follows for
+# the same reason.
+#
+# IT FAILS LOUDLY ON A MISSING SECRET, where ci.yml self-skips on one. The
+# opposite rule applies to scheduled maintenance: a sweep silently not happening
+# looks exactly like a sweep happening, and the only symptom is a bill months
+# later.
+#
+# A MANUAL RUN IS A DRY RUN unless you untick it. Same fail-closed shape as
+# `npm run db:seed`, and for the same reason: the safe mode must not be the one
+# behind a flag. Deletion is opt-in by the exact string "false" -- see
+# scripts/sweepGuests.ts#resolveSweepOptions, which is unit-tested precisely
+# because that default is the whole safety story.
+
+on:
+  schedule:
+    # 04:00 UTC on the 1st. Off the hour and off the daily backup (03:00) and the
+    # Monday roster refresh (06:00), so a slow run cannot overlap either.
+    - cron: "0 4 1 * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report what would be deleted without deleting it"
+        type: boolean
+        default: true
+      older_than_days:
+        description: "Minimum guest age in days (floor of 7 enforced server-side)"
+        type: string
+        default: "60"
+
+# GitHub disables scheduled workflows after 60 days of repository inactivity
+# (it emails first). Any push, or one manual run, re-arms it.
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check the connection secret is present
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          if [ -z "$PRODUCTION_DATABASE_URL" ]; then
+            echo "::error::PRODUCTION_DATABASE_URL is not set. Refusing to run rather than skipping silently."
+            exit 1
+          fi
+
+      - name: Sweep abandoned guests
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          # A scheduled run deletes; a manual one reports unless explicitly
+          # told otherwise. `github.event.inputs.dry_run` is empty on a schedule,
+          # so the comparison below is false and the string becomes "false".
+          SWEEP_DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && 'true' || 'false' }}
+          SWEEP_OLDER_THAN_DAYS: ${{ github.event.inputs.older_than_days }}
+        run: npm run db:sweep-guests | tee sweep.log
+
+      - name: Report to the run summary
+        if: always()
+        run: |
+          {
+            echo "### Guest cleanup"
+            echo ""
+            echo '```'
+            cat sweep.log 2>/dev/null || echo "(no output — the sweep step did not run)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { useAuth } from "@/components/auth/AuthProvider";
 import { GuestUpgradePrompt } from "@/components/auth/GuestUpgradePrompt";
 import { ModeIcon, type GameModeId } from "@/components/marketing/ModeIcon";
@@ -70,6 +72,7 @@ export function DuelLanding({
   // second no-op handler.
   onSelectCustom?: () => void;
 }) {
+  const modeNames = useTranslations("nav.modes");
   const { profile } = useAuth();
 
   // Custom last, matching /game-modes: it is a variant of Duel rather than a
@@ -87,10 +90,15 @@ export function DuelLanding({
   ];
 
   return (
-    <div className="flex flex-col gap-3 px-4 py-5">
-      {/* One line instead of a stacked title + subtitle: the top bar already
-          says DriverPit, and the mode tabs already say Online. */}
-      <h1 className="text-lg font-bold text-text">Play online</h1>
+    <div className="flex flex-col gap-4 px-4 py-6">
+      {/* The same stacked header Daily and Infinite use -- brand on top, mode
+          underneath, reading the mode name from `nav.modes` so the subtitle and
+          the tab cannot disagree. It was a single "Play online" line, which made
+          the one mode that is not a board look like a different kind of page. */}
+      <header>
+        <h1 className="text-xl font-bold text-text sm:text-2xl">DriverPit</h1>
+        <p className="text-sm text-text-muted">{modeNames("online")}</p>
+      </header>
 
       {profile?.isGuest && (
         <GuestUpgradePrompt

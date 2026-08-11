@@ -49,6 +49,25 @@ const FAILURE_MESSAGE: Record<AuthFlow, string> = {
   recovery: "That password reset link didn't open here. Request a new one and open it in this browser.",
 };
 
+// Two failures that are worth naming outright, because the generic message
+// tells the player to do the one thing that makes each of them worse.
+//
+// A rate limit is the sharp one: every first-time visitor to this site is signed
+// in anonymously, so the project's anonymous-sign-in and sign-in/sign-up limits
+// are load-bearing here in a way they aren't in a normal app -- and both are
+// counted PER IP, so a developer testing repeatedly, or a CI run of the DB
+// integration tier, exhausts the same bucket real visitors draw from. "Please
+// try again" spends another request against a bucket that is already empty.
+const RATE_LIMIT_CODES = new Set([
+  "over_request_rate_limit",
+  "over_email_send_rate_limit",
+  "over_sms_send_rate_limit",
+  "too_many_requests",
+  "request_timeout",
+]);
+
+const PROVIDER_CODES = new Set(["provider_disabled", "provider_email_needs_verification", "signup_disabled"]);
+
 export function OAuthErrorHandler() {
   const toast = useToast();
   const handledRef = useRef(false);
@@ -58,11 +77,20 @@ export function OAuthErrorHandler() {
 
     const query = new URLSearchParams(window.location.search);
     const errorCode = query.get("error_code") ?? query.get("error");
+    const errorDescription = query.get("error_description");
     const flow = sanitizeAuthFlow(query.get("auth"));
     const landed = query.has("auth");
     if (!errorCode && !landed) return;
 
     handledRef.current = true;
+    // Logged BEFORE the URL is cleaned, and logged whether or not the toast
+    // ends up naming the cause. This is the only record of why an auth round
+    // trip failed that outlives the redirect -- the params are about to be
+    // stripped, and the server-side console.error in /auth/callback is only
+    // reachable on the branch that got as far as an exchange.
+    if (errorCode) {
+      console.error("[auth] callback failed", { flow, errorCode, errorDescription });
+    }
     window.history.replaceState(null, "", window.location.pathname);
 
     if (!errorCode) {
@@ -87,11 +115,29 @@ export function OAuthErrorHandler() {
       return;
     }
 
+    // A rate limit is worth saying out loud on every flow: it is temporary, it
+    // is not the player's fault, and the generic "please try again" is advice
+    // that makes it worse.
+    if (RATE_LIMIT_CODES.has(errorCode)) {
+      toast.error("Too many sign-in attempts from this network. Wait a few minutes and try again.");
+      return;
+    }
+
+    if (PROVIDER_CODES.has(errorCode)) {
+      toast.error("That sign-in method isn't available right now. Try email and password instead.");
+      return;
+    }
+
     // `email` reads as informational on purpose -- the account genuinely
     // exists by this point, so a red toast would be reporting a failure that
     // didn't happen.
     if (flow === "email") toast.info(FAILURE_MESSAGE.email);
-    else toast.error(FAILURE_MESSAGE[flow]);
+    // Everything else keeps its copy, plus the code in parentheses. It is not
+    // pretty, and it is the difference between a bug report that can be acted
+    // on and "Google login doesn't work" -- there is no other channel: the
+    // params are stripped a line later and most players will never open a
+    // console.
+    else toast.error(`${FAILURE_MESSAGE[flow]} (${errorCode})`);
   }, [toast]);
 
   return null;

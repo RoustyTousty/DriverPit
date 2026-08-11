@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/components/auth/AuthProvider";
 import type { DriverOption } from "@/components/game/DriverAutocomplete";
@@ -93,10 +93,28 @@ export function DuelRoot({
   allDrivers: DriverWithActivity[];
   referenceYear: number;
 }) {
-  const { user, profile, stats } = useAuth();
+  const { user, profile, stats, ensureIdentity } = useAuth();
   const { setActive } = useActiveMatch();
 
   const [phase, setPhase] = useState<Phase>("landing");
+
+  // Picking a mode is the moment /online genuinely needs an identity — every
+  // path out of the landing screen (matchmaking, hosting, joining) writes a row
+  // authorized through auth.uid(). Firing it HERE rather than on mount is what
+  // keeps a crawl of /online from minting a guest, and it starts the sign-in a
+  // whole screen earlier than the first RPC that needs it, so the queue call
+  // does not wait on it.
+  //
+  // Not awaited: DuelSearching and CustomLobby both resolve the identity
+  // themselves before their first call, so this is a head start, not a
+  // precondition.
+  const enterPhase = useCallback(
+    (next: Phase) => {
+      void ensureIdentity();
+      setPhase(next);
+    },
+    [ensureIdentity],
+  );
   const [match, setMatch] = useState<MatchResult | null>(null);
   const [holdComplete, setHoldComplete] = useState(false);
   const [readyTimedOut, setReadyTimedOut] = useState(false);
@@ -319,7 +337,7 @@ export function DuelRoot({
   }
 
   if (phase === "landing") {
-    return <DuelLanding onSelectDuel={() => setPhase("searching")} onSelectCustom={() => setPhase("custom")} />;
+    return <DuelLanding onSelectDuel={() => enterPhase("searching")} onSelectCustom={() => enterPhase("custom")} />;
   }
 
   if (phase === "searching") {
@@ -347,7 +365,7 @@ export function DuelRoot({
     // handleFound or the resume effect, both of which set it. Falls back
     // to the landing screen rather than rendering nothing if it somehow
     // does.
-    return <DuelLanding onSelectDuel={() => setPhase("searching")} onSelectCustom={() => setPhase("custom")} />;
+    return <DuelLanding onSelectDuel={() => enterPhase("searching")} onSelectCustom={() => enterPhase("custom")} />;
   }
 
   if (!profile) {

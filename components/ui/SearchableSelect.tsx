@@ -166,7 +166,7 @@ export function SearchableSelect({
           // an accent hairline on hover reads as a rendering artifact rather
           // than as feedback; hover is a muted->full text step, same as every
           // other secondary control here.
-          className="group flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-left outline-none transition focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+          className="group flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-left outline-none transition focus-visible:border-accent focus-visible:ring-1 focus-visible:ring-accent disabled:opacity-50"
         >
           <span
             id={`${id}-value`}

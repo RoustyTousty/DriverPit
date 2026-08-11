@@ -140,7 +140,7 @@ jobs:
 
       - run: npm ci
 
-      # Needs the database because /daily, /infinite and /online are ISR pages
+      # Needs the database because /, /infinite and /online are ISR pages
       # that read the driver pool while prerendering -- which is also what makes
       # this a real check and not a duplicate of `tsc`.
       - name: Production build

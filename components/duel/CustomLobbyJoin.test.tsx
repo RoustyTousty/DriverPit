@@ -40,6 +40,15 @@ const joinCustomLobby = vi.hoisted(() => vi.fn());
 // Only the network edge is stubbed. normalizeLobbyCode and isCompleteLobbyCode
 // are the pure functions under test here, so they run for real -- mocking them
 // would leave this asserting that a mock was called.
+// Joining acquires an identity first (roadmap Pass 4a): the likeliest arrival
+// on this screen is a shared link opened cold, which is exactly the visitor who
+// has none yet. Stubbed to "already have one", so what these tests exercise
+// stays the code-normalising behaviour they were written for.
+const ensureIdentity = vi.hoisted(() => vi.fn().mockResolvedValue("guest-1"));
+vi.mock("@/components/auth/AuthProvider", () => ({
+  useAuthIdentity: () => ({ ensureIdentity }),
+}));
+
 vi.mock("@/lib/duel/customLobby", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/duel/customLobby")>();
   return { ...actual, getCustomLobbyState, joinCustomLobby };

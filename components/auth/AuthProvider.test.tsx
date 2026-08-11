@@ -48,6 +48,13 @@ const fake = vi.hoisted(() => {
     profile: null as FakeProfileRow | null,
     stats: null as FakeStatsRow | null,
     listener: null as AuthListener | null,
+    // Whether this visitor arrives with a stored session. False is the
+    // first-visit case, which since Pass 4a must NOT produce a sign-in.
+    hasSession: true,
+    // Counted rather than asserted-called, because "exactly once" is the
+    // property: two concurrent ensureIdentity() calls minting two auth.users
+    // rows is the regression this whole pass is removing.
+    signInCalls: 0,
   };
 
   // A FRESH object every call, deliberately: supabase-js re-reads the persisted
@@ -64,11 +71,15 @@ const fake = vi.hoisted(() => {
 
   const client = {
     auth: {
-      getSession: async () => ({ data: { session: session() }, error: null }),
-      signInAnonymously: async () => ({
-        data: { session: session(), user: session().user },
+      getSession: async () => ({
+        data: { session: state.hasSession ? session() : null },
         error: null,
       }),
+      signInAnonymously: async () => {
+        state.signInCalls++;
+        state.hasSession = true;
+        return { data: { session: session(), user: session().user }, error: null };
+      },
       onAuthStateChange: (cb: AuthListener) => {
         state.listener = cb;
         return {
@@ -183,9 +194,105 @@ beforeEach(() => {
   fake.state.profile = profileRow("user-1");
   fake.state.stats = statsRow("user-1", 10);
   fake.state.listener = null;
+  fake.state.hasSession = true;
+  fake.state.signInCalls = 0;
   identityRenders = 0;
   accountRenders = 0;
   localStorage.clear();
+});
+
+// Roadmap Pass 4a. Mounting the provider used to sign every session-less
+// visitor in anonymously, which meant a permanent auth.users + profiles +
+// user_stats row for every JS-executing crawl of every URL -- multiplied by the
+// archive's several hundred pages, against a 50k MAU free tier.
+//
+// This is the sort of change that is invisible in a type check and in every
+// existing test: the app behaves identically for anyone who clicks anything.
+// What has to be pinned is the behaviour of a visitor who clicks NOTHING.
+describe("AuthProvider deferred identity", () => {
+  function IdentityStatusConsumer() {
+    const { userId, identityStatus, ensureIdentity } = useAuthIdentity();
+    return (
+      <button type="button" data-testid="status" onClick={() => void ensureIdentity()}>
+        {`${identityStatus}/${userId ?? "none"}`}
+      </button>
+    );
+  }
+
+  it("mints no identity for a visitor who never interacts", async () => {
+    fake.state.hasSession = false;
+
+    render(
+      <AuthProvider>
+        <IdentityStatusConsumer />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("anonymous/none"));
+    expect(fake.state.signInCalls).toBe(0);
+  });
+
+  it("mints one on demand, and reports it", async () => {
+    fake.state.hasSession = false;
+
+    render(
+      <AuthProvider>
+        <IdentityStatusConsumer />
+      </AuthProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("anonymous/none"));
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("status"));
+    });
+
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("ready/user-1"));
+    expect(fake.state.signInCalls).toBe(1);
+  });
+
+  // Several entry points can fire within a frame of each other -- focusing the
+  // guess input while a modal opens -- and two concurrent sign-ins would mint
+  // two rows and orphan one, which is the exact cost this pass removes.
+  it("mints exactly one identity under concurrent callers", async () => {
+    fake.state.hasSession = false;
+    let ensure: (() => Promise<string | null>) | null = null;
+
+    function Grabber() {
+      ensure = useAuthIdentity().ensureIdentity;
+      return null;
+    }
+
+    render(
+      <AuthProvider>
+        <Grabber />
+        <IdentityStatusConsumer />
+      </AuthProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("anonymous/none"));
+
+    const acquire = ensure as unknown as () => Promise<string | null>;
+    const results = await act(async () =>
+      Promise.all([acquire(), acquire(), acquire(), acquire()]),
+    );
+
+    expect(fake.state.signInCalls).toBe(1);
+    expect(results).toEqual(["user-1", "user-1", "user-1", "user-1"]);
+  });
+
+  it("is a no-op for a visitor who already has a session", async () => {
+    render(
+      <AuthProvider>
+        <IdentityStatusConsumer />
+      </AuthProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("ready/user-1"));
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("status"));
+    });
+
+    expect(fake.state.signInCalls).toBe(0);
+  });
 });
 
 describe("AuthProvider identity/account context split", () => {

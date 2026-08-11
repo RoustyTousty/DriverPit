@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useAuthIdentity } from "@/components/auth/AuthProvider";
 import { DriverFilterSummary } from "@/components/game/DriverFilterSummary";
 import { AvatarGlyph } from "@/components/ui/AvatarGlyph";
 import {
@@ -46,6 +47,7 @@ export function CustomLobbyJoin({
   referenceYear: number;
   onMatchFound: (match: MatchResult) => void;
 }) {
+  const { ensureIdentity } = useAuthIdentity();
   const [code, setCode] = useState(() => normalizeLobbyCode(initialCode ?? ""));
   const [preview, setPreview] = useState<CustomLobbyState | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -85,6 +87,15 @@ export function CustomLobbyJoin({
     if (!preview) return;
     setJoining(true);
     setError(null);
+
+    // duel_lobby_join authorizes through auth.uid(). The likeliest arrival here
+    // is a shared link opened cold (/online?join=CODE), which is exactly the
+    // visitor who has no identity yet (roadmap Pass 4a).
+    if (!(await ensureIdentity())) {
+      setJoining(false);
+      setError("Couldn't reach the server. Check your connection and try again.");
+      return;
+    }
 
     const result = await joinCustomLobby(code, preview.rounds);
     if (!result.ok) {

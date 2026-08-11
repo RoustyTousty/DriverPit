@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -110,6 +112,7 @@ const TYPE_ACCENT: Record<ToastType, string> = {
 };
 
 function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: number) => void }) {
+  const t = useTranslations("ui");
   const [visible, setVisible] = useState(false);
 
   // Same mount-then-flip trick as Modal.tsx: start off-screen/transparent,
@@ -134,7 +137,7 @@ function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: num
       <button
         type="button"
         onClick={() => onDismiss(toast.id)}
-        aria-label="Dismiss"
+        aria-label={t("dismiss")}
         className="shrink-0 rounded p-0.5 text-text-muted transition hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} className="h-4 w-4" aria-hidden="true">

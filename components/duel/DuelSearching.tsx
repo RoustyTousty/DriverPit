@@ -35,7 +35,7 @@ import { RatingBadge } from "./DuelMatchFound";
 function EmptyAvatarSlot() {
   return (
     <div
-      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-border"
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border-2 border-dashed border-border"
       aria-hidden="true"
     >
       <span className="h-2 w-2 animate-pulse rounded-full bg-text-muted motion-reduce:animate-none" />
