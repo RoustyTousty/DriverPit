@@ -1,12 +1,12 @@
 import type { MetadataRoute } from "next";
 
-import { archivePageCount, archivePagePath } from "@/components/archive/ArchiveIndex";
 import {
   countArchiveDays,
   listArchiveDayEvidence,
   listDriverArchiveEvidence,
 } from "@/lib/db/dailyRecap";
 import { isDriverPageEligible } from "@/lib/drivers/pageEligibility";
+import { archivePageCount, archivePagePath } from "@/lib/recap/archivePaging";
 import { isArchiveDayIndexable } from "@/lib/recap/dayEligibility";
 import { localePath } from "@/lib/i18n/locales";
 import { INDEXED_LOCALES, alternateLanguages } from "@/lib/seo/metadata";

@@ -45,7 +45,7 @@ export default async function ArchivePage({ params }: Props) {
           { name: t("breadcrumb.archive"), path: "/archive" },
         ])}
       />
-      <ArchiveIndex page={1} />
+      <ArchiveIndex page={1} locale={locale} />
     </>
   );
 }

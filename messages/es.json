@@ -643,21 +643,39 @@
     "dayHeading": "{date} — {driver}",
     "driverLink": "Más sobre {driver}",
     "puzzleNumber": "Reto n.º {number}",
+    "theAnswer": "La respuesta",
+    "dayNavLabel": "Retos cercanos",
+    "previousPuzzle": "Reto anterior",
+    "nextPuzzle": "Reto siguiente",
+    "allPuzzles": "Todos los retos",
     "playToday": "Jugar el reto de hoy",
     "notFound": "Ese reto todavía no está en el archivo.",
     "index": {
+      "eyebrow": "Archivo",
       "heading": "Archivo de retos",
       "intro": "Todos los retos diarios ya terminados, con la respuesta y cómo fue el día. Se añade uno cada medianoche UTC, cuando el día al que pertenece ha acabado.",
+      "total": "{count, plural, one {# reto} other {# retos}}",
+      "pageOf": "Página {page} de {total}",
       "empty": "Todavía no ha terminado ningún reto. La primera entrada del archivo aparece el día después del primer reto.",
       "playToday": "Jugar el reto de hoy →",
       "noPlayers": "sin jugadores",
       "solved": "{percent} lo resolvió",
       "players": "{count, plural, one {# jugador} other {# jugadores}}",
+      "search": {
+        "label": "Buscar un reto",
+        "placeholder": "Piloto, fecha o número de reto",
+        "hint": "Busca el nombre de un piloto, un mes como “julio 2026” o un número de reto como #12.",
+        "clear": "Borrar la búsqueda",
+        "results": "{count, plural, one {# reto encontrado} other {# retos encontrados}}",
+        "resultsTruncated": "{count} retos encontrados — se muestran los primeros {shown}",
+        "empty": "Nada en el archivo coincide con “{query}”"
+      },
       "pagination": {
         "label": "Páginas del archivo",
         "newer": "← Más recientes",
         "older": "Más antiguos →",
-        "position": "Página {page} de {total}"
+        "position": "Página {page} de {total}",
+        "goToPage": "Ir a la página {page}"
       }
     },
     "stats": {

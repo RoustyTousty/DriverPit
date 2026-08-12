@@ -28,12 +28,12 @@ import { db } from "./index";
 // CLAUDE.md "Daily persistence & sync": the day's driver is a secret until the
 // day is over, and this is the one code path whose whole job is to hand it out.
 
-// ONE definition of the boundary, embedded by every query in this file. Six
+// ONE definition of the boundary, embedded by every query in this file. Seven
 // entry points now publish finished days (the recap, the archive index, the
-// sitemap, the prev/next links, and the two driver-page queries) and each one is
-// a way to ask about a day; a second spelling of "which days are over" is a
-// second thing to get wrong, and the failure mode is publishing today's answer
-// rather than an error.
+// archive SEARCH index, the sitemap, the prev/next links, and the two
+// driver-page queries) and each one is a way to ask about a day; a second
+// spelling of "which days are over" is a second thing to get wrong, and the
+// failure mode is publishing today's answer rather than an error.
 //
 // The driver-page queries are the sharpest case in the set: a driver page lists
 // the days that driver was the answer, so a missing boundary there would name
@@ -322,6 +322,50 @@ export async function listArchiveDays(limit: number, offset: number): Promise<Ar
     FROM days
     JOIN public.drivers d ON d.id = days.driver_id
     ORDER BY days.date DESC
+  `);
+
+  return rows.map((row) => ({
+    date: row.date,
+    puzzleNumber: getDailyPuzzleNumber(row.date),
+    targetName: row.full_name,
+    targetCode: row.driver_code,
+    players: row.players,
+    completed: row.completed,
+    solved: row.solved,
+  }));
+}
+
+/**
+ * Every finished day as `{ date, driver name }`, newest first — the archive
+ * search index.
+ *
+ * The whole list, not a page of it, and that is the point: it ships to the
+ * browser once per index render so a query for a driver or a month is answered
+ * locally, the same trade the guess autocomplete makes with the driver pool. See
+ * `lib/recap/archiveSearch.ts` for the size arithmetic and for what to do when
+ * it stops holding.
+ *
+ * It carries the same three counts the visible rows do, because a search result
+ * IS a row: rendering a lighter one would make the same day look like two
+ * different objects depending on how the reader reached it.
+ *
+ * The UTC_TODAY boundary is the seventh copy in this file and is not optional
+ * here either — without it, typing today's date would name today's driver, which
+ * is the one secret the whole daily mode rests on.
+ */
+export async function listArchiveSearchIndex(): Promise<ArchiveDaySummary[]> {
+  const rows = await db.execute<ArchiveDayRow>(sql`
+    SELECT
+      t.date::text AS date,
+      d.full_name,
+      d.driver_code,
+      (SELECT count(*)::int FROM public.daily_progress p WHERE p.date = t.date) AS players,
+      (SELECT count(*)::int FROM public.daily_progress p WHERE p.date = t.date AND p.completed) AS completed,
+      (SELECT count(*)::int FROM public.daily_progress p WHERE p.date = t.date AND p.won) AS solved
+    FROM public.daily_targets t
+    JOIN public.drivers d ON d.id = t.driver_id
+    WHERE t.date < ${UTC_TODAY}
+    ORDER BY t.date DESC
   `);
 
   return rows.map((row) => ({

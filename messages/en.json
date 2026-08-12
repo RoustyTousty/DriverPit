@@ -643,21 +643,39 @@
     "dayHeading": "{date} — {driver}",
     "driverLink": "More about {driver}",
     "puzzleNumber": "Puzzle #{number}",
+    "theAnswer": "The answer",
+    "dayNavLabel": "Nearby puzzles",
+    "previousPuzzle": "Previous puzzle",
+    "nextPuzzle": "Next puzzle",
+    "allPuzzles": "All puzzles",
     "playToday": "Play today's puzzle",
     "notFound": "That puzzle isn't in the archive yet.",
     "index": {
+      "eyebrow": "Archive",
       "heading": "Puzzle archive",
       "intro": "Every finished daily puzzle, with the answer and how the day went. A new one is added each midnight UTC, once the day it belongs to is over.",
+      "total": "{count, plural, one {# puzzle} other {# puzzles}}",
+      "pageOf": "Page {page} of {total}",
       "empty": "No puzzles have finished yet. The first archive entry appears the day after the first puzzle.",
       "playToday": "Play today's puzzle →",
       "noPlayers": "no players",
       "solved": "{percent} solved",
       "players": "{count, plural, one {# player} other {# players}}",
+      "search": {
+        "label": "Find a puzzle",
+        "placeholder": "Driver, date or puzzle number",
+        "hint": "Search a driver's name, a month like “July 2026”, or a puzzle number like #12.",
+        "clear": "Clear search",
+        "results": "{count, plural, one {# puzzle found} other {# puzzles found}}",
+        "resultsTruncated": "{count} puzzles found — showing the first {shown}",
+        "empty": "Nothing in the archive matches “{query}”"
+      },
       "pagination": {
         "label": "Archive pages",
         "newer": "← Newer",
         "older": "Older →",
-        "position": "Page {page} of {total}"
+        "position": "Page {page} of {total}",
+        "goToPage": "Go to page {page}"
       }
     },
     "stats": {

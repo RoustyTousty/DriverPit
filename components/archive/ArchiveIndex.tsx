@@ -1,10 +1,19 @@
-import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 
-import { countArchiveDays, listArchiveDays } from "@/lib/db/dailyRecap";
-import { formatPercent, formatRecapDate } from "@/lib/recap/format";
+import { ArchiveDayRow, type ArchiveDayRowData } from "./ArchiveDayRow";
+import { ArchivePagination } from "./ArchivePagination";
+import { ArchiveSearch } from "./ArchiveSearch";
+import {
+  countArchiveDays,
+  listArchiveDays,
+  listArchiveSearchIndex,
+  type ArchiveDaySummary,
+} from "@/lib/db/dailyRecap";
+import { formatUtcDate } from "@/lib/i18n/dates";
+import type { Locale } from "@/lib/i18n/locales";
 import { Link } from "@/lib/i18n/navigation";
+import { ARCHIVE_PAGE_SIZE, archivePageCount } from "@/lib/recap/archivePaging";
 
 // The archive index, shared by /archive (page 1) and /archive/page/N.
 //
@@ -12,119 +21,34 @@ import { Link } from "@/lib/i18n/navigation";
 // orphan, reachable only from the one before it, and a crawler that has never
 // seen /archive/2026-07-31 has no path to /archive/2026-07-30. A paginated
 // index is what turns 365 pages into a crawlable structure.
+//
+// The pagination rules themselves live in lib/recap/archivePaging.ts -- they are
+// pure, they are pinned by a suite, and keeping them out of this file keeps a
+// postgres client out of the `node` test tier.
 
 /**
- * Days per page. Sized so the first page holds a comfortable two months and a
- * year of archive is three pages — small enough that each page is a real
- * document and large enough that the pagination never becomes the content.
+ * A query row as the row component wants it: the date already written the way
+ * this locale writes it.
+ *
+ * Done here, once, rather than inside the row -- `formatUtcDate` is a server
+ * helper and the row is rendered on both sides of the client boundary (the
+ * server-rendered list, and the search results). It is also what the search
+ * matches a typed month against, so the string a reader sees and the string
+ * their query is tested against are the same string by construction.
  */
-export const ARCHIVE_PAGE_SIZE = 40;
-
-export function archivePagePath(page: number): string {
-  return page <= 1 ? "/archive" : `/archive/page/${page}`;
+function toRow(day: ArchiveDaySummary, locale: Locale): ArchiveDayRowData {
+  return {
+    date: day.date,
+    puzzleNumber: day.puzzleNumber,
+    driverName: day.targetName,
+    dateLabel: formatUtcDate(day.date, locale),
+    players: day.players,
+    completed: day.completed,
+    solved: day.solved,
+  };
 }
 
-/** Total pages, never below 1 — an empty archive still has a page 1 to render. */
-export function archivePageCount(totalDays: number): number {
-  return Math.max(1, Math.ceil(totalDays / ARCHIVE_PAGE_SIZE));
-}
-
-/**
- * A page number from a URL segment. Rejects everything that is not a plain
- * positive integer, INCLUDING "1": `/archive/page/1` would be a second URL
- * serving the same rows as `/archive`, which is the duplicate-content own-goal
- * the canonical exists to prevent. It 404s rather than redirecting, because
- * nothing links to it.
- */
-export function parseArchivePage(raw: string): number | null {
-  if (!/^[1-9]\d*$/.test(raw)) return null;
-  const page = Number(raw);
-  return page >= 2 && Number.isSafeInteger(page) ? page : null;
-}
-
-function DayRow({
-  date,
-  puzzleNumber,
-  targetName,
-  players,
-  completed,
-  solved,
-}: {
-  date: string;
-  puzzleNumber: number;
-  targetName: string;
-  players: number;
-  completed: number;
-  solved: number;
-}) {
-  const t = useTranslations("archive.index");
-  return (
-    <li>
-      <Link
-        href={`/archive/${date}`}
-        className="flex items-center gap-4 rounded-lg border border-border bg-surface px-4 py-3 transition hover:border-accent/40 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      >
-        <span className="w-14 shrink-0 font-mono text-sm tabular-nums text-text-muted">
-          #{puzzleNumber}
-        </span>
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-sm font-bold text-text">{targetName}</span>
-          <span className="text-xs text-text-muted">{formatRecapDate(date)}</span>
-        </span>
-        {/* The numbers are what make this an index rather than a list of links:
-            a reader scanning it can see which days were hard before opening one.
-            Hidden below sm, where the name and date are the whole row. */}
-        <span className="hidden shrink-0 text-right font-mono text-xs tabular-nums text-text-muted sm:block">
-          {players === 0 ? (
-            t("noPlayers")
-          ) : (
-            <>
-              {t("solved", { percent: formatPercent(completed === 0 ? 0 : solved / completed) })}
-              <span className="block">{t("players", { count: players })}</span>
-            </>
-          )}
-        </span>
-      </Link>
-    </li>
-  );
-}
-
-function Pagination({ page, pageCount }: { page: number; pageCount: number }) {
-  const t = useTranslations("archive.index");
-  if (pageCount <= 1) return null;
-
-  return (
-    <nav className="flex items-center justify-between gap-4" aria-label={t("pagination.label")}>
-      {page > 1 ? (
-        <Link
-          href={archivePagePath(page - 1)}
-          className="rounded-lg border border-border px-4 py-2 text-sm text-text transition hover:border-accent/40 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          rel="prev"
-        >
-          {t("pagination.newer")}
-        </Link>
-      ) : (
-        <span />
-      )}
-      <span className="font-mono text-xs tabular-nums text-text-muted">
-        {t("pagination.position", { page, total: pageCount })}
-      </span>
-      {page < pageCount ? (
-        <Link
-          href={archivePagePath(page + 1)}
-          className="rounded-lg border border-border px-4 py-2 text-sm text-text transition hover:border-accent/40 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          rel="next"
-        >
-          {t("pagination.older")}
-        </Link>
-      ) : (
-        <span />
-      )}
-    </nav>
-  );
-}
-
-export async function ArchiveIndex({ page }: { page: number }) {
+export async function ArchiveIndex({ page, locale }: { page: number; locale: Locale }) {
   // `getTranslations`, not the hook: this component is async, and
   // `useTranslations` is only available in a synchronous render.
   const t = await getTranslations("archive.index");
@@ -135,29 +59,55 @@ export async function ArchiveIndex({ page }: { page: number }) {
   // crawler wander into /archive/page/900.
   if (page > pageCount) notFound();
 
-  const days = await listArchiveDays(ARCHIVE_PAGE_SIZE, (page - 1) * ARCHIVE_PAGE_SIZE);
+  // Two queries in parallel: the page of rows, and the search index. The second
+  // is the whole archive, which is why it is worth stating what that costs --
+  // one indexed scan of daily_targets per ISR revalidation (hourly), not per
+  // request. See lib/recap/archiveSearch.ts for the payload arithmetic.
+  const [days, searchIndex] = await Promise.all([
+    listArchiveDays(ARCHIVE_PAGE_SIZE, (page - 1) * ARCHIVE_PAGE_SIZE),
+    listArchiveSearchIndex(),
+  ]);
+
+  const rows = days.map((day) => toRow(day, locale));
 
   return (
     <div className="flex flex-col gap-8">
       <header className="flex flex-col gap-3">
+        <p className="font-mono text-xs tracking-wide text-text-muted uppercase">{t("eyebrow")}</p>
         <h1 className="text-3xl font-bold tracking-tight text-text">{t("heading")}</h1>
         <p className="text-text-muted">{t("intro")}</p>
+        {/* Parts left, count right, both mono and muted -- DriverFilterSummary's
+            pairing, which is how this site annotates a collection with its size.
+            Unboxed on purpose: it is a caption on the list below, not a stat
+            panel of its own. */}
+        {totalDays > 0 && (
+          <div className="flex items-baseline justify-between gap-3 border-t border-border pt-3 font-mono text-xs tabular-nums text-text-muted">
+            <span>{t("total", { count: totalDays })}</span>
+            <span>{t("pageOf", { page, total: pageCount })}</span>
+          </div>
+        )}
       </header>
 
       {days.length === 0 ? (
         <p className="text-sm text-text-muted">{t("empty")}</p>
       ) : (
-        <ul className="flex flex-col gap-2">
-          {days.map((day) => (
-            <DayRow key={day.date} {...day} />
-          ))}
-        </ul>
+        // The search box shows `children` -- this page of rows and its
+        // pagination -- until something is typed. Both are server-rendered and
+        // in the HTML either way; see ArchiveSearch's header.
+        <ArchiveSearch index={searchIndex.map((day) => toRow(day, locale))}>
+          <div className="flex flex-col gap-6">
+            <ul className="flex flex-col gap-2">
+              {rows.map((day) => (
+                <ArchiveDayRow key={day.date} day={day} />
+              ))}
+            </ul>
+            <ArchivePagination page={page} pageCount={pageCount} />
+          </div>
+        </ArchiveSearch>
       )}
 
-      <Pagination page={page} pageCount={pageCount} />
-
-      <p className="text-sm text-text-muted">
-        <Link href="/" className="text-accent hover:underline">
+      <p className="border-t border-border pt-6 text-sm">
+        <Link href="/" className="font-semibold text-accent transition hover:underline">
           {t("playToday")}
         </Link>
       </p>

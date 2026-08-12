@@ -643,21 +643,39 @@
     "dayHeading": "{date} — {driver}",
     "driverLink": "Mehr über {driver}",
     "puzzleNumber": "Rätsel Nr. {number}",
+    "theAnswer": "Die Lösung",
+    "dayNavLabel": "Benachbarte Rätsel",
+    "previousPuzzle": "Vorheriges Rätsel",
+    "nextPuzzle": "Nächstes Rätsel",
+    "allPuzzles": "Alle Rätsel",
     "playToday": "Das heutige Rätsel spielen",
     "notFound": "Dieses Rätsel ist noch nicht im Archiv.",
     "index": {
+      "eyebrow": "Archiv",
       "heading": "Rätselarchiv",
       "intro": "Jedes abgeschlossene Tagesrätsel, mit der Lösung und dem Verlauf des Tages. Jede Mitternacht UTC kommt eines dazu, sobald der zugehörige Tag vorbei ist.",
+      "total": "{count, plural, one {# Rätsel} other {# Rätsel}}",
+      "pageOf": "Seite {page} von {total}",
       "empty": "Bisher ist kein Rätsel abgeschlossen. Der erste Archiveintrag erscheint am Tag nach dem ersten Rätsel.",
       "playToday": "Das heutige Rätsel spielen →",
       "noPlayers": "keine Spieler",
       "solved": "{percent} haben es gelöst",
       "players": "{count, plural, one {# Spieler} other {# Spieler}}",
+      "search": {
+        "label": "Rätsel finden",
+        "placeholder": "Fahrer, Datum oder Rätselnummer",
+        "hint": "Suche nach einem Fahrernamen, einem Monat wie „Juli 2026“ oder einer Rätselnummer wie #12.",
+        "clear": "Suche zurücksetzen",
+        "results": "{count, plural, one {# Rätsel gefunden} other {# Rätsel gefunden}}",
+        "resultsTruncated": "{count} Rätsel gefunden — die ersten {shown} werden angezeigt",
+        "empty": "Nichts im Archiv passt zu „{query}“"
+      },
       "pagination": {
         "label": "Archivseiten",
         "newer": "← Neuer",
         "older": "Älter →",
-        "position": "Seite {page} von {total}"
+        "position": "Seite {page} von {total}",
+        "goToPage": "Zu Seite {page}"
       }
     },
     "stats": {

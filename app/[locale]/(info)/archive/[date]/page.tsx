@@ -93,13 +93,38 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   });
 }
 
-function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
+// Prev/next as two real cards rather than two small buttons in a row.
+//
+// This is the archive's own navigation -- the day pages are a chain, and before
+// the index existed it was the only way through them at all. A card names what
+// it is ("Previous puzzle") above where it goes (the date), so the pair reads as
+// a way to travel rather than as two dates someone has to infer the meaning of.
+function DayNavCard({
+  href,
+  label,
+  date,
+  direction,
+  className = "",
+}: {
+  href: string;
+  label: string;
+  date: string;
+  direction: "previous" | "next";
+  className?: string;
+}) {
+  const next = direction === "next";
   return (
     <Link
       href={href}
-      className="rounded-lg border border-border px-3 py-2 text-sm text-text transition hover:border-accent/40 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      rel={next ? "next" : "prev"}
+      className={`group flex flex-col gap-1 rounded-lg border border-border bg-surface p-4 transition hover:border-accent/40 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none ${
+        next ? "sm:text-right" : ""
+      } ${className}`}
     >
-      {children}
+      <span className="font-mono text-xs tracking-wide text-text-muted uppercase">
+        {next ? <>{label} →</> : <>← {label}</>}
+      </span>
+      <span className="text-sm font-bold text-text">{date}</span>
     </Link>
   );
 }
@@ -133,7 +158,7 @@ export default async function ArchiveDayPage({ params }: Props) {
       : null;
 
   return (
-    <article className="flex flex-col gap-10">
+    <article className="flex flex-col gap-8">
       <JsonLd
         data={breadcrumbJsonLd(locale, [
           { name: t("breadcrumb.home"), path: "/" },
@@ -144,7 +169,7 @@ export default async function ArchiveDayPage({ params }: Props) {
 
       <header className="flex flex-col gap-3">
         <p className="font-mono text-xs tracking-wide text-text-muted uppercase">
-          <Link href="/archive" className="hover:text-text">
+          <Link href="/archive" className="transition hover:text-text">
             {t("breadcrumb.archive")}
           </Link>{" "}
           · {t("puzzleNumber", { number: recap.puzzleNumber })}
@@ -154,16 +179,26 @@ export default async function ArchiveDayPage({ params }: Props) {
         </h1>
       </header>
 
-      <section className="flex flex-col gap-4">
+      {/* The answer in a card of its own. It used to sit naked on the page
+          between the H1 and a paragraph, which gave the single most important
+          thing here no more presence than the prose around it -- and the site's
+          own idiom for "this is the game object" is a --surface card. */}
+      <section className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4 sm:p-5">
+        <h2 className="text-xs font-semibold tracking-wide text-text-muted uppercase">
+          {t("theAnswer")}
+        </h2>
         <AnswerBoardRow target={recap.target} />
         {/* Under the board row rather than wrapping the H1: the heading is this
             page's own title and a link inside it would compete with the answer
             it states. This is the outbound half of the archive<->driver
             cross-link, and the only path a crawler has into a driver page. */}
         {driverHref && (
-          <p className="text-sm">
-            <Link href={driverHref} className="text-accent hover:underline">
-              {t("driverLink", { driver: recap.target.fullName })}
+          <p className="border-t border-border pt-4 text-sm">
+            <Link
+              href={driverHref}
+              className="font-semibold text-accent transition hover:underline"
+            >
+              {t("driverLink", { driver: recap.target.fullName })} <span aria-hidden="true">→</span>
             </Link>
           </p>
         )}
@@ -177,24 +212,48 @@ export default async function ArchiveDayPage({ params }: Props) {
 
       <RecapStats recap={recap} />
 
-      <nav className="flex flex-wrap items-center gap-3 border-t border-border pt-6">
-        {context.previousDate && (
-          <NavLink href={`/archive/${context.previousDate}`}>
-            ← {formatUtcDate(context.previousDate, locale)}
-          </NavLink>
-        )}
-        {context.nextDate && (
-          <NavLink href={`/archive/${context.nextDate}`}>
-            {formatUtcDate(context.nextDate, locale)} →
-          </NavLink>
-        )}
+      {(context.previousDate || context.nextDate) && (
+        <nav
+          aria-label={t("dayNavLabel")}
+          className="grid gap-3 border-t border-border pt-6 sm:grid-cols-2"
+        >
+          {context.previousDate && (
+            <DayNavCard
+              href={`/archive/${context.previousDate}`}
+              label={t("previousPuzzle")}
+              date={formatUtcDate(context.previousDate, locale)}
+              direction="previous"
+            />
+          )}
+          {context.nextDate && (
+            <DayNavCard
+              href={`/archive/${context.nextDate}`}
+              label={t("nextPuzzle")}
+              date={formatUtcDate(context.nextDate, locale)}
+              direction="next"
+              // Newest day in the archive: with no previous card, the grid would
+              // otherwise pull "next" into the left column, where an arrow
+              // pointing right sits on the wrong side of the page.
+              className={context.previousDate ? "" : "sm:col-start-2"}
+            />
+          )}
+        </nav>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-6">
+        <Link
+          href="/archive"
+          className="text-sm font-semibold text-text-muted transition hover:text-text"
+        >
+          <span aria-hidden="true">←</span> {t("allPuzzles")}
+        </Link>
         <Link
           href="/"
-          className="ml-auto rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition hover:brightness-110 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg focus-visible:outline-none"
         >
           {t("playToday")}
         </Link>
-      </nav>
+      </div>
     </article>
   );
 }

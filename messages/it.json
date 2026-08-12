@@ -643,21 +643,39 @@
     "dayHeading": "{date} — {driver}",
     "driverLink": "Altro su {driver}",
     "puzzleNumber": "Sfida n. {number}",
+    "theAnswer": "La risposta",
+    "dayNavLabel": "Sfide vicine",
+    "previousPuzzle": "Sfida precedente",
+    "nextPuzzle": "Sfida successiva",
+    "allPuzzles": "Tutte le sfide",
     "playToday": "Gioca la sfida di oggi",
     "notFound": "Quella sfida non è ancora in archivio.",
     "index": {
+      "eyebrow": "Archivio",
       "heading": "Archivio delle sfide",
       "intro": "Tutte le sfide quotidiane già concluse, con la risposta e come è andata la giornata. Se ne aggiunge una ogni mezzanotte UTC, quando il giorno a cui appartiene è finito.",
+      "total": "{count, plural, one {# sfida} other {# sfide}}",
+      "pageOf": "Pagina {page} di {total}",
       "empty": "Non si è ancora conclusa nessuna sfida. La prima voce dell'archivio compare il giorno dopo la prima sfida.",
       "playToday": "Gioca la sfida di oggi →",
       "noPlayers": "nessun giocatore",
       "solved": "{percent} ha risolto",
       "players": "{count, plural, one {# giocatore} other {# giocatori}}",
+      "search": {
+        "label": "Trova una sfida",
+        "placeholder": "Pilota, data o numero della sfida",
+        "hint": "Cerca il nome di un pilota, un mese come “luglio 2026” o un numero di sfida come #12.",
+        "clear": "Cancella la ricerca",
+        "results": "{count, plural, one {# sfida trovata} other {# sfide trovate}}",
+        "resultsTruncated": "{count} sfide trovate — sono mostrate le prime {shown}",
+        "empty": "Nell'archivio non c'è nulla che corrisponda a “{query}”"
+      },
       "pagination": {
         "label": "Pagine dell'archivio",
         "newer": "← Più recenti",
         "older": "Più vecchie →",
-        "position": "Pagina {page} di {total}"
+        "position": "Pagina {page} di {total}",
+        "goToPage": "Vai alla pagina {page}"
       }
     },
     "stats": {

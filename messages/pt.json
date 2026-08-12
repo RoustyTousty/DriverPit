@@ -643,21 +643,39 @@
     "dayHeading": "{date} — {driver}",
     "driverLink": "Mais sobre {driver}",
     "puzzleNumber": "Desafio nº {number}",
+    "theAnswer": "A resposta",
+    "dayNavLabel": "Desafios próximos",
+    "previousPuzzle": "Desafio anterior",
+    "nextPuzzle": "Próximo desafio",
+    "allPuzzles": "Todos os desafios",
     "playToday": "Jogar o desafio de hoje",
     "notFound": "Esse desafio ainda não está no arquivo.",
     "index": {
+      "eyebrow": "Arquivo",
       "heading": "Arquivo de desafios",
       "intro": "Todos os desafios diários já encerrados, com a resposta e como foi o dia. Um novo entra a cada meia-noite UTC, assim que o dia a que pertence termina.",
+      "total": "{count, plural, one {# desafio} other {# desafios}}",
+      "pageOf": "Página {page} de {total}",
       "empty": "Nenhum desafio foi encerrado ainda. A primeira entrada do arquivo aparece no dia seguinte ao primeiro desafio.",
       "playToday": "Jogar o desafio de hoje →",
       "noPlayers": "sem jogadores",
       "solved": "{percent} acertou",
       "players": "{count, plural, one {# jogador} other {# jogadores}}",
+      "search": {
+        "label": "Encontrar um desafio",
+        "placeholder": "Piloto, data ou número do desafio",
+        "hint": "Busque o nome de um piloto, um mês como “julho de 2026” ou um número de desafio como #12.",
+        "clear": "Limpar a busca",
+        "results": "{count, plural, one {# desafio encontrado} other {# desafios encontrados}}",
+        "resultsTruncated": "{count} desafios encontrados — mostrando os primeiros {shown}",
+        "empty": "Nada no arquivo corresponde a “{query}”"
+      },
       "pagination": {
         "label": "Páginas do arquivo",
         "newer": "← Mais recentes",
         "older": "Mais antigos →",
-        "position": "Página {page} de {total}"
+        "position": "Página {page} de {total}",
+        "goToPage": "Ir para a página {page}"
       }
     },
     "stats": {

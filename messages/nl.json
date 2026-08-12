@@ -643,21 +643,39 @@
     "dayHeading": "{date} — {driver}",
     "driverLink": "Meer over {driver}",
     "puzzleNumber": "Puzzel nr. {number}",
+    "theAnswer": "Het antwoord",
+    "dayNavLabel": "Puzzels in de buurt",
+    "previousPuzzle": "Vorige puzzel",
+    "nextPuzzle": "Volgende puzzel",
+    "allPuzzles": "Alle puzzels",
     "playToday": "Speel de puzzel van vandaag",
     "notFound": "Die puzzel staat nog niet in het archief.",
     "index": {
+      "eyebrow": "Archief",
       "heading": "Puzzelarchief",
       "intro": "Elke afgeronde dagelijkse puzzel, met het antwoord en hoe de dag verliep. Er komt er elke middernacht UTC een bij, zodra de dag waar hij bij hoort voorbij is.",
+      "total": "{count, plural, one {# puzzel} other {# puzzels}}",
+      "pageOf": "Pagina {page} van {total}",
       "empty": "Er zijn nog geen puzzels afgerond. De eerste archiefvermelding verschijnt de dag na de eerste puzzel.",
       "playToday": "Speel de puzzel van vandaag →",
       "noPlayers": "geen spelers",
       "solved": "{percent} loste het op",
       "players": "{count, plural, one {# speler} other {# spelers}}",
+      "search": {
+        "label": "Zoek een puzzel",
+        "placeholder": "Coureur, datum of puzzelnummer",
+        "hint": "Zoek op de naam van een coureur, een maand als “juli 2026” of een puzzelnummer als #12.",
+        "clear": "Zoekopdracht wissen",
+        "results": "{count, plural, one {# puzzel gevonden} other {# puzzels gevonden}}",
+        "resultsTruncated": "{count} puzzels gevonden — de eerste {shown} worden getoond",
+        "empty": "Niets in het archief komt overeen met “{query}”"
+      },
       "pagination": {
         "label": "Archiefpagina's",
         "newer": "← Nieuwer",
         "older": "Ouder →",
-        "position": "Pagina {page} van {total}"
+        "position": "Pagina {page} van {total}",
+        "goToPage": "Ga naar pagina {page}"
       }
     },
     "stats": {

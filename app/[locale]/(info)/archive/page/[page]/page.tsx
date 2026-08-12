@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 
-import { ArchiveIndex, archivePagePath, parseArchivePage } from "@/components/archive/ArchiveIndex";
+import { ArchiveIndex } from "@/components/archive/ArchiveIndex";
 import { JsonLd } from "@/components/seo/JsonLd";
 import type { Locale } from "@/lib/i18n/locales";
+import { archivePagePath, parseArchivePage } from "@/lib/recap/archivePaging";
 import { buildPageMetadata } from "@/lib/seo/metadata";
 import { breadcrumbJsonLd } from "@/lib/seo/structuredData";
 
@@ -57,7 +58,7 @@ export default async function ArchiveIndexPage({ params }: Props) {
           { name: t("breadcrumb.page", { page }), path: archivePagePath(page) },
         ])}
       />
-      <ArchiveIndex page={page} />
+      <ArchiveIndex page={page} locale={locale} />
     </>
   );
 }
