@@ -3,19 +3,34 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/lib/i18n/navigation";
 
 
-// Fill in real profile URLs when ready -- icon-only for now, so the row is
-// in place before any account exists to link to.
+// REAL PROFILES ONLY. These were four icons pointing at `href="#"` -- a row put
+// in place before any account existed to link to -- and on 2026-08-12 that was
+// identified as a live policy problem rather than a loose end: AdSense rejected
+// the site citing "links to content that does not exist", and the footer renders
+// on EVERY page in both route groups, so four dead links were on every URL a
+// reviewer or a crawler could open.
+//
+// The rule this row now follows: a platform appears here when its profile
+// exists, and is deleted otherwise. Never `#`, never a placeholder. Discord was
+// removed under exactly that rule rather than left pointing at nothing; add it
+// back with a real invite URL.
+//
+// The TikTok URL is the bare profile, deliberately. The address the app's own
+// share sheet produces carries `?is_from_webapp=1&sender_device=pc`, which is
+// analytics about how the link was copied -- it works, but it is someone else's
+// tracking on our page, and it makes the canonical profile URL look like a
+// referral.
 const SOCIAL_LINKS: { label: string; href: string; icon: React.ReactNode }[] = [
   {
     label: "TikTok",
-    href: "#",
+    href: "https://www.tiktok.com/@driverpit_inc",
     icon: (
       <path d="M16.5 3c.3 2.1 1.7 3.8 3.8 4.2v2.6c-1.4 0-2.7-.4-3.8-1.2v6.7a5.7 5.7 0 1 1-5.7-5.7c.3 0 .6 0 .9.1v2.7a3 3 0 1 0 2.1 2.9V3h2.7Z" />
     ),
   },
   {
     label: "Instagram",
-    href: "#",
+    href: "https://www.instagram.com/driverpit.inc",
     icon: (
       <>
         <rect x="3" y="3" width="18" height="18" rx="5" fill="none" stroke="currentColor" strokeWidth={1.75} />
@@ -29,19 +44,13 @@ const SOCIAL_LINKS: { label: string; href: string; icon: React.ReactNode }[] = [
     // path had coordinates that fell outside the 0-24 viewBox, which SVG
     // clips by default, so part of the glyph was silently cut off.
     label: "X",
-    href: "#",
+    href: "https://x.com/driverpit_inc",
     icon: (
       <path d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z" />
     ),
   },
-  {
-    // Official mark (via Simple Icons) -- same clipping issue as X above.
-    label: "Discord",
-    href: "#",
-    icon: (
-      <path d="M20.317 4.3698a19.7913 19.7913 0 0 0-4.8851-1.5152.0741.0741 0 0 0-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 0 0-.0785-.037 19.7363 19.7363 0 0 0-4.8852 1.515.0699.0699 0 0 0-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 0 0 .0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 0 0 .0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 0 0-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 0 1-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 0 1 .0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 0 1 .0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 0 1-.0066.1276 12.2986 12.2986 0 0 1-1.873.8914.0766.0766 0 0 0-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 0 0 .0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 0 0 .0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 0 0-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z" />
-    ),
-  },
+  // Discord was the fourth entry and is deleted rather than left at `#` -- there
+  // is no server yet. Its Simple Icons path is in git history if one is created.
 ];
 
 // Paths stay UNPREFIXED and the label is a message key, not a string: `Link`
@@ -59,6 +68,13 @@ const INFO_LINKS = [
   { href: "/faq", key: "faq" },
   { href: "/game-modes", key: "gameModes" },
   { href: "/how-to-play", key: "howToPlay" },
+  { href: "/strategy", key: "strategy" },
+  // Contact is footer-only, deliberately -- it is not one of the pages someone
+  // browses between, it is the one they look for when something has gone wrong,
+  // and the footer is where every site puts it. It renders on every page in both
+  // route groups, which is also what makes the address reachable from anywhere
+  // in one scroll: the thing an AdSense reviewer checks for.
+  { href: "/contact", key: "contact" },
   { href: "/privacy-policy", key: "privacy" },
   { href: "/terms-of-service", key: "terms" },
 ] as const;

@@ -1,10 +1,15 @@
 import type { MetadataRoute } from "next";
 
 import { archivePageCount, archivePagePath } from "@/components/archive/ArchiveIndex";
-import { countArchiveDays, listArchiveDates, listDriverArchiveEvidence } from "@/lib/db/dailyRecap";
+import {
+  countArchiveDays,
+  listArchiveDayEvidence,
+  listDriverArchiveEvidence,
+} from "@/lib/db/dailyRecap";
 import { isDriverPageEligible } from "@/lib/drivers/pageEligibility";
-import { LOCALES, localePath } from "@/lib/i18n/locales";
-import { alternateLanguages } from "@/lib/seo/metadata";
+import { isArchiveDayIndexable } from "@/lib/recap/dayEligibility";
+import { localePath } from "@/lib/i18n/locales";
+import { INDEXED_LOCALES, alternateLanguages } from "@/lib/seo/metadata";
 import { absoluteUrl } from "@/lib/seo/site";
 
 // Served at /sitemap.xml and pointed to by robots.ts.
@@ -33,27 +38,36 @@ interface RouteSpec {
 }
 
 /**
- * One unprefixed path becomes one `<loc>` PER LOCALE, and every one of them
- * carries the whole alternate set including itself.
+ * One unprefixed path becomes one `<loc>` PER INDEXED LOCALE, each carrying the
+ * whole alternate set including itself.
  *
  * Both halves are what Google asks for and both are easy to get wrong in a way
- * that produces a valid file saying the wrong thing. Listing only the English
- * URL and hanging alternates off it leaves five of the six versions never
- * appearing as a `<loc>` at all; listing all six but omitting the
- * self-reference makes each one an orphan rather than a member of a set, and
- * Google drops the whole cluster.
+ * that produces a valid file saying the wrong thing. Listing only one URL and
+ * hanging alternates off it leaves the other versions never appearing as a
+ * `<loc>` at all; listing them all but omitting the self-reference makes each
+ * one an orphan rather than a member of a set, and Google drops the whole
+ * cluster.
  *
- * The alternates are `alternateLanguages` — the SAME function `buildPageMetadata`
- * uses for the `<link rel="alternate">` tags — so the sitemap and the pages
- * cannot disagree about which URLs exist. Two sources for that would be two
- * answers, and the sitemap's would be the one nobody checks.
+ * `INDEXED_LOCALES`, not `LOCALES`: since 2026-08-12 that is English alone (see
+ * the block comment on it). A sitemap is a list of URLs we are ASKING to have
+ * indexed, so listing a `noindex` page in one is the same contradiction as
+ * hanging an hreflang off it -- and it is the version a reviewer actually
+ * counts, which is the whole reason this pass exists. When a locale is promoted
+ * back, it reappears here with no edit.
+ *
+ * Both the URL list and the alternates come from the SAME two exports
+ * `buildPageMetadata` uses, so the sitemap and the pages cannot disagree about
+ * which URLs exist. Two sources for that would be two answers, and the
+ * sitemap's would be the one nobody checks.
  */
 function localizedEntries(path: string, rest: Omit<SitemapEntry, "url" | "alternates">): SitemapEntry[] {
   const languages = alternateLanguages(path);
-  return LOCALES.map((locale) => ({
+  return INDEXED_LOCALES.map((locale) => ({
     url: absoluteUrl(localePath(locale, path)),
     ...rest,
-    alternates: { languages },
+    // Omitted entirely below two indexed locales rather than emitted empty: a
+    // <xhtml:link> block naming only the page itself is noise on every entry.
+    ...(languages ? { alternates: { languages } } : {}),
   }));
 }
 
@@ -74,9 +88,18 @@ const ROUTES: RouteSpec[] = [
   { path: "/infinite", changeFrequency: "weekly", priority: 0.9 },
   { path: "/online", changeFrequency: "weekly", priority: 0.9 },
   { path: "/how-to-play", changeFrequency: "monthly", priority: 0.8 },
+  // The longest hand-written page on the site and the one with the clearest
+  // query behind it ("f1 wordle strategy", "best first guess"). Ranked with
+  // how-to-play rather than below it: it is the page that answers the question
+  // somebody has AFTER they have played once, which is the more valuable half.
+  { path: "/strategy", changeFrequency: "monthly", priority: 0.8 },
   { path: "/game-modes", changeFrequency: "monthly", priority: 0.8 },
   { path: "/faq", changeFrequency: "monthly", priority: 0.7 },
   { path: "/about", changeFrequency: "monthly", priority: 0.5 },
+  // Low priority and rarely changing, but it must be IN the file: a contact
+  // route that exists and is not discoverable does not do the job it was added
+  // for. Same reasoning as the legal pages below it.
+  { path: "/contact", changeFrequency: "yearly", priority: 0.3 },
   { path: "/privacy-policy", changeFrequency: "yearly", priority: 0.2 },
   { path: "/terms-of-service", changeFrequency: "yearly", priority: 0.2 },
 ];
@@ -99,7 +122,7 @@ export const revalidate = 3600;
  */
 async function archiveEntries(): Promise<MetadataRoute.Sitemap> {
   try {
-    const [dates, totalDays] = await Promise.all([listArchiveDates(), countArchiveDays()]);
+    const [days, totalDays] = await Promise.all([listArchiveDayEvidence(), countArchiveDays()]);
 
     // Index pages first: they are how a crawler reaches the day pages, so they
     // are worth more than any individual day.
@@ -112,7 +135,19 @@ async function archiveEntries(): Promise<MetadataRoute.Sitemap> {
       }),
     ).flat();
 
-    const days = dates.flatMap((date) =>
+    // Only the days that carry player data. `isArchiveDayIndexable` is the SAME
+    // predicate the day page's generateMetadata applies to decide `noIndex`, so
+    // this file and that page can never disagree -- a sitemap advertising a URL
+    // that then serves `noindex` is worse than one that omits it, and it is the
+    // contradiction a reviewer notices first. The threshold and the reasoning
+    // are in lib/recap/dayEligibility.ts; the count comes from the query, which
+    // deliberately does not apply it.
+    //
+    // The index pages above are NOT filtered: the archive lists every finished
+    // day, including the quiet ones, so the index stays honest about what
+    // exists and stays the path a crawler follows inward. It is the individual
+    // empty day that has nothing to say, not the list of them.
+    const dayEntries = days.filter(isArchiveDayIndexable).flatMap(({ date }) =>
       localizedEntries(`/archive/${date}`, {
         // A finished day is frozen -- nothing behind these pages can change
         // again, and saying so is both true and the most useful thing a crawler
@@ -123,7 +158,7 @@ async function archiveEntries(): Promise<MetadataRoute.Sitemap> {
       }),
     );
 
-    return [...indexes, ...days];
+    return [...indexes, ...dayEntries];
   } catch (error) {
     console.error("sitemap: archive entries unavailable", error);
     return [];

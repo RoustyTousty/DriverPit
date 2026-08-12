@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 
 import type { DriverAppearance } from "../drivers/pageEligibility";
 import { getDailyPuzzleNumber } from "../game/dailySelection";
+import type { ArchiveDayEvidence } from "../recap/dayEligibility";
 import { isUtcDateString } from "../recap/format";
 import { db } from "./index";
 
@@ -342,14 +343,29 @@ export async function countArchiveDays(): Promise<number> {
   return row?.n ?? 0;
 }
 
-/** Every finished day, newest first — the sitemap's archive entries. */
-export async function listArchiveDates(): Promise<string[]> {
-  const rows = await db.execute<{ date: string }>(sql`
-    SELECT date::text AS date FROM public.daily_targets
-    WHERE date < ${UTC_TODAY}
-    ORDER BY date DESC
+/**
+ * Every finished day with the one number that decides whether it is indexable,
+ * newest first — the sitemap's archive entries.
+ *
+ * It returns the count rather than applying the threshold, and that is the same
+ * split `listDriverArchiveEvidence` makes for the same reason: the rule lives in
+ * `lib/recap/dayEligibility.ts` where a person can read it and argue with it, and
+ * it is applied by BOTH callers that need it (this file's consumer in the
+ * sitemap, and the day page's own `generateMetadata`). A `HAVING completed > 0`
+ * here would be a second definition of the rule, in SQL, that the page could
+ * silently disagree with — and the symptom would be a sitemap advertising URLs
+ * that serve `noindex`.
+ */
+export async function listArchiveDayEvidence(): Promise<ArchiveDayEvidence[]> {
+  const rows = await db.execute<{ date: string; completed: number }>(sql`
+    SELECT
+      t.date::text AS date,
+      (SELECT count(*)::int FROM public.daily_progress p WHERE p.date = t.date AND p.completed) AS completed
+    FROM public.daily_targets t
+    WHERE t.date < ${UTC_TODAY}
+    ORDER BY t.date DESC
   `);
-  return rows.map((row) => row.date);
+  return rows.map((row) => ({ date: row.date, completed: row.completed }));
 }
 
 /**

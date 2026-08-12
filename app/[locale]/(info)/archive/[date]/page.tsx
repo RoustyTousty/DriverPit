@@ -10,6 +10,7 @@ import { isDriverPageEligible } from "@/lib/drivers/pageEligibility";
 import { Link } from "@/lib/i18n/navigation";
 import { formatUtcDate } from "@/lib/i18n/dates";
 import type { Locale } from "@/lib/i18n/locales";
+import { isArchiveDayIndexable } from "@/lib/recap/dayEligibility";
 import { formatPercent } from "@/lib/recap/format";
 import { writeRecapSummary } from "@/lib/recap/summary";
 import { buildPageMetadata } from "@/lib/seo/metadata";
@@ -82,6 +83,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     path: `/archive/${date}`,
     locale,
     image: recapImage(date, locale, t("meta.cardAlt", { date: readableDate })),
+    // A day nobody played has nothing of its own to say: the answer plus five
+    // career facts F1DB states better. It still renders, still sits in the
+    // index and still carries prev/next -- it is simply not offered to the
+    // crawler. `isArchiveDayIndexable` is the SAME predicate app/sitemap.ts
+    // filters on, so the two cannot disagree about which URLs are advertised.
+    // See lib/recap/dayEligibility.ts for the measurement behind the rule.
+    noIndex: !isArchiveDayIndexable(recap),
   });
 }
 

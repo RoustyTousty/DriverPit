@@ -13,6 +13,15 @@ import { ModeIcon, type GameModeId } from "./ModeIcon";
 // rule is surfaced where it actually applies: live in the match, as the "Solve
 // now +N" figure and the "×0.88 on a solve" caption.
 //
+// KNOCKOUT IS NOT LISTED. Removed 2026-08-12 with the same entry on the home
+// teaser and the /online landing: AdSense's rejection cited "links to content
+// that does not exist", and an unbuilt mode described in four bullets on an
+// indexed page is the clearest instance of that on the site. This is the page
+// where its absence costs the most -- it is the rules page, and Knockout has
+// rules -- and it is still the right call, because a reader who arrives from a
+// search for it finds a mode they cannot play. It goes back the day it ships;
+// the copy is still in the catalogues and `points: 4` is recorded here.
+//
 // ORDER AND SHAPE LIVE HERE; the prose lives in messages/*.json. `points` is the
 // number of bullets, not the bullets themselves -- a translator rewording a line
 // must not be able to add or drop one, because the count is what the layout and
@@ -21,7 +30,6 @@ const MODES: { id: GameModeId; points: number; comingSoon?: boolean }[] = [
   { id: "daily", points: 5 },
   { id: "infinite", points: 5 },
   { id: "duel", points: 7 },
-  { id: "knockout", points: 4, comingSoon: true },
   { id: "custom", points: 5 },
 ];
 

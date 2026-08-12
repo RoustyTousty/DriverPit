@@ -16,6 +16,12 @@ const LINKS = [
   { href: "/faq", key: "faq" },
   { href: "/game-modes", key: "gameModes" },
   { href: "/how-to-play", key: "howToPlay" },
+  // The strategy guide sits next to How to play because that is the pair: one
+  // is the rules, the other is what to do with them, and a reader who finishes
+  // the first wants the second. Contact is NOT here -- it lives in the footer,
+  // where people look for it, and a fifth nav item earns its place by being
+  // something you browse to rather than something you need.
+  { href: "/strategy", key: "strategy" },
 ] as const;
 
 // aria-controls target for the collapsed nav's disclosure button.
@@ -28,9 +34,9 @@ const MENU_ID = "info-nav-menu";
 // outside it. Logo pinned left; the nav group's `ml-auto` pushes it and
 // "Play now" together as one group against the right edge.
 //
-// The four info links only fit as an inline row down to ~sm; below that
-// they'd either get clipped behind "Play now" or force a barely-discoverable
-// horizontal scroll strip, so under sm they collapse into a single dropdown
+// The info links only fit as an inline row down to ~md; below that they'd
+// either get clipped behind "Play now" or force a barely-discoverable
+// horizontal scroll strip, so under md they collapse into a single dropdown
 // button labelled with the current page instead -- borrowing PoolSelect's
 // *visual* language (same trigger chrome, same borderless no-animation panel,
 // same accent-weak current row) rather than inventing a second one.
@@ -41,10 +47,17 @@ const MENU_ID = "info-nav-menu";
 // aria-activedescendant -- so a screen reader announced a listbox and then
 // arrow keys did nothing (audit 2026-07-30 §4.5). The fix is to drop the
 // roles, not to implement the handlers: PoolSelect picks a VALUE and has to be
-// a combobox, while this picks a PAGE and is four links. As a plain disclosure
-// (aria-expanded + aria-controls over a <ul> of <Link>s) every promise it makes
-// is one the browser keeps for free -- Tab reaches each link, Enter follows it,
-// Escape closes.
+// a combobox, while this picks a PAGE and is a handful of links. As a plain
+// disclosure (aria-expanded + aria-controls over a <ul> of <Link>s) every
+// promise it makes is one the browser keeps for free -- Tab reaches each link,
+// Enter follows it, Escape closes.
+//
+// THE BREAKPOINT MOVED FROM sm TO md when the strategy guide was added
+// (2026-08-12). Five links plus the logo and the "Play now" CTA overflow a
+// 640px viewport, and that failure is quiet rather than loud: the row does not
+// wrap, it pushes the CTA past the edge. If a sixth link is ever proposed here,
+// measure it -- or send it to the footer, which is where /contact went for
+// exactly this reason.
 export function InfoTopBar() {
   const t = useTranslations("nav");
   const pathname = usePathname();
@@ -92,7 +105,7 @@ export function InfoTopBar() {
           <Image src={driverpitBanner} alt={t("logoAlt")} priority className="h-7 w-auto" />
         </Link>
 
-        <nav aria-label={t("infoPages")} className="ml-auto hidden items-center gap-1 sm:flex">
+        <nav aria-label={t("infoPages")} className="ml-auto hidden items-center gap-1 md:flex">
           {LINKS.map((link) => {
             const active = pathname === link.href;
             return (
@@ -110,7 +123,7 @@ export function InfoTopBar() {
           })}
         </nav>
 
-        <div className="relative ml-auto sm:hidden" ref={containerRef}>
+        <div className="relative ml-auto md:hidden" ref={containerRef}>
           <button
             type="button"
             ref={triggerRef}

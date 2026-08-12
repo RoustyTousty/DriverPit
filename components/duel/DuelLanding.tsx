@@ -76,16 +76,21 @@ export function DuelLanding({
   const { profile } = useAuth();
 
   // Custom last, matching /game-modes: it is a variant of Duel rather than a
-  // third way to play, and it reads as one when it follows the two headline
-  // modes instead of splitting them.
+  // third way to play, and it reads as one when it follows the headline mode
+  // instead of being split from it.
+  //
+  // KNOCKOUT'S ROW IS GONE (2026-08-12). It sat between these two as a disabled
+  // "coming soon" card, and `/online` is an indexed page whose server-rendered
+  // HTML is exactly this list -- so it was an advertised mode that does not
+  // exist on a page a crawler reads, which is the "links to content that does
+  // not exist" clause AdSense rejected the site under. The `comingSoon` branch
+  // below is deliberately kept: it is how the row comes back when the mode is
+  // real but not yet enabled, and re-deriving it later is how a disabled
+  // control ends up as an enabled one that hosts a duel wearing a Knockout
+  // label. See lib/game/onlineModes.ts for why that specific mistake is
+  // unrepresentable at the database level.
   const modes: ModeRow[] = [
     { id: "duel", name: "Duel", summary: "1v1, one target, 3 rounds — highest score wins.", onSelect: onSelectDuel },
-    {
-      id: "knockout",
-      name: "Knockout",
-      summary: "20 players, one target, 3 rounds — the bottom 5 go out each round.",
-      comingSoon: true,
-    },
     { id: "custom", name: "Custom", summary: "The same match, by invite, on your terms.", onSelect: onSelectCustom },
   ];
 

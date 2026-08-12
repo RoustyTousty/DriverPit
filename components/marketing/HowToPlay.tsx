@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 
 import { Tile } from "@/components/game/GuessGrid";
+import { Link } from "@/lib/i18n/navigation";
 
 // Structure (order, tile colours, sample values) stays in TypeScript; the prose
 // lives in messages/*.json. Same split as lib/marketing/faqContent.ts, for the
@@ -9,6 +10,21 @@ import { Tile } from "@/components/game/GuessGrid";
 const STEP_KEYS = ["type", "read", "narrow", "solve"] as const;
 const TIP_KEYS = ["broad", "historical", "brightest", "pace"] as const;
 const COLUMN_RULE_KEYS = ["nationality", "team", "age", "debut", "wins"] as const;
+
+// Two sections added 2026-08-12. The page was ~285 words, which is thin for the
+// one page that is meant to be the site's authoritative answer to "how does this
+// game work" -- and thin pages were the substance of the AdSense "low value
+// content" rejection.
+//
+// Neither is padding, and that distinction is the whole point of adding them:
+// DEFINITIONS answers the questions the tile legend does NOT ("age" is the
+// driver's age now, not at their debut; a driver with no current team can never
+// match on team), which is where almost every avoidable near-miss comes from.
+// MISTAKES names the four habits that cost guesses. Both are specific to this
+// game and could not be written about any other one, which is the test a page
+// like this has to pass.
+const DEFINITION_KEYS = ["age", "team", "wins", "debut", "pool"] as const;
+const MISTAKE_KEYS = ["confirming", "extremes", "noTeam", "brightness"] as const;
 
 // Sample VALUES are deliberately not translated. Team names are proper nouns,
 // and a nationality on a real board is the English string out of `drivers`, so a
@@ -115,6 +131,25 @@ export function HowToPlay() {
         <p className="text-xs text-text-muted">{t("exampleExplanation")}</p>
       </div>
 
+      {/* Placed after the worked example and before the tips, which is where a
+          reader who has just seen a real board starts asking "but what does
+          Age actually mean?". A <dl> rather than a bullet list: these are
+          term/definition pairs and the markup should say so. */}
+      <div className="flex flex-col gap-3">
+        <p className="text-sm font-semibold text-text">{t("definitionsHeading")}</p>
+        <p className="text-xs text-text-muted">{t("definitionsIntro")}</p>
+        <dl className="flex flex-col gap-3">
+          {DEFINITION_KEYS.map((definition) => (
+            <div key={definition} className="rounded-lg border border-border bg-surface-2 p-4">
+              <dt className="text-sm font-semibold text-text">
+                {t(`definitions.${definition}.label`)}
+              </dt>
+              <dd className="mt-1 text-sm text-text-muted">{t(`definitions.${definition}.body`)}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+
       <div className="flex flex-col gap-3">
         <p className="text-sm font-semibold text-text">{t("tipsHeading")}</p>
         <ul className="flex flex-col gap-1.5">
@@ -126,6 +161,35 @@ export function HowToPlay() {
           ))}
         </ul>
       </div>
+
+      <div className="flex flex-col gap-3">
+        <p className="text-sm font-semibold text-text">{t("mistakesHeading")}</p>
+        <ul className="flex flex-col gap-1.5">
+          {MISTAKE_KEYS.map((mistake) => (
+            <li key={mistake} className="flex gap-2 text-sm text-text-muted">
+              <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-text-muted" aria-hidden="true" />
+              {t(`mistakes.${mistake}`)}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* The outbound half of the how-to-play <-> strategy pair. This page is
+          the rules; the guide is what to do with them, and neither should try
+          to be the other. One sentence, one link, inside the translated string
+          so word order can move around it. */}
+      <p className="text-sm text-text-muted">
+        {t.rich("strategyLink", {
+          strategy: (chunks) => (
+            <Link
+              href="/strategy"
+              className="font-medium text-text underline decoration-border underline-offset-2 hover:text-accent"
+            >
+              {chunks}
+            </Link>
+          ),
+        })}
+      </p>
     </section>
   );
 }

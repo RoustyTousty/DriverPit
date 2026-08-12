@@ -72,6 +72,10 @@ describe("InfoTopBar's collapsed nav", () => {
       "FAQ",
       "Game modes",
       "How to play",
+      // Added 2026-08-12 beside How to play, which is the pair it belongs to.
+      // Contact deliberately did NOT join this nav -- it is footer-only -- so
+      // this list is also the assertion that it stayed there.
+      "Strategy",
     ]);
   });
 

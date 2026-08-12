@@ -116,3 +116,48 @@ describe("AdSlot", () => {
     await waitFor(() => expect(container).toBeEmptyDOMElement());
   });
 });
+
+// The AdSense rejection of 2026-08-12 cited "Site behaviour: navigation", which
+// forbids ads a reader could take for the site's own menus or panels. Nothing
+// here had ever been seen filled -- the env vars are unset in production -- so
+// the defect was invisible to everyone including the person who wrote it.
+//
+// These pin the two halves a reviewer actually looks for: that a served ad
+// carries the exact label the policy requires, and that an unserved slot
+// carries nothing that could read as a UI element.
+describe("AdSlot labelling", () => {
+  it("labels a served ad with the exact wording the policy accepts", () => {
+    configureAdsense();
+
+    render(<AdSlot />);
+
+    // "Advertisement" and "Sponsored Links" are the only two accepted strings,
+    // so this is a literal rather than a regex: "Ads", "Sponsored" or a logo
+    // would each be a violation on their own.
+    const label = screen.getByText("Advertisement");
+    expect(label).toBeInTheDocument();
+
+    // Above the unit and outside it. Inside, AdSense's own injection would
+    // overwrite it on fill, so the label would vanish on exactly the ads that
+    // need one.
+    const ins = document.querySelector("ins.adsbygoogle");
+    expect(label.contains(ins)).toBe(false);
+    expect(label.compareDocumentPosition(ins!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("labels nothing while the slot is only reserving space", () => {
+    // Consent unresolved: the height is still held so an arriving ad cannot
+    // shift the page, but there is no ad and so nothing to label. The previous
+    // version rendered the word "Advertisement" as the content of a
+    // game-window-styled panel here, which is a UI element where an ad isn't.
+    configureAdsense();
+    useAdConsentMock.mockReturnValue("denied");
+
+    const { container } = render(<AdSlot />);
+
+    expect(screen.queryByText("Advertisement")).not.toBeInTheDocument();
+    expect(document.querySelector("ins.adsbygoogle")).not.toBeInTheDocument();
+    // Still reserving, though -- this is the case that must NOT collapse.
+    expect(container.firstElementChild).not.toBeNull();
+  });
+});

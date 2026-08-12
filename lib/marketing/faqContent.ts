@@ -18,6 +18,13 @@ import type { FaqEntry } from "@/lib/seo/structuredData";
 // Its answers are rewritten short for the home page rather than truncated (see
 // CLAUDE.md, "Site architecture"), so it is different content and not a subset
 // -- and the structured data belongs on the full page regardless.
+// "knockout" was here and was dropped on 2026-08-12, with the mode's entries on
+// the home teaser, /game-modes and the /online landing. A question answering
+// "What is Knockout mode?" is the strongest form of the thing AdSense rejected
+// the site for -- it is a whole FAQ entry, emitted as FAQPage structured data,
+// about a mode that does not exist and cannot be reached from anywhere. Its
+// copy is still in the catalogues under `faq.items.knockout`, so restoring it is
+// putting the key back in this list.
 export const FAQ_KEYS = [
   "dailyReset",
   "unknownDriver",
@@ -33,7 +40,6 @@ export const FAQ_KEYS = [
   "duelSpam",
   "ads",
   "profile",
-  "knockout",
 ] as const;
 
 export type FaqKey = (typeof FAQ_KEYS)[number];

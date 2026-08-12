@@ -42,7 +42,19 @@ export function AboutSection() {
         })}
       </p>
 
+      {/* Two paragraphs added 2026-08-12. Both are about the PROJECT rather than
+          the dataset, which is the line this section has always held -- where
+          the driver rows come from belongs in the terms and the privacy policy.
+          `fairness` answers the question every daily game gets asked and this
+          one has an unusually good answer to (the target is random and pinned,
+          not derived from the date, so there is no formula to run); and
+          `accessibility` states what is actually built, which is the sort of
+          thing a reader has no other way to discover before playing. */}
+      <p className="text-sm text-text-muted">{t("fairness")}</p>
+
       <p className="text-sm text-text-muted">{t("whoBuildsIt")}</p>
+
+      <p className="text-sm text-text-muted">{t("accessibility")}</p>
 
       <p className="text-sm text-text-muted">
         {t.rich("support", {

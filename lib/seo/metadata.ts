@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { DEFAULT_LOCALE, LOCALES, type Locale, OG_LOCALES, localePath } from "@/lib/i18n/locales";
+import { DEFAULT_LOCALE, type Locale, OG_LOCALES, localePath } from "@/lib/i18n/locales";
 
 import { OG_IMAGE, SITE_NAME, absoluteUrl } from "./site";
 
@@ -63,7 +63,42 @@ export function localeOgImage(locale: Locale) {
 }
 
 /**
- * The hreflang set for one unprefixed path.
+ * WHICH LOCALES ARE OFFERED TO SEARCH ENGINES. English only, for now.
+ *
+ * This is a deliberate retreat from Pass 7, made on 2026-08-12 after AdSense
+ * rejected the site for "low value content", and it is the one lever that
+ * changes the indexed surface most: every URL on this site exists six times,
+ * and five of those six are produced by `npm run i18n:translate` -- machine
+ * translation, which Google's own spam guidance singles out when it is
+ * published without human review. Multiplying a young site's page count by six
+ * that way is the single loudest scaled-content signal it can send, and it was
+ * being sent across the archive's auto-generated stats pages as well as the
+ * hand-written ones.
+ *
+ * What this does NOT do is stop serving the translations. `/es/faq` still
+ * renders in Spanish for anyone who asks for it and the language switcher still
+ * works; the five prefixed locales simply carry `noindex, follow` and advertise
+ * no alternates, and the sitemap lists English alone. Users keep the feature,
+ * crawlers are offered one version of each page.
+ *
+ * TO RE-ENABLE, once the catalogues have been read by a human and the in-app
+ * UI is translated too: put the locales back in this list. Nothing else has to
+ * change -- `buildPageMetadata` and the sitemap both read it, the hreflang set
+ * reappears the moment there is more than one entry, and `alternateLanguages`
+ * below is written to stay correct at any length. It is a list rather than a
+ * boolean so a locale can be promoted one at a time as its catalogue is
+ * reviewed, which is how this should come back.
+ */
+export const INDEXED_LOCALES: readonly Locale[] = [DEFAULT_LOCALE];
+
+/** Is this locale offered to crawlers, or served to users only? */
+export function isIndexedLocale(locale: Locale): boolean {
+  return INDEXED_LOCALES.includes(locale);
+}
+
+/**
+ * The hreflang set for one unprefixed path, or `undefined` when there is no set
+ * worth publishing.
  *
  * Three rules, each of which is a way to get this silently wrong:
  *
@@ -76,10 +111,20 @@ export function localeOgImage(locale: Locale) {
  *  - **The keys are BCP-47 tags, not URL prefixes.** `pt-BR` is served at
  *    the tag is what other consumers read, so it is written exactly as
  *    the BCP-47 spec defines it.
+ *
+ * And one rule added with `INDEXED_LOCALES`: the set is drawn from the INDEXED
+ * locales, not from `LOCALES`, and collapses to `undefined` below two entries.
+ * Both halves matter. An hreflang cluster that names a `noindex` page is a
+ * contradictory pair of signals -- the same reason a `noIndex` page here has
+ * never advertised alternates -- and a "cluster" of one self-reference plus an
+ * x-default pointing at that same URL says nothing at all, so it is noise on
+ * every page rather than a signal on any.
  */
-export function alternateLanguages(path: string): Record<string, string> {
+export function alternateLanguages(path: string): Record<string, string> | undefined {
+  if (INDEXED_LOCALES.length < 2) return undefined;
+
   const languages: Record<string, string> = {};
-  for (const locale of LOCALES) {
+  for (const locale of INDEXED_LOCALES) {
     languages[locale] = absoluteUrl(localePath(locale, path));
   }
   languages["x-default"] = absoluteUrl(localePath(DEFAULT_LOCALE, path));
@@ -101,17 +146,35 @@ export function buildPageMetadata({
   const url = absoluteUrl(localePath(locale, path));
   const card = image ?? localeOgImage(locale);
 
+  // Two independent reasons a page is not offered to the index, resolved into
+  // one answer here so nothing downstream has to ask twice: the caller said so
+  // (the two `/auth/*` pages, and the thin archive days), or the whole locale is
+  // served-but-not-indexed (see INDEXED_LOCALES).
+  //
+  // `follow` stays true in both cases. These pages are reachable, their links
+  // are real, and the crawler is being asked not to index this URL -- not to
+  // stop reading the site through it.
+  const indexed = !noIndex && isIndexedLocale(locale);
+
+  // A page that is not indexed advertises no alternates. Publishing an hreflang
+  // set for a page you are asking not to index is a contradictory pair of
+  // signals.
+  const languages = indexed ? alternateLanguages(path) : undefined;
+
   return {
     title,
     description,
     alternates: {
+      // Self-canonical even when noindexed, which is the consistent pair: it
+      // says "this URL is the original of what it serves", and the robots
+      // directive separately says not to index it. Pointing a Spanish page's
+      // canonical at the English one instead would be a different and false
+      // claim -- that they are the same page -- on a page whose whole purpose
+      // is to be a different one.
       canonical: url,
-      // A noindex page advertises no alternates. Publishing an hreflang set for
-      // a page you are asking not to be indexed is a contradictory pair of
-      // signals, and it is the two `/auth/*` pages that would send it.
-      ...(noIndex ? {} : { languages: alternateLanguages(path) }),
+      ...(languages ? { languages } : {}),
     },
-    ...(noIndex ? { robots: { index: false, follow: true } } : {}),
+    ...(indexed ? {} : { robots: { index: false, follow: true } }),
     openGraph: {
       type: "website",
       siteName: SITE_NAME,

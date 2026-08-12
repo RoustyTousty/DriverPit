@@ -188,7 +188,15 @@ describe("middleware matcher", () => {
   it("skips the fixed-path metadata files a crawler asks for by name", () => {
     // These have no locale variant by specification. A crawler asks for
     // "/robots.txt"; there is no such thing as "/en/robots.txt".
-    for (const path of ["/sitemap.xml", "/robots.txt", "/manifest.webmanifest"]) {
+    //
+    // `/ads.txt` is in this list for a sharper reason than the other three. It
+    // is a `public/` static file, not a Next metadata route, so it reads as
+    // something the extension escape at the end of the matcher should already
+    // cover -- and that list is assets only and has never included `txt`. It
+    // 404'd in production from Pass 7 until 2026-08-12, and an unreachable
+    // ads.txt is how Google concludes this domain does not authorise our
+    // AdSense publisher id.
+    for (const path of ["/sitemap.xml", "/robots.txt", "/manifest.webmanifest", "/ads.txt"]) {
       expect(matcher.test(path), path).toBe(false);
     }
   });

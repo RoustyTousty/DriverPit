@@ -262,7 +262,13 @@ Two site sections share one root layout but have different chrome, split via App
 
   **The shell collapses during a live match — and only then.** `ActiveMatchContext` (a root-level provider) carries one `active` flag, raised for `DuelRoot`'s `MATCH_PHASES` (`found` | `countdown` | `in-match`) and by `DuelMatch` itself once a round starts. **Matchmaking and the custom-lobby screens are not in that set**: waiting for an opponent and composing a lobby are ordinary browsing, and a host pasting a code into Discord wants the rest of the page. It used to be `phase !== "landing"`, which collapsed the shell the moment someone pressed Duel. `MATCH_PHASES` is now the single predicate behind all three things keyed on it — the shell, `setLiveMatchId`, and the `duel_heartbeat` beat — which were previously spelled two different ways. `GameChrome` and `AdSlotGate` read it and hide the mode tabs, divider, marketing sections, footer and ad slot — leaving only the top bar and the match. A live race is the wrong moment for any of it, not just the banner. Two constraints if you touch `GameChrome`: `{children}` must stay at a **stable index** across the active/inactive branches (React otherwise remounts the whole game window and resets duel state mid-match), and `marketing`/`footer` are passed in as already-rendered elements rather than imported, because a `"use client"` module can't import the async Server Component inside `NewsSection`.
 
-- **`app/(info)/`** — `/about`, `/faq`, `/game-modes`, `/how-to-play`, `/privacy-policy`, `/terms-of-service`. Standalone full-detail pages, same footer, but `InfoTopBar` instead of `TopBar`/mode tabs: logo, nav links to the other info pages, and a "Play now" CTA back into the game shell. No ad slot, no marketing teasers here — these pages *are* the detail the home teasers link out to. Each teaser component (e.g. `FaqTeaser`) and its full counterpart (`Faq`) are separate components sharing content style but not JSX, so the home page can stay short without truncating the real page. The two legal pages have no teaser — they're linked from the footer only.
+- **`app/(info)/`** — `/about`, `/faq`, `/game-modes`, `/how-to-play`, `/strategy`, `/contact`, `/privacy-policy`, `/terms-of-service`. Standalone full-detail pages, same footer, but `InfoTopBar` instead of `TopBar`/mode tabs: logo, nav links to the other info pages, and a "Play now" CTA back into the game shell. No ad slot, no marketing teasers here — these pages *are* the detail the home teasers link out to. Each teaser component (e.g. `FaqTeaser`) and its full counterpart (`Faq`) are separate components sharing content style but not JSX, so the home page can stay short without truncating the real page. The two legal pages have no teaser — they're linked from the footer only.
+
+  **`/strategy` and `/contact` were added 2026-08-12**, answering the AdSense "low value content" rejection with the only thing that actually answers it: more real content. `/strategy` is the site's longest hand-written page (~1,100 words) and is deliberately *not* a second how-to-play — that page is the rules, this one is what to do with them (opening guesses, why the closeness shading is squared and what that means when reading a board, why the team column's three-state result is the strongest clue in the game, and the duel accuracy decay). The two cross-link, once each. `/contact` is footer-only and not in `InfoTopBar`: it is not a page you browse to, it is the one you look for when something is wrong.
+
+  **`InfoTopBar`'s inline nav breakpoint moved `sm` → `md`** when `/strategy` joined it. Five links plus the logo and the CTA overflow 640px, and the failure is quiet — the row does not wrap, it pushes the CTA past the edge. A sixth link means measuring, or the footer.
+
+  **`components/marketing/contentPages.test.tsx` guards these pages against a class of bug nothing else here can see**: a missing message key. `tsc` cannot check a string argument to `t()`, lint cannot either, and next-intl does not throw — it renders the **full dotted key path** in place of the sentence, so the page still returns 200 with `marketing.strategy.sections.opening.p3` sitting in a paragraph. The strategy guide alone reads ~40 keys. The test asserts the property (every key resolves, in the DOM and on the console) rather than the copy, so the prose stays free to edit.
 
 `(game)` and `(info)` are route groups — the parens are stripped from the URL, so paths stay flat (`/faq`, not `/info/faq`).
 
@@ -665,6 +671,18 @@ Single responsive banner in the fixed-height slot under the game window.
 - **Two** env vars, both required before a real ad renders, both read only through `components/ads/adsenseConfig.ts` and never hardcoded: `NEXT_PUBLIC_ADSENSE_CLIENT` (account-level, `ca-pub-…`) and `NEXT_PUBLIC_ADSENSE_SLOT` (the specific unit, which only exists *after* approval). `getAdsenseUnit()` is the single "are real ads on?" check — it returns the `{ clientId, slotId }` pair or `null` rather than a boolean, so the caller that asks is also the caller that gets the ids to render with. (It replaced a boolean `isAdsenseConfigured()` that ended up with no callers precisely because it didn't narrow — audit §2.1.) Funding Choices (the CMP loader) wants the bare `pub-…` form — hence `getPublisherId()`, which strips the `ca-` prefix. Approval is external and needs the deployed site with real content; until both vars are set there is no slot on the page at all (see the first bullet). All ad logic stays isolated in `components/ads/`.
 - **Hide the ad slot during an active duel/knockout match** — a live race is the wrong moment for a banner; show it on daily/infinite, on the /online landing, **while matchmaking and while composing or hosting a custom lobby** (all ordinary browsing — see "Site architecture"), and again on the duel **results** screen, not from staging through intermission. `AdSlotGate` does this by reading `ActiveMatchContext` — the same flag `GameChrome` uses to hide the rest of the shell (see "Site architecture").
 
+### The 2026-08-12 rejection, and the rules that came out of it
+
+AdSense refused the site on two grounds — **"low value content"** and **"Site behaviour: navigation"** — while it was still `driver-pit.vercel.app`. Everything below is a response to one of those two, and each is a rule rather than a fix, because every one of these defects survived four content passes without anybody noticing.
+
+**`/ads.txt` was returning 404 in production, and had been since Pass 7.** `middleware.ts`'s matcher names `sitemap.xml`, `robots.txt` and `manifest.webmanifest` as exclusions; `ads.txt` was missed, so next-intl rewrote it to `/en/ads.txt` and nothing served it. It looks like it should fall through the extension escape at the end of that pattern — that list is assets (`svg|png|…|css|js`) and has never included `txt`. An unreachable ads.txt is how Google concludes the domain does not authorise our publisher id. **Anything added to `public/` with an unlisted extension needs naming in that matcher**, and `composedMiddleware.test.ts` pins all four paths.
+
+**The ad's presentation is a policy requirement, not a style choice.** `AdSlot` wore `rounded-lg border border-border bg-surface` — byte for byte the game window's own container — sat between the game and the chevron'd marketing rows, and rendered the word "Advertisement" as the *content* of that panel when it could not serve. That is an ad dressed as the site's own furniture, in the position navigation occupies, which is what the navigation clause forbids. Nobody had seen it, because the env vars are unset in production and no ad has ever rendered. The rules now: **no border, no surface fill, no radius** on the ad container (a `border-t` hairline brackets it instead); **reserving and presenting are two different elements**, so the height is held by something invisible rather than by a drawn box; and the label is the literal string **"Advertisement"** — one of the only two wordings the policy accepts — placed *outside* the `<ins>`, above it, and rendered **only once a request has actually gone out**.
+
+**Nothing may advertise content that does not exist.** Two things did. **Knockout** was listed as a mode with a "coming soon" pill on the home teaser, `/game-modes` and the `/online` landing, plus a whole FAQ entry emitted as `FAQPage` structured data — all removed. The build seam is untouched (`ONLINE_MODES` keeps the spec, `duel_lobbies.mode` keeps its CHECK, `ModeIcon` keeps the glyph, the copy stays in the catalogues), and `GameModesTeaser.test.tsx` now asserts its absence on both lists, because the pill made it *feel* honest and that is why it survived so long. And the **footer's four social icons all pointed at `href="#"`** — four dead links on every page in both route groups. The rule there: **a platform is listed when its profile exists and is deleted otherwise, never `#`**. Discord was removed under it; X, Instagram and TikTok carry real URLs.
+
+**The site's own contact surface.** There was no `/contact` route at all. `lib/marketing/contact.ts` now owns the address (`driverpit.inc@gmail.com`) and the profile list in one place — deliberately **not** in the message catalogues, since `npm run i18n:translate` rewrites what it is given and an email's local part is exactly the kind of token a model helpfully localises.
+
 ## SEO & page metadata
 
 The site had none of this until 2026-08-06: no sitemap, no `robots.txt`, no `metadataBase`, not one `openGraph` tag, no canonical anywhere, and **no metadata at all on the three game routes** — `/daily`, `/infinite` and `/online` all inherited the root's `"DriverPit"` title, so the three most valuable pages on the site were indistinguishable in a result and every shared link rendered as a bare blue line of text.
@@ -724,6 +742,12 @@ Two rules the numbers themselves carry. **Ties break deterministically** (count 
 **`AnswerBoardRow` renders nationality as TEXT, never the `Flag` glyph.** This is a document whose job is to be the authoritative answer for "who was the driver on 31 July", so the country belongs in the HTML rather than in a background-image class readable only by a tooltip — and "show flags" is a per-player localStorage setting that a server-rendered cached page has no way to honour. Unlike the poster, `RecapStats` is **not** gated on `MIN_RECAP_SAMPLE`: the card's guard exists because a chart travels as an image with no context, whereas a page shows the raw counts beside every bar and says how big the sample was, and hiding a quiet day's only substance would leave an indexable page with nothing on it.
 
 **The sitemap is `revalidate = 3600` and its archive and driver halves both fail soft.** It reads `daily_targets`, so it can no longer be a build-time static file; and if either read throws it logs and returns what it has rather than propagating, because a sitemap that 500s takes the nine original pages down with it and teaches Search Console to distrust the file. Day entries carry a real `lastModified` and `changeFrequency: yearly` — a finished day is frozen, and saying so is the most useful thing a crawler can be told about hundreds of near-identical URLs. Driver entries carry **no** `lastModified`: a driver page changes when its subject is the answer again or when the seed refreshes their wins, neither of which that query knows, and a fabricated timestamp is how a sitemap's dates stop being believed at all.
+
+**A day nobody played is not offered to the index, and `lib/recap/dayEligibility.ts` is that rule** (2026-08-12). The driver pages got this gate when they were built; the archive never did, and the measurement that forced it is stark — of 18 finished days in production, **13 had nobody complete a board**, and the best of the remaining 5 had two players. So thirteen indexable pages read, in full, *"Nobody recorded a guess on puzzle #25. The answer was Jules Bianchi"* plus a five-cell table, and each was published in six languages. That was the bulk of the site's indexable surface and it is the substance of the AdSense "low value content" rejection.
+
+The predicate is deliberately the same idea as `playedAppearances` — `completed > 0`, spelled for a day instead of for a driver — and it is applied by **both** the day page's `generateMetadata` (`noIndex`) and `app/sitemap.ts` (the filter), because a sitemap advertising a URL that then serves `noindex` is worse than one that omits it. `listArchiveDayEvidence` returns the *count* and never applies the threshold, for `pageEligibility.ts`'s reason: a `HAVING` clause would be a second definition of the rule, in SQL, that the page could silently disagree with. **This is not a 404 and not a delisting** — the day still renders, still sits in the archive index, and still carries prev/next, so no inbound link dies and the index does not lie about which days exist. A day that gets a player qualifies on its own, with no deploy.
+
+The **index pages are not filtered**, and that asymmetry is deliberate: the archive is a list of every finished day, and it is the path a crawler follows inward. It is the individual empty day that has nothing to say, not the list of them.
 
 ### Driver pages
 
@@ -818,6 +842,32 @@ otherwise send a contradictory pair of signals. `next-intl`'s own
 `alternateLinks` header is off, because two emitters would be two answers.
 The sitemap emits one `<loc>` **per locale** carrying the same set, from the same
 `alternateLanguages` function.
+
+**Only English is offered to the index right now — `INDEXED_LOCALES` in
+`lib/seo/metadata.ts` is the whole switch** (2026-08-12). This is a deliberate
+retreat from Pass 7 rather than a bug fix. Every URL on the site existed six
+times, and five of the six came out of `npm run i18n:translate` — machine
+translation, which Google's spam guidance singles out when published without
+human review. Multiplying a young site's page count by six that way is the
+loudest scaled-content signal available, and it was being sent across the
+archive's auto-generated stats pages as well as the hand-written ones. Combined
+with the archive gate above, the indexed surface went from ~294 URLs to
+roughly 70.
+
+**The translations are still served.** `/es/faq` renders in Spanish, the switcher
+still works; the five prefixed locales simply carry `noindex, follow`, advertise
+no alternates, and are absent from the sitemap. Three details make that
+consistent rather than merely off: `alternateLanguages` draws from
+`INDEXED_LOCALES` and **collapses to `undefined` below two entries** (a "cluster"
+of one self-reference plus an x-default pointing at the same URL is noise on
+every page); the sitemap omits the `<xhtml:link>` block entirely rather than
+emitting an empty one; and a non-indexed page keeps a **self-canonical**, because
+pointing a Spanish page's canonical at the English one would claim they are the
+same page, which is a different and false statement.
+
+**To re-enable, put locales back in that list** — nothing else changes, and it is
+a list rather than a boolean precisely so a locale can be promoted one at a time
+as its catalogue is read by a human. That is how this should come back.
 
 **Message catalogues are `messages/*.json`, and the summary generators are the
 interesting half.** `lib/recap/summary.ts` and `lib/drivers/summary.ts` still

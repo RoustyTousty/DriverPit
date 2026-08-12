@@ -33,9 +33,13 @@
       "title": "How to Play",
       "description": "The full rules of the F1 driver guessing game: what each tile colour means, how closeness shading works, and a worked example guess."
     },
+    "strategy": {
+      "title": "Strategy Guide",
+      "description": "How to choose an opening guess, read the closeness shading properly, and use the team column to find the mystery F1 driver in three guesses instead of six."
+    },
     "gameModes": {
       "title": "Game Modes — Daily, Infinite, Duel and Custom",
-      "description": "What Daily, Infinite, Duel and Custom lobbies each play like, how duel scoring works, and what Knockout will bring."
+      "description": "What Daily, Infinite, Duel and Custom lobbies each play like, how duel scoring works, and how speed and accuracy are scored."
     },
     "faq": {
       "title": "FAQ",
@@ -44,6 +48,10 @@
     "about": {
       "title": "About",
       "description": "What DriverPit is, the four ways to play it, and who builds it — a free, independent Formula 1 guessing game."
+    },
+    "contact": {
+      "title": "Contact",
+      "description": "How to reach DriverPit: report a bug, ask about your account data, flag a driver stat that looks wrong, or just say hello."
     },
     "privacy": {
       "title": "Privacy Policy",
@@ -73,6 +81,8 @@
       "faq": "FAQ",
       "gameModes": "Game modes",
       "howToPlay": "How to play",
+      "strategy": "Strategy",
+      "contact": "Contact",
       "privacy": "Privacy",
       "terms": "Terms"
     },
@@ -157,7 +167,38 @@
       "modes": "It started as a simple idea — one mystery driver a day, six tries to find them — and grew into four ways to play. <b>Daily</b> is the one puzzle everyone shares. <b>Infinite</b> is unlimited practice over a grid you compose yourself: any span of seasons, narrowed by nationality, team, or what a driver actually won. <b>Duel</b> puts you against a real opponent in a live three-round race where speed scores points and you can watch them closing in. And a <b>Custom</b> game is that same duel hosted by a code, so you can send it to a friend and set the rules yourself. See <howToPlay>How to play</howToPlay> for the rules and <gameModes>Game modes</gameModes> for what each one offers.",
       "whoBuildsIt": "It's built and maintained by one independent developer — a passion project for people who like F1 trivia and word games in equal measure, not a commercial product. That shapes what it is: free to play with no paywall and no premium tier, playable without an account (making one only carries your streak between devices and puts you on the leaderboard), and answerable to nobody about which features come next.",
       "support": "Running it isn't free, though, and nothing here is sponsored. If DriverPit has become part of your morning and you'd like to keep it going, you can <coffee>buy me a coffee</coffee>. Entirely optional — the game is exactly the same either way.",
-      "disclaimer": "DriverPit is an independent fan project. It isn't affiliated with, endorsed by, or connected to Formula 1, the FIA, or any team or driver named in the game."
+      "disclaimer": "DriverPit is an independent fan project. It isn't affiliated with, endorsed by, or connected to Formula 1, the FIA, or any team or driver named in the game.",
+      "fairness": "Everyone gets the same driver on the same day, and nobody gets it early. The answer is picked at random once, the first time anyone opens the puzzle that day, and stored — it is not derived from the date, so there is no formula anyone can run to work out tomorrow's driver, and no way to look it up in the page. It changes at midnight UTC. Once a day is over the answer goes into the public archive, along with how everyone actually played it.",
+      "accessibility": "The board is meant to be playable without relying on colour. Every tile carries its meaning as text for screen readers, guesses are announced as you make them, and there is a colourblind mode in Settings that swaps the green for blue. Animation follows your system's reduced-motion setting rather than needing a switch of its own. If something here does not work for you, tell me — it is the kind of bug I most want to hear about."
+    },
+    "contact": {
+      "heading": "Contact",
+      "intro": "DriverPit is built and run by one person. There is no support desk and no ticket system — mail arrives at the address below and I read all of it. Be specific and I will do my best to be useful.",
+      "emailLabel": "Email",
+      "responseTime": "Usually answered within a few days. It is one person, so sometimes longer.",
+      "reasonsHeading": "What to write about",
+      "reasons": {
+        "bug": {
+          "title": "Something is broken",
+          "body": "A guess that scored wrong, a duel that hung, a page that will not load. Tell me what you did, what happened instead, and which browser you were using — plus the date, if it was a daily puzzle. That is usually enough for me to find it."
+        },
+        "data": {
+          "title": "Your account or your data",
+          "body": "Deleting your account, getting a copy of what is stored about you, or correcting your display name. Write from the address the account uses if you have one; if you play as a guest, tell me the display name shown in Settings."
+        },
+        "driverData": {
+          "title": "A driver's stats look wrong",
+          "body": "Wins, teams, debut years and nationalities come from an open dataset that is refreshed weekly, so an error is often upstream rather than mine — but please tell me anyway. I would much rather check and pass it on than leave a wrong comparison in the game."
+        },
+        "other": {
+          "title": "Anything else",
+          "body": "Feature ideas, a mode you would like, a question about the project, or just to say the puzzle has become part of your morning. All of it is welcome."
+        }
+      },
+      "socialHeading": "Elsewhere",
+      "socialBody": "Puzzle notes and the occasional piece of F1 trivia. These are not support channels — email is faster and I will not lose it.",
+      "beforeWriting": "If your question is about how the game works, the <faq>FAQ</faq> and <howToPlay>How to play</howToPlay> will probably answer it faster than I can.",
+      "disclaimer": "DriverPit is an independent fan project. It is not affiliated with, endorsed by, or connected to Formula 1, the FIA, or any team or driver named in the game."
     },
     "howToPlay": {
       "heading": "How to play",
@@ -228,7 +269,120 @@
         "historical": "A dim orange team tile is a real clue, not a miss — you've probably got the right driver, just the wrong season.",
         "brightest": "The brighter a numeric tile glows, the closer that guess was — chase the brightest tile first.",
         "pace": "Six guesses goes fast. Save at least one or two for narrowing down, not just first impressions."
-      }
+      },
+      "definitionsHeading": "Exactly what each value means",
+      "definitionsIntro": "Most near-misses come from a reasonable but wrong assumption about one of these. They are worth reading once.",
+      "definitions": {
+        "age": {
+          "label": "Age",
+          "body": "The driver's age today, not their age when they raced. For a driver who has died, it is their age at death — so a driver from the 1990s can still return a low number."
+        },
+        "team": {
+          "label": "Team",
+          "body": "The constructor they raced for most recently, which is not always the one people associate them with. A driver who has left the sport keeps their last team; a driver with none at all shows a dash, and a dash never matches anything."
+        },
+        "wins": {
+          "label": "Career wins",
+          "body": "Race wins only, across their whole career. Not podiums, not poles, not sprint results, and not championships."
+        },
+        "debut": {
+          "label": "Debut year",
+          "body": "The season of their first race start. A driver who was entered but never started does not count that year, which is occasionally a season earlier than you would expect."
+        },
+        "pool": {
+          "label": "The pool",
+          "body": "The daily answer is always drawn from drivers active in the last twenty seasons. Infinite lets you choose any pool you like, and a custom duel lobby uses whatever the host picked."
+        }
+      },
+      "mistakesHeading": "Common mistakes",
+      "mistakes": {
+        "confirming": "Spending a guess to confirm something the board already told you. If a tile is bright, believe it and change a different column.",
+        "extremes": "Opening with a famous driver. A record-holder's numbers sit at the edge of every range, so most of the arrows point the same way and tell you almost nothing.",
+        "noTeam": "Guessing a retired driver and then reading the grey team tile as information. A driver with no current team can never match on team, whoever the answer is.",
+        "brightness": "Treating a mid-brightness tile as halfway. The shading is squared, so mid-brightness is much closer than half."
+      },
+      "strategyLink": "There is a longer guide to all of this — opening guesses, which columns are worth the most, and duel tactics — in the <strategy>strategy guide</strategy>."
+    },
+    "strategy": {
+      "heading": "Strategy guide",
+      "intro": "Six guesses feels generous until the third one comes back with four grey tiles. This page is about what to do with the rules rather than what they are: which opening guesses actually cut the field, how to read the shading without fooling yourself, and which of the five columns is quietly doing most of the work.",
+      "sections": {
+        "opening": {
+          "heading": "Your first guess should be boring",
+          "p1": "The job of the first guess is not to be right. It is to cut the field, and the field is not evenly spread. The daily answer is drawn from everyone who has started a race in the last twenty seasons — a bit over a hundred people — and most of them debuted after 2010, most have never won a race, and a handful of nationalities account for half the grid. A guess that sits in the middle of all of that learns the most.",
+          "p2": "In practice that means someone from the middle of the era with a modest record, not a legend and not a one-race entrant. Guessing a driver with a hundred career wins tells you almost nothing, because the answer almost certainly has fewer and the arrow only confirms what you already assumed. A driver with two or three wins splits the pool in a way that nought and a hundred cannot.",
+          "p3": "It also pays to open with someone who is currently racing and who has driven for two or three constructors. That gives the team column its best chance of returning the dim orange tile rather than a flat grey one, and that tile is the most informative single result on the board."
+        },
+        "numbers": {
+          "heading": "Brightness is not linear",
+          "p1": "Age, debut year and career wins each come back as an arrow and a shade. The arrow gives the direction — an up arrow means the mystery driver's value is higher than the one you guessed. The shade gives the distance, and it does not fall off in a straight line. The closeness is squared, so a guess halfway across the range does not look half lit. It looks very nearly grey.",
+          "p2": "The consequence is worth internalising: any visible warmth in a tile means you are already close, and only the last year or two of a range gets properly bright. Do not read a dim tile as roughly right and a mid tile as about half. Read dim as far, and always chase the brightest tile first — that is the column you are nearest to pinning down."
+        },
+        "team": {
+          "heading": "The team column has three answers, not two",
+          "p1": "Nationality is either right or wrong. Team is not. It comes back green when you have named the mystery driver's current team, dim orange when your guessed driver's current team is one the answer has raced for at some point but does not now, and grey when there is no connection at all.",
+          "p2": "That middle state is the most valuable tile in the game. Most drivers have only two or three constructors in their whole career, so a dim orange team tile usually cuts the field to a handful of names in a single guess — faster than any numeric column manages.",
+          "p3": "One trap comes with it. A driver with no current team shows a dash, and a dash is always a miss: an absent value is not something two drivers can share. So guessing someone who has left the sport spends the team column for nothing. If you want that column working for you, guess someone still on the grid."
+        },
+        "nationality": {
+          "heading": "Nationality is the cheapest column and the sharpest filter",
+          "p1": "Nationality carries the least information per guess. It is binary, and it comes back grey far more often than green. But when it does land it is worth more than anything else on the board, because the modern grid covers only around twenty nationalities and several of them have just one or two drivers in the pool.",
+          "p2": "So do not aim for it, but do act on it. A green tile on a country with one or two representatives has effectively ended the puzzle. A green tile on a country with a dozen has barely narrowed anything, and you should keep working the other four columns rather than feeling like you have made progress."
+        },
+        "sequencing": {
+          "heading": "Spend guesses on questions, not confirmations",
+          "p1": "The most common way to run out of guesses is to spend the fourth one confirming something the third already said. If the debut arrow points down and the tile is bright, you do not need another guess to check that. You need one that holds the debut year roughly where it is and changes something else.",
+          "p2": "Treat every guess as asking one new question while keeping the rest steady. Once two columns are pinned, look for a driver who matches both and differs on a third. That is a far quicker search than reaching for whichever name comes to mind and hoping it happens to be close.",
+          "p3": "The daily board protects you from two wasted turns: it refuses a driver you have already guessed, and it refuses one from outside the day's pool, so neither costs you anything. Infinite does not — a repeat there is a real guess and a wasted one. Picking from the suggestion list rather than typing a name from memory is the habit that avoids it, since the list already hides everyone you have tried."
+        },
+        "duel": {
+          "heading": "In a duel, guesses are unlimited but they are not free",
+          "p1": "A duel gives you as many guesses as fit inside the round clock, which sounds like it rewards typing quickly. It does not, and the scoring is built to make sure. Your first three wrong guesses cost nothing. Every wrong guess after that multiplies what the round can still pay you by 0.88 — and the guess that actually solves it never counts as wrong, so a four-guess solve is paid in full.",
+          "p2": "That is the whole difference between winning and losing a close round. A considered solve and a sprayed one can arrive seconds apart and score nothing like the same. The live figure beside the round clock is the honest number: it already has both the time falloff and the accuracy penalty applied, so watch that rather than the timer.",
+          "p3": "There is also about a second of cooldown between your own guesses, drawn as a thin line draining under the input. It is not a punishment — it is what makes it impossible to simply type out the whole pool inside a minute. Two good guesses beat six rushed ones nearly every time, and since the intermission shows both players' guess counts, you will see precisely when that happened."
+        },
+        "infinite": {
+          "heading": "Use Infinite to practise the era that keeps beating you",
+          "p1": "Infinite is the same board with no daily limit and a pool you compose yourself: a span of seasons, a nationality, a team, an achievement tier, or any combination. The count beside every option updates as you choose, so you always know how many drivers you are about to face and you can never build a filter that matches nobody.",
+          "p2": "That makes it the quickest way to fix a specific weakness rather than a general one. If the daily keeps catching you out with drivers from the early 2000s, set the seasons to 2000 through 2006 and play twenty rounds. You will absorb that era's debut years and team moves far faster than one puzzle a day can teach you."
+        }
+      },
+      "ladder": {
+        "far": "About fifteen years off",
+        "nearby": "Within five or six",
+        "adjacent": "A year or two away"
+      },
+      "ladderCaption": "The same debut-year tile at three distances from a 2007 answer. Half the range barely registers at all — which is why a faintly warm tile is better news than it looks.",
+      "teamTiles": {
+        "exact": "Their current team",
+        "historical": "Raced for them before",
+        "miss": "No connection"
+      },
+      "columnValueHeading": "Which column is worth the most",
+      "columnValueIntro": "Ranked by how much one result typically cuts the field. When a guess comes back mixed, this is the order to read it in.",
+      "columnValue": {
+        "team": {
+          "label": "Team",
+          "body": "Three possible answers rather than two, and the middle one is the strongest clue available. Most drivers have only two or three constructors in their history, so a historical match is close to a shortlist."
+        },
+        "debut": {
+          "label": "Debut year",
+          "body": "Tightly clustered and rarely shared with many drivers at once, so the arrow and the shading together usually place the answer within a few seasons on the first attempt."
+        },
+        "wins": {
+          "label": "Career wins",
+          "body": "Decisive at the extremes and nearly useless in the middle. Most of the pool has none, so a down arrow from a high guess confirms very little you had not already assumed."
+        },
+        "age": {
+          "label": "Age",
+          "body": "Correlates heavily with debut year, so it often repeats a fact you have already been given. Its real use is separating two drivers who started in the same season."
+        },
+        "nationality": {
+          "label": "Nationality",
+          "body": "Binary and grey most of the time — but a green tile on a country with only one or two drivers in the pool ends the puzzle on the spot."
+        }
+      },
+      "outro": "The rules themselves are on <howToPlay>How to play</howToPlay>, and every finished puzzle is in the <archive>archive</archive> along with what everyone actually guessed that day — which is its own kind of practice. Then <play>go and play today's</play>."
     },
     "gameModes": {
       "heading": "Game modes",

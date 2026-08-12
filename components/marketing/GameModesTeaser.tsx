@@ -3,10 +3,22 @@ import { useTranslations } from "next-intl";
 import { MoreLink } from "./MoreLink";
 import { ModeIcon, type GameModeId } from "./ModeIcon";
 
-// Four, not five: Custom is a variant of Duel rather than a fifth thing to
-// learn, so it earns its place on /game-modes and on /online -- where you can
-// actually start one -- but not in the home page's summary, which exists to
-// answer "what is there to play here?" in one glance.
+// Custom is a variant of Duel rather than another thing to learn, so it earns
+// its place on /game-modes and on /online -- where you can actually start one --
+// but not in the home page's summary, which exists to answer "what is there to
+// play here?" in one glance.
+//
+// KNOCKOUT IS NOT LISTED, and its removal on 2026-08-12 was a policy fix rather
+// than a design change. AdSense rejected the site citing "Site behaviour:
+// navigation", whose text forbids "links to content that does not exist" -- and
+// a mode advertised on three surfaces with a "coming soon" pill is exactly
+// that, whatever the pill says. It reappears here the day the mode ships, which
+// is the only honest moment to advertise it; nothing about the build seam
+// changed (`ONLINE_MODES` still carries the spec, `duel_lobbies.mode` still
+// carries the CHECK).
+//
+// `comingSoon` survives on the row type on purpose. It is the mechanism, not
+// the decision, and deleting it would mean rebuilding it to ship Knockout.
 //
 // Shares `marketing.gameModes` with the full page, so a mode's name and one-line
 // summary are written once and cannot say two different things in one language.
@@ -14,7 +26,6 @@ const MODES: { id: GameModeId; comingSoon?: boolean }[] = [
   { id: "daily" },
   { id: "infinite" },
   { id: "duel" },
-  { id: "knockout", comingSoon: true },
 ];
 
 export function GameModesTeaser() {

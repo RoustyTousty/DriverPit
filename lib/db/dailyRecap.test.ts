@@ -6,13 +6,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { isDriverPageEligible } from "../drivers/pageEligibility";
 import { getDailyPuzzleNumber } from "../game/dailySelection";
+import { isArchiveDayIndexable } from "../recap/dayEligibility";
 import {
   countArchiveDays,
   getArchiveDayContext,
   getDailyRecap,
   getDriverPage,
   getLatestArchiveDate,
-  listArchiveDates,
+  listArchiveDayEvidence,
   listArchiveDays,
   listDriverArchiveEvidence,
 } from "./dailyRecap";
@@ -244,11 +245,12 @@ describe.skipIf(!RUN)("getDailyRecap (integration)", () => {
   // prev/next link off yesterday.
 
   it("keeps the future fixture day out of every archive listing", async () => {
-    const [dates, days, latest] = await Promise.all([
-      listArchiveDates(),
+    const [evidence, days, latest] = await Promise.all([
+      listArchiveDayEvidence(),
       listArchiveDays(500, 0),
       getLatestArchiveDate(),
     ]);
+    const dates = evidence.map((day) => day.date);
 
     expect(dates).toContain(past);
     expect(dates).not.toContain(future);
@@ -276,12 +278,12 @@ describe.skipIf(!RUN)("getDailyRecap (integration)", () => {
   });
 
   it("counts the same days it lists", async () => {
-    const [total, all] = await Promise.all([countArchiveDays(), listArchiveDates()]);
+    const [total, all] = await Promise.all([countArchiveDays(), listArchiveDayEvidence()]);
     expect(total).toBe(all.length);
   });
 
   it("pages without dropping or repeating a day", async () => {
-    const all = await listArchiveDates();
+    const all = (await listArchiveDayEvidence()).map((day) => day.date);
     if (all.length < 3) throw new Error("needs at least three finished days to page through");
 
     const [first, second] = await Promise.all([listArchiveDays(2, 0), listArchiveDays(2, 2)]);
@@ -289,11 +291,30 @@ describe.skipIf(!RUN)("getDailyRecap (integration)", () => {
     expect(second.map((day) => day.date)).toEqual(all.slice(2, 4));
   });
 
+  // The sitemap decides which day pages to advertise from THIS count, and the
+  // day page decides its own `noindex` from the same predicate over its own
+  // recap. Both readings therefore have to agree about the same day, and this
+  // is the query half of that: a `completed` that came back wrong here would
+  // advertise a URL that serves noindex, which is the one contradiction the
+  // gate exists to avoid. See lib/recap/dayEligibility.ts.
+  it("reports each day's completed-board count, which is what decides indexability", async () => {
+    const evidence = await listArchiveDayEvidence();
+
+    const fixture = evidence.find((day) => day.date === past);
+    if (!fixture) throw new Error("the finished fixture day is missing from the evidence");
+    expect(fixture.completed).toBe(3);
+    expect(isArchiveDayIndexable(fixture)).toBe(true);
+
+    // The other direction, which is the case that actually removed 13 URLs: a
+    // finished day nobody played is real, listed, and not offered to the index.
+    expect(isArchiveDayIndexable({ date: past, completed: 0 })).toBe(false);
+  });
+
   it("links a day to its finished neighbours and to nothing beyond them", async () => {
     const context = await getArchiveDayContext(past);
     if (!context) throw new Error("expected a context for the finished fixture day");
 
-    const all = await listArchiveDates();
+    const all = (await listArchiveDayEvidence()).map((day) => day.date);
     const older = all.filter((date) => date < past);
     const newer = all.filter((date) => date > past);
 
