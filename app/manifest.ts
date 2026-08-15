@@ -38,13 +38,19 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: PALETTE.bg,
     categories: ["games", "sports", "entertainment"],
     icons: [
-      // One 512x512 source, declared twice. `any` is the icon as drawn;
-      // `maskable` lets Android crop it to whatever shape the launcher uses
-      // instead of putting the whole square inside a white circle. Declaring
-      // both from one file is the standard trade when the mark has enough
-      // padding to survive a crop, which this one does.
+      // TWO files, not one declared twice, and the split is the point (2026-08-15).
+      //
+      // `any` is the icon as drawn, and it is TRANSPARENT: the same file backs
+      // <link rel="icon">, so an opaque tile here renders as a black box in a
+      // light browser tab strip next to everyone else's transparent marks.
+      //
+      // `maskable` must be the opposite -- opaque and full-bleed -- because
+      // Android crops it to the launcher's shape and puts a transparent
+      // maskable icon on a white circle. One file cannot satisfy both, which is
+      // why the previous version of this list had to pick one and got the tab
+      // wrong. Both come out of `npm run icons:generate`.
       { src: "/icon.png", sizes: "512x512", type: "image/png", purpose: "any" },
-      { src: "/icon.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      { src: "/icon-maskable.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
   };
 }
