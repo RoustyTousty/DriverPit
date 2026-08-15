@@ -65,7 +65,7 @@ export function HowToPlay() {
   return (
     <section id="how-to-play" className="flex flex-col gap-8">
       <div className="flex flex-col gap-4">
-        <h2 className="text-2xl font-bold text-text">{t("heading")}</h2>
+        <h1 className="text-2xl font-bold text-text">{t("heading")}</h1>
         <p className="text-sm text-text-muted">{t("intro")}</p>
       </div>
 

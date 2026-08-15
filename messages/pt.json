@@ -1,7 +1,7 @@
 {
   "site": {
     "title": "DriverPit — Jogo diário de adivinhar pilotos de Fórmula 1",
-    "description": "Adivinhe o piloto misterioso de Fórmula 1 em seis tentativas. Um jogo diário de F1 gratuito, com rodadas de treino ilimitadas e duelos 1v1 em tempo real contra outros jogadores.",
+    "description": "Adivinhe o piloto misterioso de Fórmula 1 em seis tentativas. Um jogo diário de F1 gratuito no estilo Wordle, com rodadas de treino ilimitadas e duelos 1v1 em tempo real contra outros jogadores.",
     "tagline": "O jogo diário de adivinhar pilotos de Fórmula 1"
   },
   "og": {
@@ -19,7 +19,7 @@
   "meta": {
     "daily": {
       "title": "Desafio diário de pilotos de F1 nº {number}",
-      "description": "O desafio de hoje (nº {number}, {date}): adivinhe o piloto misterioso de Fórmula 1 em seis tentativas. Jogo diário de F1 gratuito — um piloto novo todo dia à meia-noite UTC."
+      "description": "O desafio de hoje (nº {number}, {date}): adivinhe o piloto misterioso de Fórmula 1 em seis tentativas. Um jogo de F1 gratuito no estilo Wordle — um piloto novo todo dia à meia-noite UTC."
     },
     "infinite": {
       "title": "Adivinhe pilotos de F1 sem limite — Modo infinito",
@@ -31,7 +31,7 @@
     },
     "howToPlay": {
       "title": "Como jogar",
-      "description": "As regras completas do jogo de adivinhar pilotos de F1: o que significa a cor de cada quadro, como funciona o sombreado de proximidade e um exemplo comentado."
+      "description": "As regras completas deste jogo de pilotos de F1 no estilo Wordle: o que significa a cor de cada quadro, como funciona o sombreado de proximidade e um exemplo comentado."
     },
     "strategy": {
       "title": "Strategy Guide",
@@ -43,11 +43,11 @@
     },
     "faq": {
       "title": "Perguntas frequentes",
-      "description": "Respostas às dúvidas mais comuns sobre as tentativas, os grupos de pilotos, os duelos e as contas do DriverPit."
+      "description": "Respostas às dúvidas mais comuns sobre o DriverPit: no que ele se parece com o Wordle e como funcionam as tentativas, os grupos de pilotos, os duelos e as contas."
     },
     "about": {
       "title": "Sobre",
-      "description": "O que é o DriverPit, as quatro formas de jogar e quem o desenvolve — um jogo de Fórmula 1 gratuito e independente."
+      "description": "O que é o DriverPit, as quatro formas de jogar e quem o desenvolve — um jogo de Fórmula 1 gratuito e independente, no estilo Wordle."
     },
     "contact": {
       "title": "Contact",
@@ -165,9 +165,9 @@
   "marketing": {
     "about": {
       "heading": "Sobre o DriverPit",
-      "teaser": "Um jogo diário de adivinhar pilotos de Fórmula 1, feito e mantido por uma pessoa só como projeto paralelo. Grátis, sem precisar de conta, e um projeto independente de fãs — sem vínculo com a F1, a FIA ou qualquer equipe.",
+      "teaser": "Um jogo diário no estilo Wordle sobre pilotos de Fórmula 1, feito e mantido por uma pessoa só como projeto paralelo. Grátis, sem precisar de conta, e um projeto independente de fãs — sem vínculo com a F1, a FIA ou qualquer equipe.",
       "teaserMore": "Mais sobre o DriverPit",
-      "whatItIs": "O DriverPit é um jogo de adivinhar pilotos de Fórmula 1. Tem um piloto misterioso por dia, o mesmo para todo mundo, e seis tentativas para achar: cada tentativa volta comparada com a resposta em cinco pontos — nacionalidade, equipe, idade, ano de estreia e vitórias na carreira. Sem perguntas de trivia, sem múltipla escolha. Você vai afunilando.",
+      "whatItIs": "O DriverPit é um jogo no estilo Wordle sobre pilotos de Fórmula 1. Tem um piloto misterioso por dia, o mesmo para todo mundo, e seis tentativas para achar: cada tentativa volta comparada com a resposta em cinco pontos — nacionalidade, equipe, idade, ano de estreia e vitórias na carreira. Sem perguntas de trivia, sem múltipla escolha. Você vai afunilando.",
       "modes": "Começou como uma ideia simples — um piloto misterioso por dia, seis tentativas para achar — e virou quatro formas de jogar. <b>Diário</b> é o desafio que todo mundo divide. <b>Infinito</b> é treino ilimitado sobre um grupo que você mesmo monta: qualquer intervalo de temporadas, refinado por nacionalidade, equipe ou pelo que o piloto realmente conquistou. <b>Duelo</b> coloca você contra um adversário de verdade numa corrida ao vivo de três rodadas, onde velocidade vale pontos e dá para ver ele se aproximando. E um jogo <b>Personalizado</b> é esse mesmo duelo hospedado por um código, para mandar a um amigo e definir as regras você mesmo. Veja <howToPlay>Como jogar</howToPlay> para as regras e <gameModes>Modos de jogo</gameModes> para o que cada um oferece.",
       "whoBuildsIt": "É desenvolvido e mantido por uma pessoa só, de forma independente — um projeto de paixão para quem gosta de F1 e de jogos de palavras na mesma medida, não um produto comercial. Isso define o que ele é: grátis, sem paywall nem versão premium, jogável sem conta (criar uma só serve para levar sua sequência entre aparelhos e aparecer no ranking) e sem ter que prestar contas a ninguém sobre o que vem a seguir.",
       "support": "Manter no ar não é de graça, e nada aqui é patrocinado. Se o DriverPit virou parte da sua manhã e você quer que continue, pode <coffee>me pagar um café</coffee>. Totalmente opcional — o jogo é exatamente o mesmo de qualquer jeito.",
@@ -206,7 +206,7 @@
     },
     "howToPlay": {
       "heading": "Como jogar",
-      "intro": "Adivinhe o piloto misterioso de Fórmula 1 em seis tentativas. As sugestões ficam limitadas ao grupo de pilotos ativo, mas um nome de fora também funciona se você digitar inteiro — depois de cada tentativa, a sigla de três letras do piloto aparece à esquerda da linha.",
+      "intro": "Adivinhe o piloto misterioso de Fórmula 1 em seis tentativas. Se você já jogou Wordle, a lógica é parecida, só que aqui você vai afunilando um piloto em vez de uma palavra. As sugestões ficam limitadas ao grupo de pilotos ativo, mas um nome de fora também funciona se você digitar inteiro — depois de cada tentativa, a sigla de três letras do piloto aparece à esquerda da linha.",
       "steps": {
         "type": {
           "title": "Digite uma tentativa",

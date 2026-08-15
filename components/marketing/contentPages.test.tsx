@@ -4,8 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AboutSection } from "./AboutSection";
 import { ContactSection } from "./ContactSection";
 import { Faq } from "./Faq";
+import { GameModes } from "./GameModes";
 import { HowToPlay } from "./HowToPlay";
+import { PrivacyPolicy } from "./PrivacyPolicy";
 import { StrategyGuide } from "./StrategyGuide";
+import { TermsOfService } from "./TermsOfService";
 
 // A MISSING MESSAGE KEY IS INVISIBLE TO EVERY OTHER CHECK IN THIS REPO, and
 // these four components are where that matters most.
@@ -63,6 +66,12 @@ describe.each([
   // are inline; this one covers the only list where the keys and the prose live
   // in different files and can drift apart.
   ["Faq", () => <Faq />],
+  // The remaining three full-page components, added with the h1 assertion
+  // below. Each is rendered by exactly one route and by nothing else, so the
+  // heading it emits IS that page's heading.
+  ["GameModes", () => <GameModes />],
+  ["PrivacyPolicy", () => <PrivacyPolicy />],
+  ["TermsOfService", () => <TermsOfService />],
 ])("%s", (_name, renderComponent) => {
   it("resolves every message key it asks for", () => {
     const { container } = render(renderComponent());
@@ -88,6 +97,26 @@ describe.each([
     const { container } = render(renderComponent());
 
     expect(renderedText(container).length).toBeGreaterThan(400);
+  });
+
+  it("contributes exactly one h1, and it is not empty", () => {
+    // Bing's SEO report, 2026-08-15: /faq, /about, /how-to-play, /game-modes
+    // and both legal pages shipped with NO h1 at all -- their top heading was
+    // an h2, so every one of these documents began at level 2 with nothing
+    // above it. /strategy and /contact were correct, which is what made it
+    // invisible: the two components written most recently used h1 and the
+    // older six did not, so no single file looked wrong.
+    //
+    // Nothing else in this repo can see it. `tsc` does not type heading levels,
+    // lint has no rule for it, and the page renders identically either way --
+    // the h2 and h1 here carry the same className precisely so the fix changed
+    // no pixels. It is only observable in the delivered markup and to a screen
+    // reader's heading navigation.
+    const { container } = render(renderComponent());
+    const h1s = container.querySelectorAll("h1");
+
+    expect(h1s).toHaveLength(1);
+    expect(h1s[0]?.textContent?.trim().length ?? 0).toBeGreaterThan(0);
   });
 });
 

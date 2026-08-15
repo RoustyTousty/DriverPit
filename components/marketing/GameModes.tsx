@@ -38,7 +38,7 @@ export function GameModes() {
 
   return (
     <section id="game-modes" className="flex flex-col gap-6">
-      <h2 className="text-2xl font-bold text-text">{t("heading")}</h2>
+      <h1 className="text-2xl font-bold text-text">{t("heading")}</h1>
       <div className="flex flex-col gap-4">
         {MODES.map((mode) => (
           <div key={mode.id} className="rounded-lg border border-border bg-surface-2 p-4">

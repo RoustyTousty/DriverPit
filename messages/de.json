@@ -1,7 +1,7 @@
 {
   "site": {
     "title": "DriverPit — Das tägliche Formel-1-Fahrer-Ratespiel",
-    "description": "Errate den geheimen Formel-1-Fahrer in sechs Versuchen. Ein kostenloses tägliches F1-Ratespiel mit unbegrenzten Übungsrunden und Echtzeit-Duellen gegen andere Spieler.",
+    "description": "Errate den geheimen Formel-1-Fahrer in sechs Versuchen. Ein kostenloses tägliches F1-Spiel im Wordle-Stil mit unbegrenzten Übungsrunden und Echtzeit-Duellen gegen andere Spieler.",
     "tagline": "Das tägliche Formel-1-Fahrer-Ratespiel"
   },
   "og": {
@@ -19,7 +19,7 @@
   "meta": {
     "daily": {
       "title": "Tägliches F1-Fahrerrätsel Nr. {number}",
-      "description": "Das heutige Rätsel (Nr. {number}, {date}): Errate den geheimen Formel-1-Fahrer in sechs Versuchen. Kostenloses tägliches F1-Ratespiel — jeden Tag um Mitternacht UTC ein neuer Fahrer."
+      "description": "Das heutige Rätsel (Nr. {number}, {date}): Errate den geheimen Formel-1-Fahrer in sechs Versuchen. Ein kostenloses F1-Spiel im Wordle-Stil — jeden Tag um Mitternacht UTC ein neuer Fahrer."
     },
     "infinite": {
       "title": "F1-Fahrer unbegrenzt erraten — Endlos-Modus",
@@ -31,7 +31,7 @@
     },
     "howToPlay": {
       "title": "Spielanleitung",
-      "description": "Die vollständigen Regeln des F1-Fahrer-Ratespiels: was jede Kachelfarbe bedeutet, wie die Nähe-Schattierung funktioniert, und ein durchgerechnetes Beispiel."
+      "description": "Die vollständigen Regeln dieses F1-Fahrer-Spiels im Wordle-Stil: was jede Kachelfarbe bedeutet, wie die Nähe-Schattierung funktioniert, und ein durchgerechnetes Beispiel."
     },
     "strategy": {
       "title": "Strategy Guide",
@@ -43,11 +43,11 @@
     },
     "faq": {
       "title": "Häufige Fragen",
-      "description": "Antworten auf häufige Fragen zum Raten, zu den Fahrerfeldern, zu Duellen und zu Konten bei DriverPit."
+      "description": "Antworten auf häufige Fragen zu DriverPit: worin es Wordle ähnelt, und wie Raten, Fahrerfelder, Duelle und Konten funktionieren."
     },
     "about": {
       "title": "Über",
-      "description": "Was DriverPit ist, die vier Arten es zu spielen, und wer dahintersteckt — ein kostenloses, unabhängiges Formel-1-Spiel."
+      "description": "Was DriverPit ist, die vier Arten es zu spielen, und wer dahintersteckt — ein kostenloses, unabhängiges Formel-1-Spiel im Wordle-Stil."
     },
     "contact": {
       "title": "Contact",
@@ -165,9 +165,9 @@
   "marketing": {
     "about": {
       "heading": "Über DriverPit",
-      "teaser": "Ein tägliches Formel-1-Ratespiel, gebaut und betrieben von einer einzelnen Person als Nebenprojekt. Kostenlos, ohne Konto spielbar, und ein unabhängiges Fanprojekt — nicht verbunden mit der Formel 1, der FIA oder einem Team.",
+      "teaser": "Ein tägliches Formel-1-Spiel im Wordle-Stil, gebaut und betrieben von einer einzelnen Person als Nebenprojekt. Kostenlos, ohne Konto spielbar, und ein unabhängiges Fanprojekt — nicht verbunden mit der Formel 1, der FIA oder einem Team.",
       "teaserMore": "Mehr über DriverPit",
-      "whatItIs": "DriverPit ist ein Formel-1-Ratespiel. Es gibt einen geheimen Fahrer pro Tag, für alle denselben, und sechs Versuche, ihn zu finden: Jeder Versuch kommt mit der Lösung verglichen zurück, in fünf Punkten — Nation, Team, Alter, Debütjahr und Karrieresiege. Keine Quizfragen, kein Multiple Choice. Du grenzt ein.",
+      "whatItIs": "DriverPit ist ein Formel-1-Spiel im Wordle-Stil. Es gibt einen geheimen Fahrer pro Tag, für alle denselben, und sechs Versuche, ihn zu finden: Jeder Versuch kommt mit der Lösung verglichen zurück, in fünf Punkten — Nation, Team, Alter, Debütjahr und Karrieresiege. Keine Quizfragen, kein Multiple Choice. Du grenzt ein.",
       "modes": "Angefangen hat es als einfache Idee — ein geheimer Fahrer pro Tag, sechs Versuche — und daraus wurden vier Spielarten. <b>Täglich</b> ist das Rätsel, das alle teilen. <b>Endlos</b> ist unbegrenztes Üben über ein Feld, das du selbst zusammenstellst: jeder Zeitraum an Saisons, eingegrenzt nach Nation, Team oder danach, was jemand tatsächlich gewonnen hat. <b>Duell</b> stellt dich einem echten Gegenüber in einem Live-Rennen über drei Runden, in dem Tempo Punkte bringt und du siehst, wie es näher kommt. Und ein <b>privates</b> Spiel ist genau dieses Duell, über einen Code eingeladen — schick ihn weiter und leg die Regeln selbst fest. Siehe <howToPlay>Spielanleitung</howToPlay> für die Regeln und <gameModes>Spielmodi</gameModes> dafür, was jeder Modus bietet.",
       "whoBuildsIt": "Entwickelt und gepflegt wird es von einer einzelnen unabhängigen Person — ein Herzensprojekt für alle, die Formel 1 und Worträtsel gleichermaßen mögen, kein kommerzielles Produkt. Das prägt, was es ist: kostenlos, ohne Bezahlschranke und ohne Premium-Stufe, ohne Konto spielbar (ein Konto trägt nur deine Serie zwischen Geräten und bringt dich in die Bestenliste) und niemandem gegenüber rechenschaftspflichtig, was als Nächstes kommt.",
       "support": "Der Betrieb ist allerdings nicht umsonst, und gesponsert ist hier nichts. Wenn DriverPit Teil deines Morgens geworden ist und du möchtest, dass es weitergeht, kannst du mir <coffee>einen Kaffee ausgeben</coffee>. Völlig freiwillig — das Spiel bleibt so oder so exakt dasselbe.",
@@ -206,7 +206,7 @@
     },
     "howToPlay": {
       "heading": "Spielanleitung",
-      "intro": "Errate den geheimen Formel-1-Fahrer in sechs Versuchen. Die Vorschläge bleiben im aktiven Fahrerfeld, ein Name von außerhalb funktioniert aber trotzdem, wenn du ihn ganz ausschreibst — nach jedem Versuch erscheint das Drei-Buchstaben-Kürzel links neben der Zeile.",
+      "intro": "Errate den geheimen Formel-1-Fahrer in sechs Versuchen. Wenn du Wordle kennst, ist das Prinzip vertraut — nur grenzt du hier einen Fahrer ein statt eines Wortes. Die Vorschläge bleiben im aktiven Fahrerfeld, ein Name von außerhalb funktioniert aber trotzdem, wenn du ihn ganz ausschreibst — nach jedem Versuch erscheint das Drei-Buchstaben-Kürzel links neben der Zeile.",
       "steps": {
         "type": {
           "title": "Versuch eintippen",

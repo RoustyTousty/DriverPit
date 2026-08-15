@@ -17,7 +17,10 @@ export default function OnlineLoading() {
     // real screen replaces this without the title moving.
     <div className="flex flex-col gap-4 px-4 py-6">
       <header>
-        <h1 className="text-xl font-bold text-text sm:text-2xl">DriverPit</h1>
+        {/* A <p>, not an <h1> -- see infinite/loading.tsx. This skeleton streams
+            in the initial shell and the real page contributes its own <h1>, so an
+            <h1> here delivers two per page. Styling is identical. */}
+        <p className="text-xl font-bold text-text sm:text-2xl">DriverPit</p>
         <p className="text-sm text-text-muted">{modes("online")}</p>
       </header>
       <div className="py-12 text-center text-sm text-text-muted">{ui("loading")}</div>

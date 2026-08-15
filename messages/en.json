@@ -1,7 +1,7 @@
 {
   "site": {
     "title": "DriverPit — Daily Formula 1 Driver Guessing Game",
-    "description": "Guess the mystery Formula 1 driver in six tries. A free daily F1 guessing game with unlimited practice rounds and real-time 1v1 duels against other players.",
+    "description": "Guess the mystery Formula 1 driver in six tries. A free, Wordle-like daily F1 game with unlimited practice rounds and real-time 1v1 duels against other players.",
     "tagline": "The daily Formula 1 driver guessing game"
   },
   "og": {
@@ -19,7 +19,7 @@
   "meta": {
     "daily": {
       "title": "Daily F1 Driver Puzzle #{number}",
-      "description": "Today's puzzle (#{number}, {date}): guess the mystery Formula 1 driver in six tries. Free daily F1 guessing game — a new driver every day at midnight UTC."
+      "description": "Today's puzzle (#{number}, {date}): guess the mystery Formula 1 driver in six tries. A free Wordle-like F1 game — a new driver every day at midnight UTC."
     },
     "infinite": {
       "title": "Unlimited F1 Driver Guessing — Infinite Mode",
@@ -31,7 +31,7 @@
     },
     "howToPlay": {
       "title": "How to Play",
-      "description": "The full rules of the F1 driver guessing game: what each tile colour means, how closeness shading works, and a worked example guess."
+      "description": "The full rules of this Wordle-style F1 driver game: what each tile colour means, how closeness shading works, and a worked example guess."
     },
     "strategy": {
       "title": "Strategy Guide",
@@ -43,11 +43,11 @@
     },
     "faq": {
       "title": "FAQ",
-      "description": "Answers to common questions about how DriverPit's guessing, driver pools, duels and accounts work."
+      "description": "Answers to common questions about DriverPit — how it compares to Wordle, and how the guessing, driver pools, duels and accounts work."
     },
     "about": {
       "title": "About",
-      "description": "What DriverPit is, the four ways to play it, and who builds it — a free, independent Formula 1 guessing game."
+      "description": "What DriverPit is, the four ways to play it, and who builds it — a free, independent Wordle-like game about Formula 1 drivers."
     },
     "contact": {
       "title": "Contact",
@@ -165,9 +165,9 @@
   "marketing": {
     "about": {
       "heading": "About DriverPit",
-      "teaser": "A daily Formula 1 guessing game, built and run by one person as a side project. Free to play, no account needed, and an independent fan project — not affiliated with F1, the FIA, or any team.",
+      "teaser": "A Wordle-like daily game about Formula 1 drivers, built and run by one person as a side project. Free to play, no account needed, and an independent fan project — not affiliated with F1, the FIA, or any team.",
       "teaserMore": "More about DriverPit",
-      "whatItIs": "DriverPit is a Formula 1 guessing game. There's one mystery driver a day, the same one for everyone, and six guesses to find them — every guess you make comes back compared against the answer on five things: nationality, team, age, debut year and career wins. No trivia questions, no multiple choice. You narrow it down.",
+      "whatItIs": "DriverPit is a Wordle-like game about Formula 1 drivers. There's one mystery driver a day, the same one for everyone, and six guesses to find them — every guess you make comes back compared against the answer on five things: nationality, team, age, debut year and career wins. No trivia questions, no multiple choice. You narrow it down.",
       "modes": "It started as a simple idea — one mystery driver a day, six tries to find them — and grew into four ways to play. <b>Daily</b> is the one puzzle everyone shares. <b>Infinite</b> is unlimited practice over a grid you compose yourself: any span of seasons, narrowed by nationality, team, or what a driver actually won. <b>Duel</b> puts you against a real opponent in a live three-round race where speed scores points and you can watch them closing in. And a <b>Custom</b> game is that same duel hosted by a code, so you can send it to a friend and set the rules yourself. See <howToPlay>How to play</howToPlay> for the rules and <gameModes>Game modes</gameModes> for what each one offers.",
       "whoBuildsIt": "It's built and maintained by one independent developer — a passion project for people who like F1 trivia and word games in equal measure, not a commercial product. That shapes what it is: free to play with no paywall and no premium tier, playable without an account (making one only carries your streak between devices and puts you on the leaderboard), and answerable to nobody about which features come next.",
       "support": "Running it isn't free, though, and nothing here is sponsored. If DriverPit has become part of your morning and you'd like to keep it going, you can <coffee>buy me a coffee</coffee>. Entirely optional — the game is exactly the same either way.",
@@ -206,7 +206,7 @@
     },
     "howToPlay": {
       "heading": "How to play",
-      "intro": "Guess the mystery Formula 1 driver in six tries. Suggestions are scoped to the active driver pool, but a name from outside it still works if you type the whole thing — after each guess, the driver's three-letter code appears on the left of the row.",
+      "intro": "Guess the mystery Formula 1 driver in six tries. If you have played Wordle the shape is familiar, except you are narrowing down a driver rather than a word. Suggestions are scoped to the active driver pool, but a name from outside it still works if you type the whole thing — after each guess, the driver's three-letter code appears on the left of the row.",
       "steps": {
         "type": {
           "title": "Type a guess",

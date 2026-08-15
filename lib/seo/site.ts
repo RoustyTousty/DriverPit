@@ -18,7 +18,7 @@ export const SITE_NAME = "DriverPit";
 // tries") and names the two features no competing F1 -dle has, because those
 // are the queries this site can actually win.
 export const SITE_DESCRIPTION =
-  "Guess the mystery Formula 1 driver in six tries. A free daily F1 guessing game with unlimited practice rounds and real-time 1v1 duels against other players.";
+  "Guess the mystery Formula 1 driver in six tries. A free, Wordle-like daily F1 game with unlimited practice rounds and real-time 1v1 duels against other players.";
 
 // Shown as the OG card's subtitle, so it is shorter than the description and
 // does not repeat the title.

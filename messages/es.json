@@ -1,7 +1,7 @@
 {
   "site": {
     "title": "DriverPit — Juego diario de adivinar pilotos de Fórmula 1",
-    "description": "Adivina el piloto misterioso de Fórmula 1 en seis intentos. Un juego diario de F1 gratuito, con rondas de práctica ilimitadas y duelos 1v1 en tiempo real contra otros jugadores.",
+    "description": "Adivina el piloto misterioso de Fórmula 1 en seis intentos. Un juego diario de F1 gratuito al estilo Wordle, con rondas de práctica ilimitadas y duelos 1v1 en tiempo real contra otros jugadores.",
     "tagline": "El juego diario de adivinar pilotos de Fórmula 1"
   },
   "og": {
@@ -19,7 +19,7 @@
   "meta": {
     "daily": {
       "title": "Reto diario de pilotos de F1 n.º {number}",
-      "description": "El reto de hoy (n.º {number}, {date}): adivina el piloto misterioso de Fórmula 1 en seis intentos. Juego diario de F1 gratuito: un piloto nuevo cada día a medianoche UTC."
+      "description": "El reto de hoy (n.º {number}, {date}): adivina el piloto misterioso de Fórmula 1 en seis intentos. Un juego de F1 gratuito al estilo Wordle: un piloto nuevo cada día a medianoche UTC."
     },
     "infinite": {
       "title": "Adivina pilotos de F1 sin límite — Modo infinito",
@@ -31,7 +31,7 @@
     },
     "howToPlay": {
       "title": "Cómo jugar",
-      "description": "Las reglas completas del juego de adivinar pilotos de F1: qué significa el color de cada casilla, cómo funciona el sombreado de proximidad y un ejemplo comentado."
+      "description": "Las reglas completas de este juego de pilotos de F1 tipo Wordle: qué significa el color de cada casilla, cómo funciona el sombreado de proximidad y un ejemplo comentado."
     },
     "strategy": {
       "title": "Strategy Guide",
@@ -43,11 +43,11 @@
     },
     "faq": {
       "title": "Preguntas frecuentes",
-      "description": "Respuestas a las dudas más habituales sobre las adivinanzas, los grupos de pilotos, los duelos y las cuentas de DriverPit."
+      "description": "Respuestas a las dudas más habituales sobre DriverPit: en qué se parece a Wordle y cómo funcionan las adivinanzas, los grupos de pilotos, los duelos y las cuentas."
     },
     "about": {
       "title": "Acerca de",
-      "description": "Qué es DriverPit, las cuatro formas de jugarlo y quién lo desarrolla: un juego de Fórmula 1 gratuito e independiente."
+      "description": "Qué es DriverPit, las cuatro formas de jugarlo y quién lo desarrolla: un juego de Fórmula 1 gratuito e independiente, al estilo Wordle."
     },
     "contact": {
       "title": "Contact",
@@ -165,9 +165,9 @@
   "marketing": {
     "about": {
       "heading": "Acerca de DriverPit",
-      "teaser": "Un juego diario de adivinar pilotos de Fórmula 1, creado y mantenido por una sola persona como proyecto paralelo. Gratis, sin necesidad de cuenta, y un proyecto independiente de aficionados: sin relación con la F1, la FIA ni ningún equipo.",
+      "teaser": "Un juego diario al estilo Wordle sobre pilotos de Fórmula 1, creado y mantenido por una sola persona como proyecto paralelo. Gratis, sin necesidad de cuenta, y un proyecto independiente de aficionados: sin relación con la F1, la FIA ni ningún equipo.",
       "teaserMore": "Más sobre DriverPit",
-      "whatItIs": "DriverPit es un juego de adivinar pilotos de Fórmula 1. Hay un piloto misterioso al día, el mismo para todo el mundo, y seis intentos para encontrarlo: cada intento vuelve comparado con la respuesta en cinco aspectos: nacionalidad, equipo, edad, año de debut y victorias en su carrera. Sin preguntas de trivia ni opciones múltiples. Vas acotando.",
+      "whatItIs": "DriverPit es un juego al estilo Wordle sobre pilotos de Fórmula 1. Hay un piloto misterioso al día, el mismo para todo el mundo, y seis intentos para encontrarlo: cada intento vuelve comparado con la respuesta en cinco aspectos: nacionalidad, equipo, edad, año de debut y victorias en su carrera. Sin preguntas de trivia ni opciones múltiples. Vas acotando.",
       "modes": "Empezó como una idea simple —un piloto misterioso al día, seis intentos para encontrarlo— y creció hasta cuatro formas de jugar. <b>Diario</b> es el reto que comparte todo el mundo. <b>Infinito</b> es práctica ilimitada sobre un grupo que compones tú: cualquier rango de temporadas, afinado por nacionalidad, equipo o por lo que un piloto llegó a ganar. <b>Duelo</b> te enfrenta a un rival real en una carrera en directo a tres rondas donde la velocidad da puntos y puedes verlo acercarse. Y una partida <b>Personalizada</b> es ese mismo duelo alojado con un código, para enviárselo a quien quieras y poner tú las reglas. Consulta <howToPlay>Cómo jugar</howToPlay> para las reglas y <gameModes>Modos de juego</gameModes> para ver qué ofrece cada uno.",
       "whoBuildsIt": "Lo desarrolla y mantiene una sola persona de forma independiente: un proyecto por gusto, para quien disfruta a partes iguales de la Fórmula 1 y de los juegos de palabras, no un producto comercial. Eso marca lo que es: gratis, sin muro de pago ni versión premium, jugable sin cuenta (crearla solo sirve para llevar tu racha entre dispositivos y aparecer en la clasificación) y sin tener que rendir cuentas a nadie sobre qué llega después.",
       "support": "Mantenerlo no sale gratis, eso sí, y aquí nada está patrocinado. Si DriverPit se ha vuelto parte de tus mañanas y quieres que siga adelante, puedes <coffee>invitarme a un café</coffee>. Totalmente opcional: el juego es exactamente el mismo de una forma u otra.",
@@ -206,7 +206,7 @@
     },
     "howToPlay": {
       "heading": "Cómo jugar",
-      "intro": "Adivina el piloto misterioso de Fórmula 1 en seis intentos. Las sugerencias se limitan al grupo de pilotos activo, pero un nombre de fuera también vale si lo escribes entero: tras cada intento, el código de tres letras del piloto aparece a la izquierda de la fila.",
+      "intro": "Adivina el piloto misterioso de Fórmula 1 en seis intentos. Si has jugado a Wordle, la mecánica te sonará, solo que aquí vas acotando un piloto en lugar de una palabra. Las sugerencias se limitan al grupo de pilotos activo, pero un nombre de fuera también vale si lo escribes entero: tras cada intento, el código de tres letras del piloto aparece a la izquierda de la fila.",
       "steps": {
         "type": {
           "title": "Escribe un intento",

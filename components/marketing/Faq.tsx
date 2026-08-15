@@ -32,7 +32,7 @@ export function Faq() {
 
   return (
     <section id="faq" className="flex flex-col gap-4">
-      <h2 className="text-2xl font-bold text-text">{t("heading")}</h2>
+      <h1 className="text-2xl font-bold text-text">{t("heading")}</h1>
       <div className="flex flex-col gap-2">
         {FAQ_KEYS.map((key) => (
           <details key={key} className="group rounded-lg border border-border bg-surface-2 p-4">

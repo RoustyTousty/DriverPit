@@ -1,7 +1,7 @@
 {
   "site": {
     "title": "DriverPit — Het dagelijkse Formule 1-coureursraadspel",
-    "description": "Raad de mysterieuze Formule 1-coureur in zes pogingen. Een gratis dagelijks F1-raadspel met onbeperkt oefenen en realtime 1v1-duels tegen andere spelers.",
+    "description": "Raad de mysterieuze Formule 1-coureur in zes pogingen. Een gratis dagelijks F1-spel in Wordle-stijl met onbeperkt oefenen en realtime 1v1-duels tegen andere spelers.",
     "tagline": "Het dagelijkse Formule 1-coureursraadspel"
   },
   "og": {
@@ -19,7 +19,7 @@
   "meta": {
     "daily": {
       "title": "Dagelijkse F1-coureurspuzzel nr. {number}",
-      "description": "De puzzel van vandaag (nr. {number}, {date}): raad de mysterieuze Formule 1-coureur in zes pogingen. Gratis dagelijks F1-raadspel — elke dag een nieuwe coureur om middernacht UTC."
+      "description": "De puzzel van vandaag (nr. {number}, {date}): raad de mysterieuze Formule 1-coureur in zes pogingen. Een gratis F1-spel in Wordle-stijl — elke dag een nieuwe coureur om middernacht UTC."
     },
     "infinite": {
       "title": "Onbeperkt F1-coureurs raden — Oneindige modus",
@@ -31,7 +31,7 @@
     },
     "howToPlay": {
       "title": "Zo speel je",
-      "description": "De volledige regels van het F1-coureursraadspel: wat elke tegelkleur betekent, hoe de nabijheidsschaduw werkt en een uitgewerkt voorbeeld."
+      "description": "De volledige regels van dit Wordle-achtige F1-coureursspel: wat elke tegelkleur betekent, hoe de nabijheidsschaduw werkt en een uitgewerkt voorbeeld."
     },
     "strategy": {
       "title": "Strategy Guide",
@@ -43,11 +43,11 @@
     },
     "faq": {
       "title": "Veelgestelde vragen",
-      "description": "Antwoorden op veelgestelde vragen over raden, coureurspoules, duels en accounts bij DriverPit."
+      "description": "Antwoorden op veelgestelde vragen over DriverPit: waarin het op Wordle lijkt, en hoe raden, coureurspoules, duels en accounts werken."
     },
     "about": {
       "title": "Over",
-      "description": "Wat DriverPit is, de vier manieren om het te spelen en wie het maakt — een gratis, onafhankelijk Formule 1-spel."
+      "description": "Wat DriverPit is, de vier manieren om het te spelen en wie het maakt — een gratis, onafhankelijk Formule 1-spel in Wordle-stijl."
     },
     "contact": {
       "title": "Contact",
@@ -165,9 +165,9 @@
   "marketing": {
     "about": {
       "heading": "Over DriverPit",
-      "teaser": "Een dagelijks Formule 1-raadspel, gebouwd en onderhouden door één persoon als zijproject. Gratis, geen account nodig, en een onafhankelijk fanproject — niet verbonden aan de F1, de FIA of enig team.",
+      "teaser": "Een dagelijks Wordle-achtig spel over Formule 1-coureurs, gebouwd en onderhouden door één persoon als zijproject. Gratis, geen account nodig, en een onafhankelijk fanproject — niet verbonden aan de F1, de FIA of enig team.",
       "teaserMore": "Meer over DriverPit",
-      "whatItIs": "DriverPit is een Formule 1-raadspel. Er is één mysterieuze coureur per dag, voor iedereen dezelfde, en zes pogingen om die te vinden: elke poging komt terug, vergeleken met het antwoord op vijf punten — nationaliteit, team, leeftijd, debuutjaar en overwinningen. Geen quizvragen, geen meerkeuze. Je werkt er naartoe.",
+      "whatItIs": "DriverPit is een Wordle-achtig spel over Formule 1-coureurs. Er is één mysterieuze coureur per dag, voor iedereen dezelfde, en zes pogingen om die te vinden: elke poging komt terug, vergeleken met het antwoord op vijf punten — nationaliteit, team, leeftijd, debuutjaar en overwinningen. Geen quizvragen, geen meerkeuze. Je werkt er naartoe.",
       "modes": "Het begon als een simpel idee — één mysterieuze coureur per dag, zes pogingen — en groeide uit tot vier manieren om te spelen. <b>Dagelijks</b> is de puzzel die iedereen deelt. <b>Oneindig</b> is onbeperkt oefenen op een poule die je zelf samenstelt: elk bereik van seizoenen, verfijnd op nationaliteit, team of op wat een coureur daadwerkelijk won. <b>Duel</b> zet je tegenover een echte tegenstander in een live race over drie rondes, waarin snelheid punten oplevert en je hem ziet naderen. En een <b>Aangepast</b> spel is datzelfde duel met een code, zodat je het naar een vriend stuurt en zelf de regels bepaalt. Zie <howToPlay>Zo speel je</howToPlay> voor de regels en <gameModes>Spelmodi</gameModes> voor wat elke modus biedt.",
       "whoBuildsIt": "Het wordt gebouwd en onderhouden door één onafhankelijke ontwikkelaar — een passieproject voor wie F1 en woordspellen even leuk vindt, geen commercieel product. Dat bepaalt wat het is: gratis, zonder betaalmuur of premiumversie, speelbaar zonder account (een account neemt alleen je reeks mee tussen apparaten en zet je op de ranglijst) en aan niemand verantwoording schuldig over wat er hierna komt.",
       "support": "Het draaiend houden is niet gratis, en niets hier is gesponsord. Is DriverPit onderdeel van je ochtend geworden en wil je dat het blijft bestaan, dan kun je <coffee>me op een koffie trakteren</coffee>. Volledig vrijblijvend — het spel blijft hoe dan ook precies hetzelfde.",
@@ -206,7 +206,7 @@
     },
     "howToPlay": {
       "heading": "Zo speel je",
-      "intro": "Raad de mysterieuze Formule 1-coureur in zes pogingen. Suggesties blijven binnen de actieve coureurspoule, maar een naam daarbuiten werkt ook als je hem helemaal uittypt — na elke poging verschijnt de drieletterafkorting van de coureur links van de regel.",
+      "intro": "Raad de mysterieuze Formule 1-coureur in zes pogingen. Als je Wordle hebt gespeeld is de opzet vertrouwd, alleen zoek je hier een coureur in plaats van een woord. Suggesties blijven binnen de actieve coureurspoule, maar een naam daarbuiten werkt ook als je hem helemaal uittypt — na elke poging verschijnt de drieletterafkorting van de coureur links van de regel.",
       "steps": {
         "type": {
           "title": "Typ een poging",
