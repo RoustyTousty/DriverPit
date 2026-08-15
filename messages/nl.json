@@ -96,6 +96,10 @@
   "faq": {
     "heading": "Veelgestelde vragen",
     "items": {
+      "wordleLike": {
+        "q": "Is DriverPit een F1-Wordle?",
+        "a": "Zo wordt het meestal omschreven, en dat klopt wel: DriverPit is een Wordle-achtig dagelijks raadspel over Formule 1-coureurs, dus als je hier terechtkwam op zoek naar een F1-Wordle, is dit het. Het format verschilt op een paar punten. In plaats van letters vergelijk je vijf kenmerken — nationaliteit, team, leeftijd, debuutjaar en overwinningen — en elke poging vertelt je of de gezochte coureur hoger of lager zit op de drie getallen, en niet alleen welke letters goed waren. Er zijn ook twee dingen waar Wordle geen equivalent voor heeft: onbeperkte oefenrondes in de Infinite-modus en realtime 1-tegen-1 duels tegen een andere speler. DriverPit is een onafhankelijk fanproject en heeft geen banden met Wordle of The New York Times."
+      },
       "dailyReset": {
         "q": "Hoe vaak verandert de dagelijkse puzzel?",
         "a": "Er wordt één keer per dag een nieuwe mysterieuze coureur gekozen, om 00:00 UTC, voor iedereen dezelfde. De aftelklok die je na afloop ziet, rekent die reset om naar jouw lokale tijd."

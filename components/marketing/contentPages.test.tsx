@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AboutSection } from "./AboutSection";
 import { ContactSection } from "./ContactSection";
+import { Faq } from "./Faq";
 import { HowToPlay } from "./HowToPlay";
 import { StrategyGuide } from "./StrategyGuide";
 
@@ -53,6 +54,15 @@ describe.each([
   ["ContactSection", () => <ContactSection />],
   ["HowToPlay", () => <HowToPlay />],
   ["AboutSection", () => <AboutSection />],
+  // Added 2026-08-15. The FAQ was the gap in this list and the most expensive
+  // one to have: its prose is not written inline but looked up from FAQ_KEYS
+  // (lib/marketing/faqContent.ts), so a key added to that array with no matching
+  // message renders the dotted path as the QUESTION -- and the same array feeds
+  // the page's FAQPage JSON-LD, so the broken string is also published as
+  // structured data. Two of the five below already cover components whose keys
+  // are inline; this one covers the only list where the keys and the prose live
+  // in different files and can drift apart.
+  ["Faq", () => <Faq />],
 ])("%s", (_name, renderComponent) => {
   it("resolves every message key it asks for", () => {
     const { container } = render(renderComponent());

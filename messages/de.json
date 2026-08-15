@@ -96,6 +96,10 @@
   "faq": {
     "heading": "Häufige Fragen",
     "items": {
+      "wordleLike": {
+        "q": "Ist DriverPit ein F1-Wordle?",
+        "a": "So wird es meistens beschrieben, und das trifft es auch: DriverPit ist ein tägliches Rätselspiel im Wordle-Stil über Formel-1-Fahrer — wenn du also nach einem F1-Wordle suchst, bist du hier richtig. Das Format unterscheidet sich in einigen Punkten. Statt Buchstaben vergleichst du fünf Merkmale — Nationalität, Team, Alter, Debütjahr und Siege — und jeder Versuch verrät dir, ob der gesuchte Fahrer bei den drei Zahlen höher oder niedriger liegt, und nicht nur, welche Buchstaben richtig waren. Außerdem gibt es zwei Dinge, für die Wordle keine Entsprechung hat: unbegrenzte Übungsrunden im Infinite-Modus und Echtzeit-Duelle 1 gegen 1 gegen eine andere Person. DriverPit ist ein unabhängiges Fanprojekt und steht in keiner Verbindung zu Wordle oder der New York Times."
+      },
       "dailyReset": {
         "q": "Wie oft wechselt das tägliche Rätsel?",
         "a": "Einmal am Tag, um 00:00 UTC, wird ein neuer geheimer Fahrer bestimmt — für alle derselbe. Der Countdown nach dem Spielende rechnet diesen Wechsel in deine Ortszeit um."

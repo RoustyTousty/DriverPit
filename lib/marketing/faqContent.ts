@@ -26,6 +26,27 @@ import type { FaqEntry } from "@/lib/seo/structuredData";
 // copy is still in the catalogues under `faq.items.knockout`, so restoring it is
 // putting the key back in this list.
 export const FAQ_KEYS = [
+  // First because it is the question someone arrives with, and deliberately
+  // phrased as the comparison people actually search for.
+  //
+  // "Wordle" is a New York Times trademark and appears NOWHERE else in this
+  // app's copy -- CLAUDE.md's SEO section records that removal (2026-08-06) and
+  // the reason for it. This one entry is a considered exception, reinstated
+  // 2026-08-15 with the risk accepted explicitly, and the FORM is what makes it
+  // defensible rather than a reversal of that decision: it is nominative use --
+  // naming another product to describe how this one compares -- inside an answer
+  // that states the differences and disclaims affiliation outright. That is a
+  // materially different act from putting "F1 Wordle" in a <title>, which uses
+  // the mark as a source identifier for our own product and is the form the
+  // takedowns cited in CLAUDE.md were aimed at.
+  //
+  // So the rule going forward is about SHAPE, not count: the word may appear
+  // where this site is being compared to Wordle and says it is not Wordle. It
+  // must not appear in a title, an og:title, a heading, or anywhere it reads as
+  // branding. If this ever needs a second placement, the home page's FaqTeaser
+  // (its own keys, components/marketing/FaqTeaser.tsx) is the next one to use,
+  // in the same comparative form.
+  "wordleLike",
   "dailyReset",
   "unknownDriver",
   "teamMeaning",
