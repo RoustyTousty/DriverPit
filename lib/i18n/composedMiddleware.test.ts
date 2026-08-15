@@ -3,6 +3,7 @@ import createIntlMiddleware from "next-intl/middleware";
 import { describe, expect, it } from "vitest";
 
 import { config } from "../../middleware";
+import { INDEXNOW_KEY } from "../seo/indexNow";
 import {
   applySessionRefresh,
   handleRequest,
@@ -197,6 +198,17 @@ describe("middleware matcher", () => {
     // ads.txt is how Google concludes this domain does not authorise our
     // AdSense publisher id.
     for (const path of ["/sitemap.xml", "/robots.txt", "/manifest.webmanifest", "/ads.txt"]) {
+      expect(matcher.test(path), path).toBe(false);
+    }
+  });
+
+  it("skips any root .txt file, so a new one cannot repeat the ads.txt bug", () => {
+    // The generalisation of the case above. The IndexNow key file is named after
+    // a rotatable 32-character key (lib/seo/indexNow.ts), so it cannot be listed
+    // by name without the listing going stale on the next rotation -- and a
+    // stale entry there fails exactly the way ads.txt did: 404, every page still
+    // fine, submissions silently rejected 403.
+    for (const path of [`/${INDEXNOW_KEY}.txt`, "/some-future-verification-file.txt"]) {
       expect(matcher.test(path), path).toBe(false);
     }
   });

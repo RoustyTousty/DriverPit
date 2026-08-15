@@ -37,6 +37,12 @@ yarn-error.log*
 # vercel
 .vercel
 
+# indexnow: which URLs were last submitted (.github/workflows/indexnow.yml keeps
+# this in the Actions cache). Not committed -- a daily commit whose only content
+# is a timestamp is noise, and a stale committed copy would suppress real
+# submissions. NOT the key file, which IS committed at public/<key>.txt.
+.indexnow-state.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

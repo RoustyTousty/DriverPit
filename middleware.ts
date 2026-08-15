@@ -43,12 +43,20 @@ export const config = {
     // `ads.txt` was missed in that pass and 404'd until 2026-08-12, which is a
     // worse version of the same bug: it is how Google verifies that this domain
     // authorises our AdSense publisher id, and an unreachable one reads as an
-    // unauthorised inventory seller. It needs naming for a reason the other
-    // three do not -- it is a `public/` static file rather than a Next metadata
-    // route, so it looks like it should fall through the extension escape at
-    // the end of this pattern. It does not: that list covers assets
-    // (svg|png|...|css|js) and has never included `txt`. Anything else added to
-    // `public/` with an unlisted extension needs the same treatment.
-    "/((?!api|auth/callback|sitemap\\.xml|robots\\.txt|manifest\\.webmanifest|ads\\.txt|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$).*)",
+    // unauthorised inventory seller. It needed naming because it is a `public/`
+    // static file rather than a Next metadata route, so it looked like it should
+    // fall through the extension escape at the end of this pattern -- and that
+    // list covered assets (svg|png|...|css|js) and did not include `txt`.
+    //
+    // `txt` IS in that list now, which retires the whole class rather than
+    // adding a fifth name to it. The trigger was the IndexNow key file
+    // (`public/<key>.txt`, see lib/seo/indexNow.ts): its name is a 32-character
+    // key, so naming it here would put a value that can be rotated into a regex
+    // where a rotation would break it silently. Nothing this app routes ends in
+    // `.txt`, and a plain-text file at a fixed path wants neither a locale pass
+    // nor a session refresh, so the extension is safe to escape wholesale. The
+    // four names above are kept for the history in this comment, not because
+    // they are still doing work.
+    "/((?!api|auth/callback|sitemap\\.xml|robots\\.txt|manifest\\.webmanifest|ads\\.txt|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|txt)$).*)",
   ],
 };

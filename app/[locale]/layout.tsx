@@ -15,7 +15,7 @@ import { LOCALES, type Locale, OG_LOCALES } from "@/lib/i18n/locales";
 import { routing } from "@/lib/i18n/routing";
 import { COLORBLIND_BOOTSTRAP_SCRIPT } from "@/lib/settings/store";
 import { localeOgImage } from "@/lib/seo/metadata";
-import { SITE_NAME, SITE_URL } from "@/lib/seo/site";
+import { SITE_NAME, SITE_URL, siteVerification } from "@/lib/seo/site";
 import { websiteJsonLd } from "@/lib/seo/structuredData";
 
 import "../globals.css";
@@ -46,8 +46,17 @@ export async function generateMetadata({
 
   const t = await getTranslations({ locale, namespace: "site" });
 
+  // Search Console / Bing Webmaster ownership tokens, when they are configured.
+  // Set here rather than per page because verification is a property of the
+  // SITE, and the services look for the tag on whichever URL they were pointed
+  // at -- which for a domain property is `/`, and for a hand-typed one could be
+  // any page. A layout-level tag is on all of them. See lib/seo/site.ts for why
+  // this is env-driven and why an empty value must emit nothing.
+  const verification = siteVerification();
+
   return {
     metadataBase: new URL(SITE_URL),
+    ...(verification ? { verification } : {}),
     title: {
       default: t("title"),
       // Child pages set a bare title and the site name is appended once, here.

@@ -105,3 +105,43 @@ export function absoluteUrl(path: string): string {
   if (path === "" || path === "/") return SITE_URL;
   return `${SITE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 }
+
+/**
+ * Search-engine ownership verification tokens, for the root layout's metadata.
+ *
+ * Search Console and Bing Webmaster Tools each accept several proofs; the meta
+ * tag is the one that can live in this repo. A DNS TXT record is the stronger
+ * option for Google (it verifies the whole domain rather than one origin, and
+ * survives a hosting move) and remains the recommendation — this exists so the
+ * meta route is one environment variable rather than a code change, which is
+ * what it takes to verify a Vercel deployment without registrar access.
+ *
+ * `GOOGLE_SITE_VERIFICATION` is the `content` value of Google's tag, NOT the
+ * whole tag: pasting `<meta name="google-site-verification" content="abc">` in
+ * produces a nested, invalid tag that verification then fails on, with the
+ * dashboard reporting only "we couldn't find the tag". Same for Bing's
+ * `msvalidate.01`.
+ *
+ * Returns undefined when nothing is set, and that is deliberate rather than
+ * defensive: `verification: { google: undefined }` still emits nothing, but an
+ * empty-string env var would emit `content=""`, which both services read as a
+ * present-but-wrong token — a worse failure than an absent one, because it
+ * looks like the mechanism was tried and rejected.
+ *
+ * Unprefixed, so neither value reaches a client bundle. Both are public by
+ * nature (they ship in the HTML of every page) but there is no reason to carry
+ * them into JavaScript that never reads them.
+ */
+export function siteVerification():
+  | { google?: string; other?: Record<string, string> }
+  | undefined {
+  const google = process.env.GOOGLE_SITE_VERIFICATION?.trim();
+  const bing = process.env.BING_SITE_VERIFICATION?.trim();
+
+  // Bing has no first-class field in Next's Metadata type, so it goes through
+  // `other` under the exact name it looks for.
+  const other = bing ? { "msvalidate.01": bing } : undefined;
+  if (!google && !other) return undefined;
+
+  return { ...(google ? { google } : {}), ...(other ? { other } : {}) };
+}

@@ -1,0 +1,130 @@
+name: IndexNow
+
+# Tells Bing, Yandex, Seznam and Naver about new URLs instead of waiting to be
+# crawled again.
+#
+# WHY THIS EXISTS. app/sitemap.ts gains an archive entry every midnight UTC (one
+# indexable page per finished day that somebody actually played) and, less often,
+# a driver page. Those appear with nobody deploying, so there is no build hook to
+# hang discovery off, and a young site's crawl budget is exactly the thing that
+# handles a daily trickle of new URLs worst. IndexNow is a single POST that
+# reaches all four engines.
+#
+# WHAT IT DOES NOT DO. Google does not participate in IndexNow, and there is no
+# equivalent push API for it -- the Google half is Search Console, by hand, once.
+# This job also does not make a page indexable: a day with no players is
+# deliberately noindex and absent from the sitemap
+# (lib/recap/dayEligibility.ts), so it is never submitted.
+#
+# WHY IT NEEDS NO SECRET. The IndexNow key is public by design: the protocol
+# requires the same value to be fetchable at /<key>.txt, which is committed at
+# public/<key>.txt. The only thing it authorises is submitting THIS site's own
+# URLs. See lib/seo/indexNow.ts.
+#
+# THE STATE FILE. scripts/indexNow.ts submits the diff against the last run
+# rather than the whole sitemap, and keeps that record in the Actions cache. A
+# cache miss (eviction, or the first run) means "submit everything", which is
+# tolerated by the protocol -- the failure direction is deliberately wasteful
+# rather than silently skipping a new URL. It is cached rather than committed
+# because a daily commit whose only content is a timestamp is noise in a log
+# that gets read.
+#
+# ONE THING TO KNOW: GitHub disables `schedule` triggers on a repository with no
+# activity for 60 days, and emails before it does. Pushing anything re-arms it;
+# so does running this workflow manually.
+
+on:
+  schedule:
+    # 00:30 UTC: after the puzzle rolls over at midnight, with enough margin for
+    # the sitemap's `revalidate = 3600` to have served a fresh copy.
+    - cron: "30 0 * * *"
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Submit for real (unchecked = dry run: plans and posts nothing)"
+        type: boolean
+        default: false
+
+concurrency:
+  # Two runs at once would race on the state file and resubmit the same batch.
+  group: indexnow
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    name: Submit changed URLs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The origin is a repository VARIABLE, not a secret -- it is the public
+      # domain, it appears in every page's canonical, and a secret would only
+      # make it unreadable in the log where it is the single most useful thing
+      # to see. Falls back to the production domain so the job works before
+      # anyone sets it.
+      #
+      # Fails loudly rather than self-skipping, for roster-refresh.yml's reason:
+      # a submission silently not happening looks exactly like one happening.
+      - name: Resolve target origin
+        id: target
+        env:
+          CONFIGURED: ${{ vars.INDEXNOW_URL }}
+        run: |
+          ORIGIN="${CONFIGURED:-https://driverpit.app}"
+          echo "Submitting for: $ORIGIN"
+          echo "origin=$ORIGIN" >> "$GITHUB_OUTPUT"
+
+      # Restored and saved by key+run_id so each run writes its own entry and
+      # `restore-keys` picks up the most recent previous one. A plain fixed key
+      # would never be updated after the first save, which would degrade this to
+      # "submit everything, every day".
+      - name: Restore submission state
+        uses: actions/cache@v4
+        with:
+          path: .indexnow-state.json
+          key: indexnow-state-${{ github.run_id }}
+          restore-keys: |
+            indexnow-state-
+
+      # A manual run defaults to a dry run, like every other write in this repo.
+      # The scheduled run is the one that submits.
+      - name: Resolve mode
+        id: mode
+        env:
+          IS_SCHEDULE: ${{ github.event_name == 'schedule' }}
+          WANTS_COMMIT: ${{ inputs.commit }}
+        run: |
+          if [ "$IS_SCHEDULE" = "true" ] || [ "$WANTS_COMMIT" = "true" ]; then
+            echo "script=indexnow:ci" >> "$GITHUB_OUTPUT"
+          else
+            echo "script=indexnow:ci:dry" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Submit
+        env:
+          INDEXNOW_URL: ${{ steps.target.outputs.origin }}
+        run: |
+          set -o pipefail
+          npm run ${{ steps.mode.outputs.script }} 2>&1 | tee indexnow.log
+
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "## IndexNow — \`${{ steps.mode.outputs.script }}\`"
+            echo ""
+            echo '```'
+            cat indexnow.log 2>/dev/null || echo "(no output — the run failed before starting)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
