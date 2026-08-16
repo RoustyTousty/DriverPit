@@ -503,10 +503,12 @@
   },
   "leaderboard": {
     "title": "Ranking",
-    "streak": "Sequência diária",
-    "duel": "Pontuação de duelo",
+    "streak": "Sequência",
+    "wins": "Vitórias",
+    "duel": "Duelo",
     "rating": "Pontuação",
-    "streakMetric": "Sequência",
+    "streakMetric": "Recorde",
+    "winsMetric": "Vitórias",
     "you": "Você",
     "guestPrompt": "Crie uma conta para aparecer no ranking."
   },

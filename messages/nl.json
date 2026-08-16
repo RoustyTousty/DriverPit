@@ -503,10 +503,12 @@
   },
   "leaderboard": {
     "title": "Ranglijst",
-    "streak": "Dagelijkse reeks",
-    "duel": "Duelrating",
+    "streak": "Reeks",
+    "wins": "Zeges",
+    "duel": "Duel",
     "rating": "Rating",
-    "streakMetric": "Reeks",
+    "streakMetric": "Beste reeks",
+    "winsMetric": "Zeges",
     "you": "Jij",
     "guestPrompt": "Maak een account aan om op de ranglijst te verschijnen."
   },

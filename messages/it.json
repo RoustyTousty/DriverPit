@@ -503,10 +503,12 @@
   },
   "leaderboard": {
     "title": "Classifica",
-    "streak": "Striscia quotidiana",
-    "duel": "Punteggio duelli",
+    "streak": "Striscia",
+    "wins": "Vittorie",
+    "duel": "Duello",
     "rating": "Punteggio",
-    "streakMetric": "Striscia",
+    "streakMetric": "Record",
+    "winsMetric": "Vittorie",
     "you": "Tu",
     "guestPrompt": "Crea un account per comparire in classifica."
   },

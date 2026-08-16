@@ -421,6 +421,13 @@
       "when": 1785003994415,
       "tag": "0059_guest_cleanup_sweep",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1785003995415,
+      "tag": "0060_leaderboard_daily_wins",
+      "breakpoints": true
     }
   ]
 }

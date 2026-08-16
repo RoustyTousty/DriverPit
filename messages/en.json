@@ -503,10 +503,12 @@
   },
   "leaderboard": {
     "title": "Leaderboard",
-    "streak": "Daily streak",
-    "duel": "Duel rating",
+    "streak": "Streak",
+    "wins": "Wins",
+    "duel": "Duel",
     "rating": "Rating",
-    "streakMetric": "Streak",
+    "streakMetric": "Best streak",
+    "winsMetric": "Wins",
     "you": "You",
     "guestPrompt": "Create an account to appear on the leaderboard."
   },

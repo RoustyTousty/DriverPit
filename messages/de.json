@@ -503,10 +503,12 @@
   },
   "leaderboard": {
     "title": "Bestenliste",
-    "streak": "Tagesserie",
-    "duel": "Duellwertung",
+    "streak": "Serie",
+    "wins": "Siege",
+    "duel": "Duell",
     "rating": "Wertung",
-    "streakMetric": "Serie",
+    "streakMetric": "Beste Serie",
+    "winsMetric": "Siege",
     "you": "Du",
     "guestPrompt": "Leg ein Konto an, um in der Bestenliste zu erscheinen."
   },

@@ -503,10 +503,12 @@
   },
   "leaderboard": {
     "title": "Clasificación",
-    "streak": "Racha diaria",
-    "duel": "Puntuación de duelo",
+    "streak": "Racha",
+    "wins": "Victorias",
+    "duel": "Duelo",
     "rating": "Puntuación",
-    "streakMetric": "Racha",
+    "streakMetric": "Mejor racha",
+    "winsMetric": "Victorias",
     "you": "Tú",
     "guestPrompt": "Crea una cuenta para aparecer en la clasificación."
   },

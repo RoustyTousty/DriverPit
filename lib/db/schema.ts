@@ -484,10 +484,13 @@ export const duelRoundResults = pgTable(
 );
 
 // profiles joined with user_stats, public columns only, full accounts
-// only (is_guest = false) -- backs the Leaderboard modal. `currentStreak` is
-// NOT the raw stored column: the view zeroes it when the last daily result is
-// older than yesterday (drizzle/0037), so the streak board can't rank an
-// abandoned account by a frozen streak. Hand-written in
+// only (is_guest = false) -- backs the Leaderboard modal's three boards.
+// `currentStreak` is NOT the raw stored column: the view zeroes it when the
+// last daily result is older than yesterday (drizzle/0037). Nothing ranks on
+// it since drizzle/0060 (the streak board ranks the lifetime `maxStreak`), but
+// the decay stays because the column does -- CREATE OR REPLACE VIEW can append
+// a column and not drop one. `dailyWins` is user_stats.wins, renamed here so
+// it can't be confused with `duelWins` in a rank subquery. Hand-written in
 // drizzle/0009_leaderboard_view.sql (same reasoning as the 0006 auth
 // trigger/RLS: DDL drizzle-kit can't express on its own), so this is
 // `.existing()` -- a queryable reference, not something drizzle-kit should
@@ -502,4 +505,5 @@ export const leaderboard = pgView("leaderboard", {
   duelLosses: integer("duel_losses").notNull(),
   currentStreak: integer("current_streak").notNull(),
   maxStreak: integer("max_streak").notNull(),
+  dailyWins: integer("daily_wins").notNull(),
 }).existing();
