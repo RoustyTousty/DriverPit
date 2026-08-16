@@ -163,7 +163,7 @@ export function NewsCarousel({ items: allItems }: { items: NewsItemWithImage[] }
           the arrows moved into the control row below it. */}
       <div
         ref={cardRef}
-        className="group overflow-hidden rounded-lg border border-border bg-surface-2 transition hover:border-accent/40"
+        className="group overflow-hidden rounded-lg border border-border bg-surface-2 transition hover:border-accent"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >

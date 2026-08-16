@@ -238,17 +238,21 @@ export function InfiniteGame({ allDrivers }: { allDrivers: DriverWithActivity[] 
             onOpen={() => setFilterOpen(true)}
             disabled={isLoading}
           />
-          {/* FILLED, at full text strength. On this site the difference between
-              a live control and a dead one is exactly that: /online's Duel card
-              is `bg-surface-2` + `text-text`, and its Knockout "coming soon"
-              card is an unfilled border with muted text. This button had the
-              second set, so it read as disabled even when it wasn't. Hover is a
-              brightness lift like the accent buttons use, at 125 rather than
-              110 because surface-2 is dark enough that 110 is imperceptible. */}
+          {/* FILLED -- `bg-surface-2` behind a real border is what separates a
+              live control from a dead one here (/online's Knockout "coming
+              soon" card is an unfilled border, and this button once wore that
+              and read as disabled).
+
+              Hover lifts the TEXT and nothing else, muted to full: the same
+              treatment the filter panel's achievement chips and the button
+              beside this one use. The accent hairline is reserved for things
+              you enter or navigate into -- the guess input below, /online's
+              mode rows, an archive row -- so a toolbar button doesn't spend it.
+              The fill and the border hold still through the whole interaction. */}
           <button
             onClick={() => beginRound(filter)}
             disabled={isLoading}
-            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-semibold text-text transition hover:brightness-125 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:hover:brightness-100"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-semibold text-text-muted transition hover:text-text motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:hover:text-text-muted"
           >
             <svg
               viewBox="0 0 24 24"

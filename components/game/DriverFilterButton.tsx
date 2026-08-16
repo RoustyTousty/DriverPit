@@ -37,10 +37,17 @@ export function DriverFilterButton({
       // screen, and a tooltip repeating it would be noise.
       title="Driver filter"
       // The same filled shell as "New driver" beside it -- border + bg-surface-2
-      // + text-text is what a live control looks like here (see the note at that
-      // button). p-2 with a 20px icon matches its px-3 py-2 text-sm height
-      // exactly, so the two read as one pair rather than as two sizes.
-      className="flex shrink-0 items-center justify-center rounded-lg border border-border bg-surface-2 p-2 text-text transition hover:brightness-125 motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:hover:brightness-100"
+      // is what a live control looks like here. p-2 with a 20px icon matches its
+      // px-3 py-2 text-sm height exactly, so the two read as one pair rather
+      // than as two sizes.
+      //
+      // Hover brightens the GLYPH and nothing else -- muted lifting to text, the
+      // treatment the filter panel's own achievement chips use. Deliberately not
+      // a border tint: the accent hairline is reserved for the things you enter
+      // or navigate into (the guess input, /online's mode rows, an archive row),
+      // and spending it on a toolbar button beside them would flatten that
+      // distinction. Nothing about the fill or the border moves.
+      className="flex shrink-0 items-center justify-center rounded-lg border border-border bg-surface-2 p-2 text-text-muted transition hover:text-text motion-safe:active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:hover:text-text-muted"
     >
       <svg
         viewBox="0 0 24 24"

@@ -58,7 +58,12 @@ export function ArchiveDayRow({ day }: { day: ArchiveDayRowData }) {
     <li>
       <Link
         href={`/archive/${day.date}`}
-        className="group flex items-center gap-3 rounded-lg border border-border bg-surface p-3 transition hover:border-accent/40 hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none sm:gap-4 sm:px-4"
+        // Hover is the accent hairline and nothing else -- the same treatment
+        // /online's mode rows get. The surface deliberately does NOT change:
+        // ten rows down a page each lifting their own background made the list
+        // flicker under a moving cursor, and the row already says "go here"
+        // twice over through the chevron and the well below.
+        className="group flex items-center gap-3 rounded-lg border border-border bg-surface p-3 transition hover:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none sm:gap-4 sm:px-4"
       >
         {/* A raised well on the row's surface, which is the depth model this
             site uses everywhere: --surface is the window, --surface-2 is what

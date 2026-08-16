@@ -257,7 +257,11 @@ export const DriverAutocomplete = memo(function DriverAutocomplete({
         }}
         onFocus={openList}
         onKeyDown={handleKeyDown}
-        className="w-full rounded-lg border border-border bg-surface-2 px-4 py-3 text-base text-text outline-none transition placeholder:text-text-muted focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50"
+        // Hover is the same accent hairline /online's mode rows use -- one
+        // border treatment for "this is the thing you interact with", site-wide.
+        // It sits BEFORE the focus rules on purpose: Tailwind emits hover ahead
+        // of focus, so focus (border + ring) still wins once the caret is in.
+        className="w-full rounded-lg border border-border bg-surface-2 px-4 py-3 text-base text-text outline-none transition placeholder:text-text-muted hover:border-accent focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50 disabled:hover:border-border"
       />
 
       {/* The panel stays mounted on a no-match query so the dropdown doesn't

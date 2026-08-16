@@ -187,7 +187,15 @@ export function CustomLobbyJoin({
             // complete code has actually been rejected -- a half-typed one is
             // incomplete, not wrong, and colouring it red while someone is
             // still typing is just nagging.
-            error !== null ? "border-red-400/60" : complete ? "border-accent" : "border-border"
+            // Hover lifts the neutral border to accent, matching the guess
+            // input and /online's mode rows. Only in the neutral state: red is
+            // a verdict and shouldn't be overwritten by a cursor, and a
+            // complete code is already accent.
+            error !== null
+              ? "border-red-400/60"
+              : complete
+                ? "border-accent"
+                : "border-border hover:border-accent"
           }`}
         />
         {/* ONE status line, always present, always exactly one line high.
