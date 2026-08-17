@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkAuthPageCrawlable,
   checkJsonLd,
+  checkLegacyRedirect,
   checkNoIndex,
   checkOgImageResponse,
   checkOgTitlesUnique,
@@ -393,6 +394,50 @@ describe("checkOgImageResponse", () => {
   it("fails a 200 that is not a PNG", () => {
     expect(failures(checkOgImageResponse(URL_, 200, "text/html; charset=utf-8"))).toEqual([
       "og:image fetch",
+    ]);
+  });
+});
+
+describe("checkLegacyRedirect", () => {
+  it("passes a 308 to the expected path", () => {
+    expect(failures(checkLegacyRedirect("/daily", "/", 308, "/", ORIGIN))).toEqual([]);
+  });
+
+  it("accepts an absolute Location on the same origin", () => {
+    expect(
+      failures(checkLegacyRedirect("/daily", "/", 308, `${ORIGIN}/`, ORIGIN)),
+    ).toEqual([]);
+  });
+
+  it("fails a 200 and names the streaming-layout cause", () => {
+    // THE REGRESSION THIS EXISTS FOR, and the reason it is a separate branch
+    // from "unexpected status": `permanentRedirect()` in a page under the
+    // (game) layout could not set a status once the shell had streamed, so
+    // Next served /'s content at /daily inside a 200 with a meta-refresh and
+    // no canonical. Google reported it as a duplicate. A 404 here would have
+    // been noticed in a day; a 200 looked entirely healthy.
+    const found = checkLegacyRedirect("/daily", "/", 200, null, ORIGIN);
+    expect(failures(found)).toEqual(["redirect /daily"]);
+    expect(messageFor(found, "redirect /daily")).toContain("meta-refresh");
+  });
+
+  it("fails a 404 — the URL is still linked and must resolve", () => {
+    expect(failures(checkLegacyRedirect("/daily", "/", 404, null, ORIGIN))).toEqual([
+      "redirect /daily",
+    ]);
+  });
+
+  it("fails a redirect that drops the locale prefix", () => {
+    // /es/daily -> / would silently serve English to everyone following an old
+    // Spanish link, which is precisely the traffic the redirect is preserving.
+    const found = checkLegacyRedirect("/es/daily", "/es", 308, "/", ORIGIN);
+    expect(failures(found)).toEqual(["redirect /es/daily"]);
+    expect(messageFor(found, "redirect /es/daily")).toContain("locale");
+  });
+
+  it("fails a 307, which tells a crawler the move may be undone", () => {
+    expect(failures(checkLegacyRedirect("/daily", "/", 307, "/", ORIGIN))).toEqual([
+      "redirect /daily",
     ]);
   });
 });

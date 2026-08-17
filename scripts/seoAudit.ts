@@ -19,8 +19,11 @@
 
 import "dotenv/config";
 
+import { LOCALES, localePath } from "../lib/i18n/locales";
+
 import {
   checkAuthPageCrawlable,
+  checkLegacyRedirect,
   checkNoIndex,
   checkOgImageResponse,
   checkOgTitlesUnique,
@@ -41,6 +44,16 @@ import {
 // is the same layout and the same directive; sign-in is the one with inbound
 // links, so it is the one that would actually get indexed if this broke.
 const AUTH_PATH = "/auth/sign-in";
+
+/**
+ * Retired URLs, and where each must land. Checked in EVERY locale, because the
+ * way this breaks is per-locale: `/es/daily` landing on the English home page
+ * is a redirect that un-translates the site, and it looks fine from `/daily`.
+ */
+const LEGACY_REDIRECTS = LOCALES.map((locale) => ({
+  path: localePath(locale, "/daily"),
+  expected: localePath(locale, "/"),
+}));
 
 const REQUEST_TIMEOUT_MS = 20_000;
 
@@ -219,6 +232,15 @@ async function main(): Promise<void> {
   for (const url of ogImages) {
     const image = await fetchDocument(url);
     emit(checkOgImageResponse(url, image.status, image.contentType));
+  }
+
+  // -- retired URLs ---------------------------------------------------------
+  // After the page checks, because a sitemap listing one of these is the louder
+  // failure and `checkSitemap` reports it first.
+  section("Legacy redirects");
+  for (const { path, expected } of LEGACY_REDIRECTS) {
+    const document = await fetchDocument(`${origin}${path}`);
+    emit(checkLegacyRedirect(path, expected, document.status, document.location, origin));
   }
 
   // -- /auth/sign-in --------------------------------------------------------

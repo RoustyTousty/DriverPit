@@ -696,3 +696,78 @@ export function checkOgImageResponse(url: string, status: number, contentType: s
 
   return [pass("og:image fetch", `200 image/png — ${url}`)];
 }
+
+// ---------------------------------------------------------------------------
+// Legacy URLs that must still 308
+// ---------------------------------------------------------------------------
+
+/**
+ * A retired URL must answer with a permanent redirect to its replacement.
+ *
+ * This exists because `/daily` did not, for nine days, and nothing noticed.
+ * docs/seo-roadmap.md's Pass 5 acceptance says `npm run seo:audit` "proves
+ * /daily 308s" — it never did. The sitemap check catches a listed URL that
+ * redirects; there was nothing checking a DELISTED URL that fails to.
+ *
+ * The failure it is built for is not a 404, which is loud and obvious. It is a
+ * **200**: `permanentRedirect()` inside a page under a streaming layout cannot
+ * set a status code once the shell has flushed, so Next falls back to a
+ * `<meta http-equiv="refresh">` in a 200 body — which serves the destination's
+ * content at the old URL, with the wrong page's metadata and no canonical.
+ * Google reads that as a duplicate, which is exactly what it is. So a 200 here
+ * is reported as the specific thing it means, not as "unexpected status".
+ *
+ * `status` and `location` come from a `redirect: "manual"` fetch; without that
+ * option the redirect is followed and every one of these looks like a 200.
+ */
+export function checkLegacyRedirect(
+  path: string,
+  expected: string,
+  status: number,
+  location: string | null,
+  origin: string,
+): Finding[] {
+  const check = `redirect ${path}`;
+
+  if (status === 200) {
+    return [
+      fail(
+        check,
+        `${path} returned 200 instead of redirecting to ${expected}. If a page component ` +
+          `is calling redirect()/permanentRedirect() under a layout that streams, Next ` +
+          `cannot change the status after the first byte and emits a meta-refresh inside a ` +
+          `200 instead — serving ${expected}'s content at a second URL with no canonical. ` +
+          `Move the redirect into next.config.ts's redirects(), which answers before ` +
+          `anything renders.`,
+      ),
+    ];
+  }
+
+  if (status !== 308 && status !== 301) {
+    return [
+      fail(
+        check,
+        `${path} returned ${status}, expected a permanent redirect to ${expected}. This URL ` +
+          `was indexed and is still linked from elsewhere; it has to keep resolving.`,
+      ),
+    ];
+  }
+
+  // Next emits a site-relative Location; compare on the path so either form passes.
+  const target = location === null ? null : location.startsWith(origin)
+    ? location.slice(origin.length) || "/"
+    : location;
+
+  if (target !== expected) {
+    return [
+      fail(
+        check,
+        `${path} redirects to ${target ?? "(no Location header)"}, expected ${expected}. A ` +
+          `redirect that drops the locale prefix silently un-translates the site for the ` +
+          `inbound traffic this redirect exists to keep.`,
+      ),
+    ];
+  }
+
+  return [pass(check, `${status} → ${expected}`)];
+}
